@@ -2,6 +2,6 @@
 -- Do not commit your real token to GitHub.
 
 return {
-  url = "http://84.231.9.21:8765/report",
+  url = "https://cc-webhook.transcenders.online/report",
   token = "change-me",
 }

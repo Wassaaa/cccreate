@@ -129,7 +129,7 @@ If you are playing on a multiplayer server, the HTTP request comes from the Mine
 This project is currently configured to try:
 
 ```text
-http://84.231.9.21:8765/report
+https://cc-webhook.transcenders.online/report
 ```
 
 For that to work:
@@ -276,7 +276,7 @@ Then edit `config/webhook.lua` and set the URL:
 
 ```lua
 return {
-  url = "http://84.231.9.21:8765/report",
+  url = "https://cc-webhook.transcenders.online/report",
   token = "change-me",
 }
 ```
