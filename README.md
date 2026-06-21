@@ -243,12 +243,14 @@ Use `report run <command>` when you want command output sent to the webhook.
 For a temporary report-only shell, run:
 
 ```text
+update
 report_shell enable
 ls
 report_shell disable
 ```
 
 In that mode, supported commands send their output to the webhook instead of printing the command output in the terminal.
+Running `update` clears active report-only aliases, so re-run `report_shell enable` after updating.
 
 Reports are saved to:
 

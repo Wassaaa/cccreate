@@ -43,6 +43,13 @@ local staleFiles = {
   "/rm",
 }
 
+local temporaryAliases = {
+  "dir",
+  "id",
+  "list",
+  "ls",
+}
+
 local args = { ... }
 local skipSelfUpdate = args[1] == "--no-self-update"
 
@@ -139,6 +146,13 @@ end
 
 print("Updating from " .. githubUser .. "/" .. githubRepo .. " (" .. branch .. ")")
 
+for _, alias in ipairs(temporaryAliases) do
+  if shell.aliases()[alias] then
+    print("Clearing temporary alias " .. alias)
+    shell.clearAlias(alias)
+  end
+end
+
 for _, path in ipairs(staleFiles) do
   if fs.exists(path) then
     print("Removing stale " .. path)
@@ -150,4 +164,5 @@ for _, path in ipairs(files) do
   downloadFile(path)
 end
 
-print("Update complete. Run reboot to restart.")
+print("Update complete. Run reboot if startup changed.")
+print("Run report_shell enable to re-enable report-only aliases.")

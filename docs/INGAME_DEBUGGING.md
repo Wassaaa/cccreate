@@ -229,6 +229,7 @@ Interactive commands such as `edit` should be run directly in-game, not through 
 For a temporary report-only shell, run:
 
 ```text
+update
 report_shell enable
 ls
 report_shell disable
@@ -244,6 +245,7 @@ id
 ```
 
 These aliases are intentionally not installed by startup and do not create files named after normal commands. They only affect the current shell after you explicitly enable them.
+Running `update` clears active report-only aliases, so re-run `report_shell enable` after updating.
 
 To check what the shell will resolve:
 
