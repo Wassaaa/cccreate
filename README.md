@@ -1,10 +1,8 @@
 # ComputerCraft Project
 
-A small CC:Tweaked/ComputerCraft Lua project that you can edit in VS Code, push to GitHub, and update in-game with one command.
+A small CC:Tweaked/ComputerCraft Lua project that can be edited in VS Code, pushed to GitHub, updated in-game, and debugged through a webhook report loop.
 
 ## Current Workflow
-
-This repo is set up for a simple GitHub-to-ComputerCraft update loop and an in-game-to-workspace report loop.
 
 Code update path:
 
@@ -18,7 +16,7 @@ Debug report path:
 ComputerCraft report command -> https://cc-webhook.transcenders.online/report -> inbox/latest-report.json
 ```
 
-For the exact debugging loop, see [docs/INGAME_DEBUGGING.md](docs/INGAME_DEBUGGING.md).
+For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_DEBUGGING.md).
 
 ## Project Layout
 
@@ -34,225 +32,56 @@ For the exact debugging loop, see [docs/INGAME_DEBUGGING.md](docs/INGAME_DEBUGGI
 |       +-- diagnostics.lua
 |       +-- logger.lua
 |       +-- reporter.lua
-+-- update.lua
-+-- tools/
-|   +-- webhook_receiver.py
-|   +-- read_latest_report.ps1
-|   +-- start_webhook_receiver.ps1
-|   +-- stop_webhook_receiver.ps1
-|   +-- status_webhook_receiver.ps1
 +-- docs/
 |   +-- INGAME_DEBUGGING.md
++-- tools/
+|   +-- read_latest_report.ps1
+|   +-- webhook_receiver.py
++-- Dockerfile.webhook
++-- docker-compose.webhook-proxy.yml
++-- update.lua
 +-- README.md
++-- .env.example
 +-- .gitignore
 ```
 
-- `src/startup.lua` runs automatically when the ComputerCraft computer boots.
-- `src/main.lua` is the main program.
-- `src/lib/` is for small helper modules.
-- `src/report.lua` sends diagnostics from the in-game computer to your webhook receiver.
-- `update.lua` runs inside CC:Tweaked and downloads the latest files from GitHub.
+- `src/` contains files that are installed on the ComputerCraft computer.
+- `update.lua` downloads the latest `src/` files from GitHub.
+- `report` sends in-game diagnostics to the webhook.
+- `tools/webhook_receiver.py` receives reports and writes them into `inbox/`.
+- `docker-compose.webhook-proxy.yml` runs the webhook, Nginx Proxy Manager, and Cloudflare DDNS.
 
-## First Setup
+## Start The Webhook Stack
 
-Create a new GitHub repository, then edit the variables at the top of `update.lua`:
-
-```lua
-local githubUser = "<USER>"
-local githubRepo = "<REPO>"
-local branch = "main"
-```
-
-This project is configured for `Wassaaa/cccreate`.
-
-## Push Updates From VS Code
-
-After editing files in VS Code:
-
-```powershell
-git add .
-git commit -m "Update ComputerCraft project"
-git branch -M main
-git remote add origin git@github.com:Wassaaa/cccreate.git
-git push -u origin main
-```
-
-For later updates, you usually only need:
-
-```powershell
-git add .
-git commit -m "Update code"
-git push
-```
-
-## Install Or Update In-Game
-
-On the ComputerCraft computer, download the updater:
-
-```text
-wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/update.lua update
-```
-
-Then run:
-
-```text
-update
-reboot
-```
-
-After that, your ComputerCraft computer will have the latest files from the `src/` folder.
-
-## Fetch The Latest Code Later
-
-Whenever you push new changes to GitHub, update the in-game computer with:
-
-```text
-update
-reboot
-```
-
-If you change `update.lua` itself, download it again with `wget` first.
-
-## Webhook Reports
-
-The project includes a small Python webhook receiver. It saves incoming reports into `inbox/latest-report.json`.
-
-Start it on your PC:
-
-```powershell
-.\tools\start_webhook_receiver.ps1
-```
-
-By default it listens here:
-
-```text
-http://0.0.0.0:8765/report
-```
-
-Check whether it is running:
-
-```powershell
-.\tools\status_webhook_receiver.ps1
-```
-
-Stop it when you are done:
-
-```powershell
-.\tools\stop_webhook_receiver.ps1
-```
-
-The scripts keep a PID file in `.webhook/` so the receiver is not left running randomly.
-
-## Multiplayer Server Networking
-
-If you are playing on a multiplayer server, the HTTP request comes from the Minecraft server, not from your Minecraft client. That means the server must be able to reach your PC over the internet.
-
-This project is currently configured to try:
-
-```text
-https://cc-webhook.transcenders.online/report
-```
-
-For that to work:
-
-- your router must forward TCP port `8765` to this PC
-- Windows Firewall must allow inbound TCP `8765`
-- the server's CC:Tweaked config must allow outbound HTTP requests to your IP and port
-
-If port `8765` does not work, use a port you already expose, such as `80`, and start the receiver on that port:
-
-```powershell
-.\tools\start_webhook_receiver.ps1 -Port 80
-```
-
-Then use this in `config/webhook.lua`:
-
-```lua
-return {
-  url = "http://84.231.9.21/report",
-  token = "change-me",
-}
-```
-
-Port `443` usually needs a real HTTPS reverse proxy or tunnel in front of the Python script. The Python receiver itself speaks plain HTTP.
-
-## Domain / Reverse Proxy Setup
-
-If you already have a domain and Nginx Proxy Manager, this is usually better than exposing port `8765` directly.
-
-Run the webhook receiver with Docker:
-
-```powershell
-$env:CC_WEBHOOK_TOKEN="change-me"
-docker compose -f docker-compose.webhook.yml up -d --build
-```
-
-If you run it from WSL instead, use the same command from the project folder in WSL.
-
-In Nginx Proxy Manager, create a proxy host:
-
-```text
-Domain: cc-webhook.your-domain.example
-Scheme: http
-Forward Hostname/IP: cc-webhook
-Forward Port: 8765
-```
-
-That direct container name only works if the webhook container is on the same Docker network as Nginx Proxy Manager. If it is not, either add the webhook container to the NPM network or forward to the host IP and exposed port `8765`.
-
-Then use HTTPS in `config/webhook.lua`:
-
-```lua
-return {
-  url = "https://cc-webhook.your-domain.example/report",
-  token = "change-me",
-}
-```
-
-Check the container:
-
-```powershell
-docker logs cc-webhook
-docker compose -f docker-compose.webhook.yml ps
-```
-
-Stop it:
-
-```powershell
-docker compose -f docker-compose.webhook.yml down
-```
-
-## Standalone Domain Stack
-
-If your MediaServer stack is usually off, use this standalone stack instead. It runs only:
-
-- `cc-webhook`, the Python receiver
-- `cc-proxy`, Nginx Proxy Manager
-
-Stop the raw-port webhook container first if it is running:
-
-```powershell
-docker compose -f docker-compose.webhook.yml down
-```
-
-Start the standalone proxy stack:
+Create a local `.env` file:
 
 ```powershell
 copy .env.example .env
 notepad .env
-docker compose -f docker-compose.webhook-proxy.yml up -d --build
 ```
 
-The `.env` file must contain:
+Set:
 
 ```text
-CC_WEBHOOK_TOKEN=change-me
+CC_WEBHOOK_TOKEN=your-report-token
 CF_API_TOKEN=your-cloudflare-token
 CF_DDNS_DOMAINS=cc-webhook.transcenders.online
 CF_DDNS_PROXIED=true
 ```
 
-The Cloudflare token needs permission to edit DNS records for `transcenders.online`.
+Start the stack:
+
+```powershell
+docker compose -f docker-compose.webhook-proxy.yml up -d --build
+```
+
+The stack runs:
+
+```text
+cc-webhook          Python report receiver
+cc-proxy            Nginx Proxy Manager
+cc-cloudflare-ddns  Cloudflare DNS updater
+```
 
 Open Nginx Proxy Manager:
 
@@ -260,65 +89,7 @@ Open Nginx Proxy Manager:
 http://127.0.0.1:81
 ```
 
-Default Nginx Proxy Manager login:
-
-```text
-Email: admin@example.com
-Password: changeme
-```
-
-Create a proxy host:
-
-```text
-Domain: cc-webhook.your-domain.example
-Scheme: http
-Forward Hostname/IP: cc-webhook
-Forward Port: 8765
-Websockets Support: off
-Block Common Exploits: on
-```
-
-Then request an SSL certificate in the SSL tab. Enable:
-
-```text
-Force SSL
-HTTP/2 Support
-```
-
-If Cloudflare already has a wildcard DNS record pointing to your home IP, you usually do not need to add anything in Cloudflare for a new subdomain. Nginx Proxy Manager will decide what to do with `cc-webhook.your-domain.example`.
-
-You do need to touch Cloudflare if:
-
-- there is no wildcard DNS record
-- the wildcard points somewhere else
-- you want to create a specific DNS record instead of using the wildcard
-
-Stop the standalone stack:
-
-```powershell
-docker compose -f docker-compose.webhook-proxy.yml down
-```
-
-If another proxy stack is already using ports `80` and `443`, stop that stack before starting this one. Only one local service can own those public ports at a time.
-
-Check the DDNS logs:
-
-```powershell
-docker logs cc-cloudflare-ddns
-```
-
-## Using The MediaServer Proxy
-
-If your existing MediaServer Nginx Proxy Manager is already running and has working SSL, use this mode instead of the standalone proxy stack.
-
-Start only the webhook receiver and attach it to the MediaServer proxy network:
-
-```powershell
-$env:CC_WEBHOOK_TOKEN="change-me"
-docker compose -f docker-compose.webhook-mediaserver.yml up -d --build
-```
-
-In the MediaServer Nginx Proxy Manager, create a proxy host:
+Proxy host:
 
 ```text
 Domain: cc-webhook.transcenders.online
@@ -329,39 +100,93 @@ Block Common Exploits: on
 Websockets Support: off
 ```
 
-Then use the same SSL settings as your other working hosts.
+Use Let's Encrypt SSL for the proxy host.
 
-Test the container network from the Nginx Proxy Manager container:
-
-```powershell
-docker exec npm getent hosts cc-webhook
-```
-
-Stop only the webhook receiver:
+Health check:
 
 ```powershell
-docker compose -f docker-compose.webhook-mediaserver.yml down
+curl.exe https://cc-webhook.transcenders.online/health
 ```
 
-On the ComputerCraft computer, copy the example config:
+Expected response:
+
+```text
+ok
+```
+
+Stop the stack:
+
+```powershell
+docker compose -f docker-compose.webhook-proxy.yml down
+```
+
+## Install Or Update In-Game
+
+On the ComputerCraft computer:
+
+```text
+wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/update.lua update
+update
+reboot
+```
+
+The first `wget` refreshes the updater itself. After that, `update` downloads the current project files from `src/`.
+
+Configure the webhook in-game:
 
 ```text
 copy config/webhook.example.lua config/webhook.lua
+edit config/webhook.lua
 ```
 
-Then edit `config/webhook.lua` and set the URL:
+Set:
 
 ```lua
 return {
   url = "https://cc-webhook.transcenders.online/report",
-  token = "change-me",
+  token = "your-report-token",
 }
 ```
 
-Run a report in-game:
+## Push Updates From VS Code
+
+After editing files:
+
+```powershell
+git add .
+git commit -m "Update ComputerCraft project"
+git push
+```
+
+Then in-game:
+
+```text
+update
+reboot
+```
+
+If `update.lua` itself changes, run the `wget` command again before `update`.
+
+## Send Reports From In-Game
+
+General diagnostics:
 
 ```text
 report
+```
+
+Send a note:
+
+```text
+report note testing after update
+```
+
+Capture a command:
+
+```text
+report run main
+report run ls
+report run id
 ```
 
 Read the latest report on this PC:
@@ -370,27 +195,31 @@ Read the latest report on this PC:
 .\tools\read_latest_report.ps1
 ```
 
-To run an in-game shell command and send the captured output:
+Reports are saved to:
 
 ```text
-report run id
-report run ls
-report run main
+inbox/latest-report.json
 ```
 
-If you expose this outside your LAN, set a token on both sides.
+## Troubleshooting
 
-Start the Python server with a token:
+If reports return `401`, the token in `config/webhook.lua` does not match `CC_WEBHOOK_TOKEN` in `.env`. Recreate the stack after changing `.env`:
 
 ```powershell
-.\tools\start_webhook_receiver.ps1 -Token "change-me"
+docker compose -f docker-compose.webhook-proxy.yml up -d --build --force-recreate
 ```
 
-Then use the same token in `config/webhook.lua`:
+If reports time out:
 
-```lua
-return {
-  url = "http://YOUR_IP_OR_DOMAIN:8765/report",
-  token = "change-me",
-}
+```powershell
+docker ps
+docker logs cc-proxy
+docker logs cc-webhook
+docker logs cc-cloudflare-ddns
+```
+
+If DNS points at an old IP, check:
+
+```powershell
+docker logs cc-cloudflare-ddns
 ```
