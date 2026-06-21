@@ -21,6 +21,8 @@ local files = {
   "id",
   "main.lua",
   "inventory_example.lua",
+  "path_check.lua",
+  "reset_project.lua",
   "list",
   "ls",
   "mkdir",

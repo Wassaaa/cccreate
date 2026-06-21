@@ -31,6 +31,8 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- inventory_example.lua
 |   +-- report.lua
 |   +-- wrap_commands.lua
+|   +-- path_check.lua
+|   +-- reset_project.lua
 |   +-- config/
 |   |   +-- webhook.example.lua
 |   +-- lib/
@@ -43,6 +45,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 +-- tools/
 |   +-- read_latest_report.ps1
 |   +-- cc_update_and_report.ps1
+|   +-- cc_send_and_capture.ps1
 |   +-- minecraft_send.py
 |   +-- minecraft_screenshot.py
 |   +-- webhook_receiver.py
@@ -228,6 +231,12 @@ Capture the Minecraft window:
 python tools/minecraft_screenshot.py --title "Minecraft NeoForge"
 ```
 
+Send one command and immediately capture the result:
+
+```powershell
+.\tools\cc_send_and_capture.ps1 "ls"
+```
+
 Common in-game shell commands such as `ls`, `cd`, `rm`, `cp`, `mv`, `mkdir`, and `id` are installed as reporting shims.
 
 Reports are saved to:
@@ -258,3 +267,11 @@ If DNS points at an old IP, check:
 ```powershell
 docker logs cc-cloudflare-ddns
 ```
+
+If the ComputerCraft install gets confusing, remove this project from the in-game computer:
+
+```text
+reset_project
+```
+
+If startup is running and you cannot type, hold `Ctrl+T` in the ComputerCraft terminal to terminate the running program, then run the reset command.

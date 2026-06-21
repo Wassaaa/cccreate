@@ -14,7 +14,7 @@ local commandMap = {
   rm = "/rom/programs/delete.lua",
 }
 
-local flagPath = ".wrap_commands_enabled"
+local flagPath = "/.wrap_commands_enabled"
 
 local args = { ... }
 local command = args[1] or "status"
@@ -24,6 +24,21 @@ local function exists(path)
 end
 
 local function install()
+  local currentPath = shell.path()
+  local hasRoot = false
+
+  for entry in string.gmatch(currentPath, "[^:]+") do
+    if entry == "/" then
+      hasRoot = true
+      break
+    end
+  end
+
+  if not hasRoot then
+    shell.setPath("/:" .. currentPath)
+    print("Added / to shell path")
+  end
+
   for alias, target in pairs(commandMap) do
     if exists(target) then
       shell.setAlias(alias, "ccwrap " .. target)
@@ -61,6 +76,7 @@ end
 
 local function status()
   print("Startup enabled: " .. tostring(fs.exists(flagPath)))
+  print("Shell path: " .. shell.path())
   for alias, target in pairs(commandMap) do
     print(alias .. " -> " .. tostring(shell.aliases()[alias]) .. " (target " .. target .. ")")
   end

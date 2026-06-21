@@ -148,6 +148,16 @@ update
 
 Normally `update` self-updates. Use the `wget` command only if the local updater file is missing or broken.
 
+If `wget` says the file already exists, refresh through a temporary file:
+
+```text
+delete updater_new
+wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/update.lua updater_new
+delete update
+move updater_new update
+update
+```
+
 ## Optional Minecraft Key Sender
 
 The `tools/minecraft_send.py` helper can send commands to the Minecraft window from Windows.
@@ -177,6 +187,12 @@ Run update and then report:
 ```
 
 This uses Windows `PostMessage` and is intended to work in the background.
+
+Send one command and capture the terminal shortly after:
+
+```powershell
+.\tools\cc_send_and_capture.ps1 "ls"
+```
 
 ## Minecraft Screenshot Capture
 
@@ -238,3 +254,23 @@ This shim approach:
 - depends on the root directory being in the ComputerCraft shell path
 
 Use `report run ...` for one-off explicit captures and the command shims for normal shell use.
+
+To check what the shell will resolve:
+
+```text
+report run path_check
+```
+
+If the in-game computer gets into a bad state, hold `Ctrl+T` to terminate the current program and run:
+
+```text
+reset_project
+```
+
+Then reinstall with:
+
+```text
+wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/update.lua update
+update
+reboot
+```
