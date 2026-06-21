@@ -21,7 +21,6 @@ inbox/latest-report.json
 3. In-game computer runs:
 
 ```text
-wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/update.lua update
 update
 ```
 
@@ -146,3 +145,5 @@ If GitHub updates do not appear in-game, refresh the updater first:
 wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/update.lua update
 update
 ```
+
+Normally `update` self-updates. Use the `wget` command only if the local updater file is missing or broken.

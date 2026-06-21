@@ -4,8 +4,10 @@ local githubUser = "Wassaaa"
 local githubRepo = "cccreate"
 local branch = "main"
 local basePath = "src"
+local updaterPath = "update"
 
 local baseUrl = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. githubRepo .. "/" .. branch .. "/" .. basePath .. "/"
+local updaterUrl = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. githubRepo .. "/" .. branch .. "/update.lua"
 
 local files = {
   "startup.lua",
@@ -19,6 +21,9 @@ local files = {
   "lib/reporter.lua",
 }
 
+local args = { ... }
+local skipSelfUpdate = args[1] == "--no-self-update"
+
 local function ensureFolder(path)
   local folder = fs.getDir(path)
 
@@ -28,19 +33,23 @@ local function ensureFolder(path)
   end
 end
 
-local function downloadFile(path)
-  local url = baseUrl .. path
-
-  print("Downloading " .. path)
-
-  local response, errorMessage = http.get(url)
-  if not response then
-    error("Failed to download " .. path .. ": " .. tostring(errorMessage), 0)
+local function readFile(path)
+  if not fs.exists(path) then
+    return nil
   end
 
-  local contents = response.readAll()
-  response.close()
+  local handle = fs.open(path, "r")
+  if not handle then
+    return nil
+  end
 
+  local contents = handle.readAll()
+  handle.close()
+
+  return contents
+end
+
+local function writeFile(path, contents)
   ensureFolder(path)
 
   local handle = fs.open(path, "w")
@@ -50,8 +59,55 @@ local function downloadFile(path)
 
   handle.write(contents)
   handle.close()
+end
+
+local function downloadText(url)
+  local response, errorMessage = http.get(url)
+  if not response then
+    error("Failed to download " .. url .. ": " .. tostring(errorMessage), 0)
+  end
+
+  local contents = response.readAll()
+  response.close()
+
+  return contents
+end
+
+local function selfUpdate()
+  if skipSelfUpdate then
+    return false
+  end
+
+  print("Checking updater...")
+
+  local latest = downloadText(updaterUrl)
+  local current = readFile(updaterPath)
+
+  if current == latest then
+    print("Updater is already current.")
+    return false
+  end
+
+  writeFile(updaterPath, latest)
+
+  print("Updater changed. Restarting updater...")
+  shell.run(updaterPath, "--no-self-update")
+  return true
+end
+
+local function downloadFile(path)
+  local url = baseUrl .. path
+
+  print("Downloading " .. path)
+
+  local contents = downloadText(url)
+  writeFile(path, contents)
 
   print("Updated " .. path)
+end
+
+if selfUpdate() then
+  return
 end
 
 print("Updating from " .. githubUser .. "/" .. githubRepo .. " (" .. branch .. ")")

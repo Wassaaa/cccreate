@@ -133,7 +133,7 @@ update
 reboot
 ```
 
-The first `wget` refreshes the updater itself. After that, `update` downloads the current project files from `src/`.
+The first `wget` installs the updater. After that, running `update` is enough: it checks for a newer updater, replaces itself if needed, restarts once, and then downloads the current project files from `src/`.
 
 Configure the webhook in-game:
 
@@ -168,7 +168,7 @@ update
 reboot
 ```
 
-If `update.lua` itself changes, run the `wget` command again before `update`.
+The updater self-updates, so you normally do not need to run `wget` again unless the local `update` file is deleted or broken.
 
 ## Send Reports From In-Game
 
