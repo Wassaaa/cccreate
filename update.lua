@@ -10,7 +10,11 @@ local baseUrl = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. git
 local files = {
   "startup.lua",
   "main.lua",
+  "report.lua",
+  "config/webhook.example.lua",
+  "lib/diagnostics.lua",
   "lib/logger.lua",
+  "lib/reporter.lua",
 }
 
 local function ensureFolder(path)
