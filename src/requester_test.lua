@@ -315,21 +315,7 @@ end
 local function status(side)
   side = side or DEFAULT_INVENTORY_SIDE
 
-  local candidates = requesterCandidates()
-  print("Requester candidates: " .. #candidates)
-  for _, candidate in ipairs(candidates) do
-    print("  " .. candidate.name .. " [" .. join(candidate.types) .. "]")
-    print("    Methods: " .. join(candidate.methods))
-  end
-
-  local requester = chooseRequester()
-  if requester then
-    print("")
-    printRequesterStatus(requester)
-  end
-
-  print("")
-  inventoryTools.printSummary(inventoryTools.summarize(side, 12))
+  inventoryTools.printSummary(inventoryTools.summarize(side, 6))
 
   print("")
   print("Redstone:")
@@ -346,6 +332,20 @@ local function status(side)
         .. " analogOut="
         .. tostring(redstone.getAnalogOutput(redstoneSide))
     )
+  end
+
+  print("")
+  local candidates = requesterCandidates()
+  print("Requester candidates: " .. #candidates)
+  for _, candidate in ipairs(candidates) do
+    print("  " .. candidate.name .. " [" .. join(candidate.types) .. "]")
+    print("    Methods: " .. join(candidate.methods))
+  end
+
+  local requester = chooseRequester()
+  if requester then
+    print("")
+    printRequesterStatus(requester)
   end
 end
 
@@ -394,6 +394,7 @@ local function request(address, countEach, itemLimit, side)
     print("Request failed: " .. tostring(results))
     return false
   end
+  print("Set address: " .. address)
 
   success, results = safeCall(requester.object, "setConfiguration", DEFAULT_CONFIGURATION)
   if success then
