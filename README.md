@@ -253,6 +253,7 @@ In that mode, supported commands send their output to the webhook instead of pri
 Running `update` clears active report-only aliases, so re-run `report_shell enable` after updating.
 The temporary wrapper files live in `/report_aliases/` and are removed by `report_shell disable` or `update`.
 When disabled, aliases are restored to whatever they were before `report_shell enable`.
+If report-only aliases were not active, `update` leaves normal shell aliases alone.
 
 Reports are saved to:
 

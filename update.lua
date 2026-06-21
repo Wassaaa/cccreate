@@ -40,7 +40,6 @@ local staleFiles = {
   "/mkdir",
   "/move",
   "/mv",
-  "/report_aliases",
   "/rm",
 }
 
@@ -142,8 +141,13 @@ local function downloadFile(path)
 end
 
 local function restoreReportShellAliases()
+  local wrapperDir = "/report_aliases"
   local originalAliasesPath = "/report_aliases/original_aliases.lua"
   local originals = nil
+
+  if not fs.exists(wrapperDir) then
+    return
+  end
 
   if fs.exists(originalAliasesPath) then
     local handle = fs.open(originalAliasesPath, "r")
@@ -168,6 +172,9 @@ local function restoreReportShellAliases()
       end
     end
   end
+
+  print("Removing report shell wrappers")
+  fs.delete(wrapperDir)
 end
 
 if selfUpdate() then
