@@ -13,6 +13,7 @@ Use this skill when the task is about controlling, observing, or debugging a liv
    - `README.md` for install/update basics.
    - `docs/INGAME_DEBUGGING.md` for in-game report commands.
    - `docs/AGENT_RUNTIME.md` if present for project-specific runtime details.
+   - `pyproject.toml` if Python helper dependencies or optional tool extras matter.
 2. Prefer structured reports over screenshots:
    - Read latest local report with `.\tools\read_latest_report.ps1`.
    - Ask/run `report`, `report run <program>`, or add program reports through `src/lib/reporter.lua`.
@@ -29,3 +30,9 @@ Use this skill when the task is about controlling, observing, or debugging a liv
 ## References
 
 - Agent runtime commands, screenshot/keysend usage, webhook stack checks, report-shell rules, and human-in-the-loop boundary: `references/agent-runtime.md`.
+
+## Tooling Contract
+
+Use the repo's `tools/` scripts as the canonical implementation. Do not duplicate those scripts inside the skill unless the project explicitly needs a portable copy.
+
+Run Python helpers through `uv run python ...` so the project-controlled environment and optional dependencies are used.

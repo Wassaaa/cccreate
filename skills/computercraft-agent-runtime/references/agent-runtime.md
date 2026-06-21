@@ -13,6 +13,28 @@ Prefer structured reports over screenshots:
 5. Background key/mouse sending only after screenshot confirms the target UI state
 6. Human-in-the-loop setup changes for block placement, rotation, modem attachment, GUIs, filters, or crosshair alignment
 
+## Python Tooling
+
+This project uses `uv` for Python helpers. Prefer:
+
+```powershell
+uv run python tools\minecraft_send.py --title "Minecraft NeoForge" "update"
+```
+
+over bare `python ...`. If dependencies are missing, run:
+
+```powershell
+uv sync
+```
+
+For optional schematic tools:
+
+```powershell
+uv sync --extra schematics
+```
+
+The repo's `tools/` directory is the canonical tool implementation. The skill documents how to use those tools; it should not carry duplicate copies unless portability becomes more important than avoiding drift.
+
 ## Webhook Reporting
 
 Current endpoint in this repo:
@@ -75,13 +97,13 @@ Rules:
 Full window:
 
 ```powershell
-python tools\minecraft_screenshot.py --title "Minecraft NeoForge" --method screen --out inbox\minecraft-window.bmp
+uv run python tools\minecraft_screenshot.py --title "Minecraft NeoForge" --method screen --out inbox\minecraft-window.bmp
 ```
 
 Cropped terminal/UI region:
 
 ```powershell
-python tools\minecraft_screenshot.py --title "Minecraft NeoForge" --method screen --crop 600,300,1450,850 --out inbox\terminal-crop.bmp
+uv run python tools\minecraft_screenshot.py --title "Minecraft NeoForge" --method screen --crop 600,300,1450,850 --out inbox\terminal-crop.bmp
 ```
 
 Use `--method screen` for current visible pixels. Use `--method printwindow` only when the window is covered; it may return stale frames. Prefer cropped screenshots for token cost unless world context matters.
@@ -91,14 +113,14 @@ Use `--method screen` for current visible pixels. Use `--method printwindow` onl
 Send text:
 
 ```powershell
-python tools\minecraft_send.py --title "Minecraft NeoForge" "update"
+uv run python tools\minecraft_send.py --title "Minecraft NeoForge" "update"
 ```
 
 Right-click or left-click the window:
 
 ```powershell
-python tools\minecraft_send.py --title "Minecraft NeoForge" --click right
-python tools\minecraft_send.py --title "Minecraft NeoForge" --click left --x 960 --y 540
+uv run python tools\minecraft_send.py --title "Minecraft NeoForge" --click right
+uv run python tools\minecraft_send.py --title "Minecraft NeoForge" --click left --x 960 --y 540
 ```
 
 Send and capture:
