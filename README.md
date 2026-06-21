@@ -27,6 +27,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- ccwrap.lua
 |   +-- main.lua
 |   +-- inventory_example.lua
+|   +-- ap_inventory_manager_test.lua
 |   +-- requester_test.lua
 |   +-- report.lua
 |   +-- report_shell.lua
@@ -66,6 +67,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `report run <command>` captures command output explicitly when debugging.
 - `report_shell enable` can temporarily make simple commands such as `ls` report-only.
 - `inventory_example` demonstrates reading and moving between the bottom and back inventories.
+- `ap_inventory_manager_test` probes and tests Advanced Peripherals Inventory Manager player transfers.
 - `requester_test` probes a Create Redstone Requester and can request sample items to address `out`.
 - `tools/webhook_receiver.py` receives reports and writes them into `inbox/`.
 - `docker-compose.webhook-proxy.yml` runs the webhook, Nginx Proxy Manager, and Cloudflare DDNS.
@@ -239,6 +241,15 @@ Inventory example:
 inventory_example status
 inventory_example move
 inventory_example return
+```
+
+Advanced Peripherals Inventory Manager test:
+
+```text
+ap_inventory_manager_test status
+ap_inventory_manager_test find minecraft:iron_ingot
+ap_inventory_manager_test plan-give north 1 1
+ap_inventory_manager_test plan-take north 1 1
 ```
 
 Redstone Requester test:

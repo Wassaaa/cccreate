@@ -14,6 +14,7 @@ local files = {
   "ccwrap.lua",
   "main.lua",
   "inventory_example.lua",
+  "ap_inventory_manager_test.lua",
   "requester_test.lua",
   "path_check.lua",
   "reset_project.lua",
