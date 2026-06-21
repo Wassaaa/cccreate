@@ -147,3 +147,45 @@ update
 ```
 
 Normally `update` self-updates. Use the `wget` command only if the local updater file is missing or broken.
+
+## Optional Minecraft Key Sender
+
+The `tools/minecraft_send.py` helper can send commands to the Minecraft window from Windows.
+
+List visible windows:
+
+```powershell
+python tools/minecraft_send.py --list
+```
+
+Send `update`:
+
+```powershell
+python tools/minecraft_send.py --title "Minecraft" update
+```
+
+Send a report command:
+
+```powershell
+python tools/minecraft_send.py --title "Minecraft" "report run inventory_example status"
+```
+
+Run update and then report:
+
+```powershell
+.\tools\cc_update_and_report.ps1
+```
+
+This uses Windows `PostMessage`, so it may work in the background, but it still depends on the Minecraft window accepting posted text messages. If it fails, run the command with `--foreground` or start the terminal command manually in-game.
+
+## Terminal Output Capture
+
+`report run <command>` already captures output from commands that write through the ComputerCraft terminal API while they run under the report wrapper.
+
+For broad automatic capture, a future improvement would be a startup shell wrapper that:
+
+- replaces selected shell aliases with reporting wrappers
+- captures command output through `term.redirect`
+- sends failures or command summaries to the webhook
+
+That is useful, but riskier than explicit `report run ...` because it can hide interactive prompts or change terminal behavior. Keep explicit reports as the default debugging path.

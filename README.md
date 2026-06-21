@@ -38,6 +38,8 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- INGAME_DEBUGGING.md
 +-- tools/
 |   +-- read_latest_report.ps1
+|   +-- cc_update_and_report.ps1
+|   +-- minecraft_send.py
 |   +-- webhook_receiver.py
 +-- Dockerfile.webhook
 +-- docker-compose.webhook-proxy.yml
@@ -205,6 +207,13 @@ Read the latest report on this PC:
 
 ```powershell
 .\tools\read_latest_report.ps1
+```
+
+Optionally send commands to the Minecraft window from this PC:
+
+```powershell
+python tools/minecraft_send.py --title "Minecraft" update
+python tools/minecraft_send.py --title "Minecraft" "report run inventory_example status"
 ```
 
 Reports are saved to:
