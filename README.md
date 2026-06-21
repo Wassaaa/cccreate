@@ -247,6 +247,8 @@ Redstone Requester test:
 requester_test status
 requester_test preview out 1 3 bottom
 requester_test request out 1 3 bottom
+requester_test craft-preview crafter 1 minecraft:oak_planks minecraft:oak_planks - minecraft:oak_planks minecraft:oak_planks
+requester_test craft crafter 1 minecraft:oak_planks minecraft:oak_planks - minecraft:oak_planks minecraft:oak_planks
 ```
 
 Read the latest report on this PC:

@@ -1,6 +1,7 @@
 local inventoryTools = require("lib.inventory_tools")
 
 local DEFAULT_ADDRESS = "out"
+local DEFAULT_CRAFT_ADDRESS = "crafter"
 local DEFAULT_COUNT_EACH = 1
 local DEFAULT_ITEM_LIMIT = 3
 local DEFAULT_INVENTORY_SIDE = "bottom"
@@ -14,9 +15,13 @@ local function usage()
   print("requester_test status [inventory-side]")
   print("requester_test preview [address] [count-each] [item-limit] [inventory-side]")
   print("requester_test request [address] [count-each] [item-limit] [inventory-side]")
+  print("requester_test craft-preview [address] [batch-count] <slot1> ... <slot9>")
+  print("requester_test craft [address] [batch-count] <slot1> ... <slot9>")
   print("requester_test pulse <side> [seconds]")
   print("")
   print("Defaults: address=out count-each=1 item-limit=3 inventory-side=bottom")
+  print("Craft default address: crafter")
+  print("Use -, _, nil, air, or minecraft:air for empty craft slots.")
 end
 
 local function sortedCopy(values)
@@ -247,9 +252,92 @@ local function buildSampleRequest(side, itemLimit, countEach)
   return requestItems, nil
 end
 
+local function emptyCraftSlot(value)
+  if value == nil or value == "" then
+    return true
+  end
+
+  local normalized = string.lower(tostring(value))
+  return normalized == "-"
+    or normalized == "_"
+    or normalized == "nil"
+    or normalized == "air"
+    or normalized == "minecraft:air"
+end
+
+local function buildCraftSlots(slotArgs, firstSlotIndex)
+  local slots = {}
+  local nonEmpty = 0
+
+  for slot = 1, 9 do
+    local value = slotArgs[firstSlotIndex + slot - 1]
+
+    if emptyCraftSlot(value) then
+      slots[slot] = nil
+    else
+      slots[slot] = value
+      nonEmpty = nonEmpty + 1
+    end
+  end
+
+  if nonEmpty == 0 then
+    return nil, "Crafting request needs at least one non-empty recipe slot"
+  end
+
+  return slots, nil
+end
+
+local function parseCraftArguments(commandArgs)
+  local address = DEFAULT_CRAFT_ADDRESS
+  local batchCount = 1
+  local firstSlotIndex = 2
+
+  if commandArgs[2] and tonumber(commandArgs[2]) then
+    batchCount = parseInteger(commandArgs[2], 1, 1, 256, "batch-count")
+    firstSlotIndex = 3
+  elseif commandArgs[2] and commandArgs[3] and tonumber(commandArgs[3]) then
+    address = commandArgs[2]
+    batchCount = parseInteger(commandArgs[3], 1, 1, 256, "batch-count")
+    firstSlotIndex = 4
+  end
+
+  local slots, slotError = buildCraftSlots(commandArgs, firstSlotIndex)
+  if not slots then
+    return nil, nil, nil, slotError
+  end
+
+  return address, batchCount, slots, nil
+end
+
 local function printRequestItems(requestItems)
   for index, item in ipairs(requestItems) do
     print("  " .. index .. ". " .. item.name .. " x" .. item.count)
+  end
+end
+
+local function slotText(value)
+  if value == nil then
+    return "(empty)"
+  end
+
+  return tostring(value)
+end
+
+local function printCraftSlots(slots)
+  for row = 1, 3 do
+    local firstSlot = (row - 1) * 3 + 1
+    print(
+      "  "
+        .. firstSlot
+        .. "-"
+        .. (firstSlot + 2)
+        .. ": "
+        .. slotText(slots[firstSlot])
+        .. " | "
+        .. slotText(slots[firstSlot + 1])
+        .. " | "
+        .. slotText(slots[firstSlot + 2])
+    )
   end
 end
 
@@ -274,6 +362,18 @@ local function setRequesterRequest(requester, requestItems)
   return false, "setRequest varargs failed: " .. firstError .. "; table failed: " .. tostring(errorMessage)
 end
 
+local function setRequesterCraftingRequest(requester, batchCount, slots)
+  local ok, errorMessage = pcall(function()
+    requester.object.setCraftingRequest(batchCount, unpackArgs(slots, 1, 9))
+  end)
+
+  if ok then
+    return true
+  end
+
+  return false, tostring(errorMessage)
+end
+
 local function triggerRequester(requester, requestItems, address)
   local ok, results = safeCall(requester.object, "request")
 
@@ -289,6 +389,16 @@ local function triggerRequester(requester, requestItems, address)
   end
 
   return false, "request() failed: " .. configuredError .. "; request(items, address) failed: " .. tostring(results)
+end
+
+local function triggerConfiguredRequester(requester)
+  local ok, results = safeCall(requester.object, "request")
+
+  if not ok then
+    return false, tostring(results)
+  end
+
+  return true, results
 end
 
 local function printRequesterStatus(requester)
@@ -425,6 +535,67 @@ local function request(address, countEach, itemLimit, side)
   return true
 end
 
+local function craftPreview(address, batchCount, slots)
+  address = address or DEFAULT_CRAFT_ADDRESS
+  batchCount = batchCount or 1
+
+  print("Craft address: " .. address)
+  print("Batch count: " .. batchCount)
+  print("Craft slots:")
+  printCraftSlots(slots)
+  return true
+end
+
+local function craft(address, batchCount, slots)
+  address = address or DEFAULT_CRAFT_ADDRESS
+  batchCount = batchCount or 1
+
+  local requester, requesterError = chooseRequester()
+  if not requester then
+    print("Craft request failed: " .. tostring(requesterError))
+    return false
+  end
+
+  craftPreview(address, batchCount, slots)
+
+  print("")
+  printRequesterStatus(requester)
+
+  local success, results = safeCall(requester.object, "setAddress", address)
+  if not success then
+    print("Craft request failed: " .. tostring(results))
+    return false
+  end
+  print("Set address: " .. address)
+
+  success, results = safeCall(requester.object, "setConfiguration", DEFAULT_CONFIGURATION)
+  if success then
+    print("Set configuration: " .. DEFAULT_CONFIGURATION)
+  else
+    print("Could not set configuration: " .. tostring(results))
+  end
+
+  success, results = setRequesterCraftingRequest(requester, batchCount, slots)
+  if not success then
+    print("Craft request failed: " .. tostring(results))
+    return false
+  end
+  print("Set crafting request.")
+
+  success, results = triggerConfiguredRequester(requester)
+  if not success then
+    print("Craft request failed: " .. tostring(results))
+    return false
+  end
+
+  print("Triggered configured crafting request.")
+  if results and #results > 0 then
+    print("Result: " .. textutils.serialize(results))
+  end
+
+  return true
+end
+
 local function pulse(side, seconds)
   if not side then
     print("Pulse failed: side is required")
@@ -458,6 +629,24 @@ local ok, result = pcall(function()
       parseInteger(args[4], DEFAULT_ITEM_LIMIT, 1, 9, "item-limit"),
       args[5] or DEFAULT_INVENTORY_SIDE
     )
+  elseif command == "craft-preview" then
+    local address, batchCount, slots, slotError = parseCraftArguments(args)
+
+    if not slots then
+      print("Craft preview failed: " .. tostring(slotError))
+      return false
+    end
+
+    return craftPreview(address, batchCount, slots)
+  elseif command == "craft" then
+    local address, batchCount, slots, slotError = parseCraftArguments(args)
+
+    if not slots then
+      print("Craft request failed: " .. tostring(slotError))
+      return false
+    end
+
+    return craft(address, batchCount, slots)
   elseif command == "pulse" then
     return pulse(args[2], tonumber(args[3]) or 0.2)
   elseif command == "help" then
