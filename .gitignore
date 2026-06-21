@@ -4,6 +4,10 @@
 # Lua language servers and tools
 .luarc.json
 
+# Python helper cache
+__pycache__/
+*.pyc
+
 # ComputerCraft local emulator data
 .craftos/
 computer/
