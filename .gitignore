@@ -16,6 +16,7 @@ disk/
 # Logs and temporary files
 inbox/
 .webhook/
+proxy/
 *.log
 *.tmp
 *.bak

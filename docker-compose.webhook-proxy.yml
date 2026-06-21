@@ -1,0 +1,36 @@
+services:
+  cc-webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.webhook
+    container_name: cc-webhook
+    restart: unless-stopped
+    environment:
+      - CC_WEBHOOK_HOST=0.0.0.0
+      - CC_WEBHOOK_PORT=8765
+      - CC_WEBHOOK_TOKEN=${CC_WEBHOOK_TOKEN}
+    volumes:
+      - ./inbox:/app/inbox
+    networks:
+      - cc_proxy
+
+  cc-proxy:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: cc-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:81:81"
+    environment:
+      - DB_SQLITE_FILE=/data/database.sqlite
+    volumes:
+      - ./proxy/npm/data:/data
+      - ./proxy/npm/letsencrypt:/etc/letsencrypt
+    networks:
+      - cc_proxy
+
+networks:
+  cc_proxy:
+    driver: bridge
+

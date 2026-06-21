@@ -201,6 +201,71 @@ Stop it:
 docker compose -f docker-compose.webhook.yml down
 ```
 
+## Standalone Domain Stack
+
+If your MediaServer stack is usually off, use this standalone stack instead. It runs only:
+
+- `cc-webhook`, the Python receiver
+- `cc-proxy`, Nginx Proxy Manager
+
+Stop the raw-port webhook container first if it is running:
+
+```powershell
+docker compose -f docker-compose.webhook.yml down
+```
+
+Start the standalone proxy stack:
+
+```powershell
+$env:CC_WEBHOOK_TOKEN="change-me"
+docker compose -f docker-compose.webhook-proxy.yml up -d --build
+```
+
+Open Nginx Proxy Manager:
+
+```text
+http://127.0.0.1:81
+```
+
+Default Nginx Proxy Manager login:
+
+```text
+Email: admin@example.com
+Password: changeme
+```
+
+Create a proxy host:
+
+```text
+Domain: cc-webhook.your-domain.example
+Scheme: http
+Forward Hostname/IP: cc-webhook
+Forward Port: 8765
+Websockets Support: off
+Block Common Exploits: on
+```
+
+Then request an SSL certificate in the SSL tab. Enable:
+
+```text
+Force SSL
+HTTP/2 Support
+```
+
+If Cloudflare already has a wildcard DNS record pointing to your home IP, you usually do not need to add anything in Cloudflare for a new subdomain. Nginx Proxy Manager will decide what to do with `cc-webhook.your-domain.example`.
+
+You do need to touch Cloudflare if:
+
+- there is no wildcard DNS record
+- the wildcard points somewhere else
+- you want to create a specific DNS record instead of using the wildcard
+
+Stop the standalone stack:
+
+```powershell
+docker compose -f docker-compose.webhook-proxy.yml down
+```
+
 On the ComputerCraft computer, copy the example config:
 
 ```text
