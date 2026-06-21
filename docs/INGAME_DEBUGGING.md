@@ -245,3 +245,11 @@ wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/update.lua update
 update
 reboot
 ```
+
+If old command wrappers are still intercepting normal commands, fetch the one-time repair script under a fresh filename:
+
+```text
+wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/repair.lua repair_once
+repair_once
+reboot
+```

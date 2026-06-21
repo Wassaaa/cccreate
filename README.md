@@ -50,6 +50,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 +-- Dockerfile.webhook
 +-- docker-compose.webhook-proxy.yml
 +-- update.lua
++-- repair.lua
 +-- README.md
 +-- .env.example
 +-- .gitignore
@@ -273,3 +274,11 @@ reset_project
 ```
 
 If startup is running and you cannot type, hold `Ctrl+T` in the ComputerCraft terminal to terminate the running program, then run the reset command.
+
+If old command wrappers broke normal commands, run the one-time repair script:
+
+```text
+wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/repair.lua repair_once
+repair_once
+reboot
+```
