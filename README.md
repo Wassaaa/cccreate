@@ -27,6 +27,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- ccwrap.lua
 |   +-- main.lua
 |   +-- inventory_example.lua
+|   +-- requester_test.lua
 |   +-- report.lua
 |   +-- report_shell.lua
 |   +-- wrap_commands.lua
@@ -65,6 +66,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `report run <command>` captures command output explicitly when debugging.
 - `report_shell enable` can temporarily make simple commands such as `ls` report-only.
 - `inventory_example` demonstrates reading and moving between the bottom and back inventories.
+- `requester_test` probes a Create Redstone Requester and can request sample items to address `out`.
 - `tools/webhook_receiver.py` receives reports and writes them into `inbox/`.
 - `docker-compose.webhook-proxy.yml` runs the webhook, Nginx Proxy Manager, and Cloudflare DDNS.
 
@@ -237,6 +239,14 @@ Inventory example:
 inventory_example status
 inventory_example move
 inventory_example return
+```
+
+Redstone Requester test:
+
+```text
+requester_test status
+requester_test preview out 1 3 bottom
+requester_test request out 1 3 bottom
 ```
 
 Read the latest report on this PC:
