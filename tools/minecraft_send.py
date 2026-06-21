@@ -24,8 +24,6 @@ user32.IsWindowVisible.argtypes = [wintypes.HWND]
 user32.IsWindowVisible.restype = wintypes.BOOL
 user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 user32.PostMessageW.restype = wintypes.BOOL
-user32.SetForegroundWindow.argtypes = [wintypes.HWND]
-user32.SetForegroundWindow.restype = wintypes.BOOL
 
 
 def get_window_title(hwnd):
@@ -109,7 +107,6 @@ def main():
     parser.add_argument("--title", default="Minecraft", help="Window title substring to target.")
     parser.add_argument("--list", action="store_true", help="List visible windows and exit.")
     parser.add_argument("--no-enter", action="store_true", help="Do not press Enter after text.")
-    parser.add_argument("--foreground", action="store_true", help="Bring the target window to foreground first.")
     parser.add_argument("--delay", type=float, default=0.01, help="Delay between characters.")
     args = parser.parse_args()
 
@@ -123,10 +120,6 @@ def main():
 
     hwnd, title = choose_window(find_window(args.title))
     print(f"Target: hwnd={hwnd} title={title}")
-
-    if args.foreground:
-        user32.SetForegroundWindow(hwnd)
-        time.sleep(0.2)
 
     send_text(hwnd, args.text, press_enter=not args.no_enter, delay=args.delay)
     print("Sent.")

@@ -11,9 +11,11 @@ local updaterUrl = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. 
 
 local files = {
   "startup.lua",
+  "ccwrap.lua",
   "main.lua",
   "inventory_example.lua",
   "report.lua",
+  "wrap_commands.lua",
   "config/webhook.example.lua",
   "lib/diagnostics.lua",
   "lib/inventory_tools.lua",
