@@ -30,7 +30,17 @@ services:
     networks:
       - cc_proxy
 
+  cc-cloudflare-ddns:
+    image: favonia/cloudflare-ddns:latest
+    container_name: cc-cloudflare-ddns
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Tallinn
+      - CF_API_TOKEN=${CF_API_TOKEN}
+      - DOMAINS=${CF_DDNS_DOMAINS:-cc-webhook.transcenders.online}
+      - PROXIED=${CF_DDNS_PROXIED:-true}
+      - IP6_PROVIDER=none
+
 networks:
   cc_proxy:
     driver: bridge
-

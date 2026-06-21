@@ -217,9 +217,21 @@ docker compose -f docker-compose.webhook.yml down
 Start the standalone proxy stack:
 
 ```powershell
-$env:CC_WEBHOOK_TOKEN="change-me"
+copy .env.example .env
+notepad .env
 docker compose -f docker-compose.webhook-proxy.yml up -d --build
 ```
+
+The `.env` file must contain:
+
+```text
+CC_WEBHOOK_TOKEN=change-me
+CF_API_TOKEN=your-cloudflare-token
+CF_DDNS_DOMAINS=cc-webhook.transcenders.online
+CF_DDNS_PROXIED=true
+```
+
+The Cloudflare token needs permission to edit DNS records for `transcenders.online`.
 
 Open Nginx Proxy Manager:
 
@@ -264,6 +276,14 @@ Stop the standalone stack:
 
 ```powershell
 docker compose -f docker-compose.webhook-proxy.yml down
+```
+
+If another proxy stack is already using ports `80` and `443`, stop that stack before starting this one. Only one local service can own those public ports at a time.
+
+Check the DDNS logs:
+
+```powershell
+docker logs cc-cloudflare-ddns
 ```
 
 ## Using The MediaServer Proxy

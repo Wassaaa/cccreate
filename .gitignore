@@ -1,6 +1,9 @@
 # VS Code
 .vscode/
 
+# Local secrets
+.env
+
 # Lua language servers and tools
 .luarc.json
 
