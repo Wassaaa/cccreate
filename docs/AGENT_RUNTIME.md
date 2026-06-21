@@ -41,7 +41,7 @@ uv run python tools\minecraft_screenshot.py --title "Minecraft NeoForge" --metho
 Capture only a smaller region to reduce image parsing cost:
 
 ```powershell
-uv run python tools\minecraft_screenshot.py --title "Minecraft NeoForge" --method screen --crop 600,300,1450,850 --out inbox\terminal-crop.bmp
+uv run python tools\minecraft_screenshot.py --title "Minecraft NeoForge" --method screen --crop 700,380,1850,1050 --out inbox\terminal-crop.bmp
 ```
 
 Use `--method screen` for current visible pixels. Use `--method printwindow` only when the window is covered; it can return stale game frames.
@@ -49,8 +49,10 @@ Use `--method screen` for current visible pixels. Use `--method printwindow` onl
 Send one command and capture after a delay:
 
 ```powershell
-.\tools\cc_send_and_capture.ps1 "ls" -AfterSeconds 2 -Crop "600,300,1450,850"
+.\tools\cc_send_and_capture.ps1 "ls" -AfterSeconds 2
 ```
+
+`cc_send_and_capture.ps1` defaults to a terminal-sized crop for the current `2560x1441` Minecraft capture. Use `-Crop ""` for a full-window capture.
 
 ## Report-First Debugging
 

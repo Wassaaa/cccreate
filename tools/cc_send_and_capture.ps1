@@ -7,7 +7,7 @@ param(
   [string]$Out = "inbox/minecraft-window.bmp",
   [ValidateSet("screen", "printwindow")]
   [string]$Method = "screen",
-  [string]$Crop
+  [string]$Crop = "700,380,1850,1050"
 )
 
 $ErrorActionPreference = "Stop"
