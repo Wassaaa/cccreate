@@ -11,6 +11,13 @@ EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPAR
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 WM_CHAR = 0x0102
+WM_MOUSEMOVE = 0x0200
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+WM_RBUTTONDOWN = 0x0204
+WM_RBUTTONUP = 0x0205
+MK_LBUTTON = 0x0001
+MK_RBUTTON = 0x0002
 VK_RETURN = 0x0D
 
 
@@ -22,6 +29,8 @@ user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
 user32.GetWindowTextW.restype = ctypes.c_int
 user32.IsWindowVisible.argtypes = [wintypes.HWND]
 user32.IsWindowVisible.restype = wintypes.BOOL
+user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+user32.GetWindowRect.restype = wintypes.BOOL
 user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 user32.PostMessageW.restype = wintypes.BOOL
 
@@ -76,6 +85,34 @@ def post_enter(hwnd):
         raise ctypes.WinError(ctypes.get_last_error())
 
 
+def make_lparam(x, y):
+    return (y & 0xFFFF) << 16 | (x & 0xFFFF)
+
+
+def post_click(hwnd, button, x=None, y=None):
+    if x is None or y is None:
+        rect = wintypes.RECT()
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        x = max(0, (rect.right - rect.left) // 2)
+        y = max(0, (rect.bottom - rect.top) // 2)
+
+    if button == "left":
+        down_message = WM_LBUTTONDOWN
+        up_message = WM_LBUTTONUP
+        state = MK_LBUTTON
+    else:
+        down_message = WM_RBUTTONDOWN
+        up_message = WM_RBUTTONUP
+        state = MK_RBUTTON
+
+    lparam = make_lparam(x, y)
+    for message, wparam in ((WM_MOUSEMOVE, 0), (down_message, state), (up_message, 0)):
+        if not user32.PostMessageW(hwnd, message, wparam, lparam):
+            raise ctypes.WinError(ctypes.get_last_error())
+        time.sleep(0.05)
+
+
 def send_text(hwnd, text, press_enter=True, delay=0.01):
     for char in text:
         if char == "\n":
@@ -108,6 +145,9 @@ def main():
     parser.add_argument("--list", action="store_true", help="List visible windows and exit.")
     parser.add_argument("--no-enter", action="store_true", help="Do not press Enter after text.")
     parser.add_argument("--delay", type=float, default=0.01, help="Delay between characters.")
+    parser.add_argument("--click", choices=["left", "right"], help="Post a mouse click to the window.")
+    parser.add_argument("--x", type=int, help="Window-relative click X. Defaults to center.")
+    parser.add_argument("--y", type=int, help="Window-relative click Y. Defaults to center.")
     args = parser.parse_args()
 
     if args.list:
@@ -115,14 +155,19 @@ def main():
             print(f"hwnd={hwnd} title={title}")
         return
 
-    if not args.text:
-        raise SystemExit("Provide text to send, or use --list.")
+    if not args.text and not args.click:
+        raise SystemExit("Provide text to send, use --click, or use --list.")
 
     hwnd, title = choose_window(find_window(args.title))
     print(f"Target: hwnd={hwnd} title={title}")
 
-    send_text(hwnd, args.text, press_enter=not args.no_enter, delay=args.delay)
-    print("Sent.")
+    if args.click:
+        post_click(hwnd, args.click, args.x, args.y)
+        print("Clicked.")
+
+    if args.text:
+        send_text(hwnd, args.text, press_enter=not args.no_enter, delay=args.delay)
+        print("Sent.")
 
 
 if __name__ == "__main__":

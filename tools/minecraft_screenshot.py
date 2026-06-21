@@ -153,6 +153,54 @@ def window_rect(hwnd):
     return rect, width, height
 
 
+def parse_crop(value):
+    if not value:
+        return None
+
+    parts = value.split(",")
+    if len(parts) != 4:
+        raise SystemExit("--crop must be left,top,right,bottom")
+
+    try:
+        left, top, right, bottom = [int(part.strip()) for part in parts]
+    except ValueError as exc:
+        raise SystemExit("--crop values must be integers") from exc
+
+    if right <= left or bottom <= top:
+        raise SystemExit("--crop right/bottom must be greater than left/top")
+
+    return left, top, right, bottom
+
+
+def crop_bgra(width, height, pixels, crop):
+    if crop is None:
+        return width, height, pixels
+
+    left, top, right, bottom = crop
+    left = max(0, min(left, width))
+    right = max(0, min(right, width))
+    top = max(0, min(top, height))
+    bottom = max(0, min(bottom, height))
+
+    if right <= left or bottom <= top:
+        raise SystemExit("Crop is outside the captured window.")
+
+    row_size = width * 4
+    cropped_width = right - left
+    cropped_height = bottom - top
+    cropped_rows = []
+
+    # BMP rows are bottom-up because the file uses positive biHeight.
+    for output_y in range(cropped_height - 1, -1, -1):
+        source_y = top + output_y
+        source_bottom_up_y = height - 1 - source_y
+        start = source_bottom_up_y * row_size + left * 4
+        end = start + cropped_width * 4
+        cropped_rows.append(pixels[start:end])
+
+    return cropped_width, cropped_height, b"".join(cropped_rows)
+
+
 def save_bmp(path, width, height, pixels):
     row_size = width * 4
     image_size = row_size * height
@@ -180,7 +228,7 @@ def save_bmp(path, width, height, pixels):
         handle.write(pixels)
 
 
-def capture(hwnd, output_path, method):
+def capture(hwnd, output_path, method, crop=None):
     rect, width, height = window_rect(hwnd)
 
     if method == "screen":
@@ -224,7 +272,8 @@ def capture(hwnd, output_path, method):
         if lines == 0:
             raise ctypes.WinError(ctypes.get_last_error())
 
-        save_bmp(output_path, width, height, buffer.raw)
+        output_width, output_height, output_pixels = crop_bgra(width, height, buffer.raw, crop)
+        save_bmp(output_path, output_width, output_height, output_pixels)
     finally:
         gdi32.SelectObject(memory_dc, old_object)
         gdi32.DeleteObject(bitmap)
@@ -240,6 +289,7 @@ def main():
     parser.add_argument("--title", default="Minecraft", help="Window title substring to target.")
     parser.add_argument("--list", action="store_true", help="List visible windows and exit.")
     parser.add_argument("--method", choices=["printwindow", "screen"], default="printwindow")
+    parser.add_argument("--crop", help="Crop output to left,top,right,bottom window pixels.")
     parser.add_argument("--out", default="inbox/minecraft-window.bmp", help="Output BMP path.")
     args = parser.parse_args()
 
@@ -252,7 +302,7 @@ def main():
     output_path = Path(args.out).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    capture(hwnd, output_path, args.method)
+    capture(hwnd, output_path, args.method, parse_crop(args.crop))
     print(f"Captured {title} to {output_path}")
 
 

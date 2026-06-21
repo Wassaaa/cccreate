@@ -14,6 +14,8 @@ Reports are saved on this PC:
 inbox/latest-report.json
 ```
 
+For agent-side key sending, screenshots, mouse clicks, and human-in-the-loop setup rules, see `docs/AGENT_RUNTIME.md`.
+
 ## Recommended Loop
 
 1. Codex edits Lua code in `src/`.
