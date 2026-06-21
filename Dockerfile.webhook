@@ -1,0 +1,12 @@
+FROM python:3.14-alpine
+
+WORKDIR /app
+
+COPY tools/webhook_receiver.py /app/tools/webhook_receiver.py
+
+ENV CC_WEBHOOK_HOST=0.0.0.0
+ENV CC_WEBHOOK_PORT=8765
+
+EXPOSE 8765
+
+CMD ["python", "tools/webhook_receiver.py"]

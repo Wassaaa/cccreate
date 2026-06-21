@@ -155,6 +155,52 @@ return {
 
 Port `443` usually needs a real HTTPS reverse proxy or tunnel in front of the Python script. The Python receiver itself speaks plain HTTP.
 
+## Domain / Reverse Proxy Setup
+
+If you already have a domain and Nginx Proxy Manager, this is usually better than exposing port `8765` directly.
+
+Run the webhook receiver with Docker:
+
+```powershell
+$env:CC_WEBHOOK_TOKEN="change-me"
+docker compose -f docker-compose.webhook.yml up -d --build
+```
+
+If you run it from WSL instead, use the same command from the project folder in WSL.
+
+In Nginx Proxy Manager, create a proxy host:
+
+```text
+Domain: cc-webhook.your-domain.example
+Scheme: http
+Forward Hostname/IP: cc-webhook
+Forward Port: 8765
+```
+
+That direct container name only works if the webhook container is on the same Docker network as Nginx Proxy Manager. If it is not, either add the webhook container to the NPM network or forward to the host IP and exposed port `8765`.
+
+Then use HTTPS in `config/webhook.lua`:
+
+```lua
+return {
+  url = "https://cc-webhook.your-domain.example/report",
+  token = "change-me",
+}
+```
+
+Check the container:
+
+```powershell
+docker logs cc-webhook
+docker compose -f docker-compose.webhook.yml ps
+```
+
+Stop it:
+
+```powershell
+docker compose -f docker-compose.webhook.yml down
+```
+
 On the ComputerCraft computer, copy the example config:
 
 ```text

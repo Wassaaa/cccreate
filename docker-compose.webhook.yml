@@ -1,0 +1,16 @@
+services:
+  cc-webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.webhook
+    container_name: cc-webhook
+    restart: unless-stopped
+    environment:
+      - CC_WEBHOOK_HOST=0.0.0.0
+      - CC_WEBHOOK_PORT=8765
+      - CC_WEBHOOK_TOKEN=${CC_WEBHOOK_TOKEN}
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./inbox:/app/inbox
+
