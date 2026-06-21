@@ -25,11 +25,13 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 +-- src/
 |   +-- startup.lua
 |   +-- main.lua
+|   +-- inventory_example.lua
 |   +-- report.lua
 |   +-- config/
 |   |   +-- webhook.example.lua
 |   +-- lib/
 |       +-- diagnostics.lua
+|       +-- inventory_tools.lua
 |       +-- logger.lua
 |       +-- reporter.lua
 +-- docs/
@@ -48,6 +50,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `src/` contains files that are installed on the ComputerCraft computer.
 - `update.lua` downloads the latest `src/` files from GitHub.
 - `report` sends in-game diagnostics to the webhook.
+- `inventory_example` demonstrates reading and moving between the bottom and back inventories.
 - `tools/webhook_receiver.py` receives reports and writes them into `inbox/`.
 - `docker-compose.webhook-proxy.yml` runs the webhook, Nginx Proxy Manager, and Cloudflare DDNS.
 
@@ -187,6 +190,15 @@ Capture a command:
 report run main
 report run ls
 report run id
+report run inventory_example status
+```
+
+Inventory example:
+
+```text
+inventory_example status
+inventory_example move
+inventory_example return
 ```
 
 Read the latest report on this PC:

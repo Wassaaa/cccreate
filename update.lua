@@ -10,9 +10,11 @@ local baseUrl = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. git
 local files = {
   "startup.lua",
   "main.lua",
+  "inventory_example.lua",
   "report.lua",
   "config/webhook.example.lua",
   "lib/diagnostics.lua",
+  "lib/inventory_tools.lua",
   "lib/logger.lua",
   "lib/reporter.lua",
 }

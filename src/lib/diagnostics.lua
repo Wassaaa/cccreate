@@ -1,5 +1,7 @@
 local diagnostics = {}
 
+local SIDES = { "front", "back", "top", "bottom", "left", "right" }
+
 local function now()
   return os.date("%Y-%m-%d %H:%M:%S")
 end
@@ -49,6 +51,35 @@ local function collectInventory()
   return items
 end
 
+local function collectPeripherals()
+  local peripherals = {}
+
+  for _, side in ipairs(SIDES) do
+    if peripheral.isPresent(side) then
+      local entry = {
+        side = side,
+        type = peripheral.getType(side),
+        isInventory = false,
+      }
+
+      local object = peripheral.wrap(side)
+      if object and type(object.size) == "function" and type(object.list) == "function" then
+        entry.isInventory = true
+        entry.size = object.size()
+        entry.usedSlots = 0
+
+        for _, _ in pairs(object.list()) do
+          entry.usedSlots = entry.usedSlots + 1
+        end
+      end
+
+      table.insert(peripherals, entry)
+    end
+  end
+
+  return peripherals
+end
+
 local function baseReport(kind)
   return {
     kind = kind,
@@ -58,6 +89,7 @@ local function baseReport(kind)
     isTurtle = isTurtle(),
     fuelLevel = isTurtle() and turtle.getFuelLevel() or nil,
     fuelLimit = isTurtle() and turtle.getFuelLimit() or nil,
+    peripherals = collectPeripherals(),
     files = collectFiles("/"),
     inventory = collectInventory(),
   }

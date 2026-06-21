@@ -43,6 +43,7 @@ report
 report run ls
 report run main
 report run id
+report run inventory_example status
 ```
 
 ## Useful In-Game Commands
@@ -65,12 +66,31 @@ Run a command and send its captured output:
 report run main
 ```
 
+Check the bottom and back inventories:
+
+```text
+report run inventory_example status
+```
+
+Move one stack from the bottom inventory to the back chest:
+
+```text
+report run inventory_example move
+```
+
+Move one stack from the back chest back to the bottom inventory:
+
+```text
+report run inventory_example return
+```
+
 The command report includes:
 
 - computer ID and label
 - whether it is a turtle
 - fuel level if turtle APIs exist
 - inventory if turtle APIs exist
+- attached peripherals and inventory sizes
 - file list
 - command output
 - command error when captured
