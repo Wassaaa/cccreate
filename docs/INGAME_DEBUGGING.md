@@ -182,15 +182,7 @@ This uses Windows `PostMessage` and is intended to work in the background.
 
 `report run <command>` already captures output from commands that write through the ComputerCraft terminal API while they run under the report wrapper.
 
-For broad automatic capture, install command aliases:
-
-```text
-wrap_commands enable
-```
-
-This enables startup installation of common shell aliases through `ccwrap`, mirrors command output to the terminal, and sends the same output to the webhook.
-
-Wrapped commands:
+Common shell commands are installed as root-level reporting shims:
 
 ```text
 ls
@@ -208,25 +200,21 @@ mkdir
 id
 ```
 
-Check aliases:
+Each shim calls `ccwrap`, mirrors output to the terminal, and sends the same output to the webhook.
+
+Example:
 
 ```text
-wrap_commands status
-```
-
-Remove aliases:
-
-```text
-wrap_commands disable
+ls
 ```
 
 Interactive commands such as `edit` are intentionally not wrapped.
 
-This alias approach:
+This shim approach:
 
 - captures commands typed normally into the shell
-- should preserve commands such as `cd` because the real ROM program still runs
+- preserves commands such as `cd` because the real ROM program still runs
 - does not capture programs that bypass the ComputerCraft terminal API
-- does not capture commands that run before aliases are installed
+- depends on the root directory being in the ComputerCraft shell path
 
-Use `report run ...` for one-off explicit captures and `wrap_commands enable` when you want normal shell commands to report automatically.
+Use `report run ...` for one-off explicit captures and the command shims for normal shell use.

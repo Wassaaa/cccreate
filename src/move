@@ -1,0 +1,3 @@
+local args = { ... }
+local unpackArgs = table.unpack or unpack
+shell.run("ccwrap", "/rom/programs/move.lua", unpackArgs(args))
