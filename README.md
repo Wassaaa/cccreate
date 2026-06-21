@@ -44,6 +44,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- read_latest_report.ps1
 |   +-- cc_update_and_report.ps1
 |   +-- minecraft_send.py
+|   +-- minecraft_screenshot.py
 |   +-- webhook_receiver.py
 +-- Dockerfile.webhook
 +-- docker-compose.webhook-proxy.yml
@@ -219,6 +220,12 @@ Optionally send commands to the Minecraft window from this PC:
 ```powershell
 python tools/minecraft_send.py --title "Minecraft" update
 python tools/minecraft_send.py --title "Minecraft" "report run inventory_example status"
+```
+
+Capture the Minecraft window:
+
+```powershell
+python tools/minecraft_screenshot.py --title "Minecraft NeoForge"
 ```
 
 Common in-game shell commands such as `ls`, `cd`, `rm`, `cp`, `mv`, `mkdir`, and `id` are installed as reporting shims.

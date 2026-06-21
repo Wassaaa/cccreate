@@ -178,6 +178,26 @@ Run update and then report:
 
 This uses Windows `PostMessage` and is intended to work in the background.
 
+## Minecraft Screenshot Capture
+
+Capture the Minecraft window when command sending or report output does not explain enough:
+
+```powershell
+python tools/minecraft_screenshot.py --title "Minecraft NeoForge"
+```
+
+Output:
+
+```text
+inbox/minecraft-window.bmp
+```
+
+If the image is black or stale, use screen-crop mode while the Minecraft window is visible:
+
+```powershell
+python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method screen
+```
+
 ## Terminal Output Capture
 
 `report run <command>` already captures output from commands that write through the ComputerCraft terminal API while they run under the report wrapper.
