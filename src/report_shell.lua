@@ -1,8 +1,8 @@
 local aliases = {
-  dir = "/ccwrap --quiet /rom/programs/list.lua",
-  id = "/ccwrap --quiet /rom/programs/id.lua",
-  list = "/ccwrap --quiet /rom/programs/list.lua",
-  ls = "/ccwrap --quiet /rom/programs/list.lua",
+  dir = "ccwrap.lua --quiet /rom/programs/list.lua",
+  id = "ccwrap.lua --quiet /rom/programs/id.lua",
+  list = "ccwrap.lua --quiet /rom/programs/list.lua",
+  ls = "ccwrap.lua --quiet /rom/programs/list.lua",
 }
 
 local args = { ... }
