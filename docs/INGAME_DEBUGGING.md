@@ -199,7 +199,7 @@ Send one command and capture the terminal shortly after:
 Capture the Minecraft window when command sending or report output does not explain enough:
 
 ```powershell
-python tools/minecraft_screenshot.py --title "Minecraft NeoForge"
+python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method screen
 ```
 
 Output:
@@ -208,10 +208,10 @@ Output:
 inbox/minecraft-window.bmp
 ```
 
-If the image is black or stale, use screen-crop mode while the Minecraft window is visible:
+If the Minecraft window is covered, try `PrintWindow` mode:
 
 ```powershell
-python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method screen
+python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method printwindow
 ```
 
 ## Terminal Output Capture

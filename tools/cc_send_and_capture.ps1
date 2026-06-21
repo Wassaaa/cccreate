@@ -4,11 +4,13 @@ param(
 
   [string]$Title = "Minecraft NeoForge",
   [double]$AfterSeconds = 2,
-  [string]$Out = "inbox/minecraft-window.bmp"
+  [string]$Out = "inbox/minecraft-window.bmp",
+  [ValidateSet("screen", "printwindow")]
+  [string]$Method = "screen"
 )
 
 $ErrorActionPreference = "Stop"
 
 python "$PSScriptRoot\minecraft_send.py" --title $Title --delay 0.02 $Command
 Start-Sleep -Seconds $AfterSeconds
-python "$PSScriptRoot\minecraft_screenshot.py" --title $Title --out $Out
+python "$PSScriptRoot\minecraft_screenshot.py" --title $Title --method $Method --out $Out

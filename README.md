@@ -228,7 +228,7 @@ python tools/minecraft_send.py --title "Minecraft" "report run inventory_example
 Capture the Minecraft window:
 
 ```powershell
-python tools/minecraft_screenshot.py --title "Minecraft NeoForge"
+python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method screen
 ```
 
 Send one command and immediately capture the result:
