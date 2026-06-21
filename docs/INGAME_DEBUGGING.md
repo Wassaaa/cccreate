@@ -246,7 +246,7 @@ id
 
 These aliases are intentionally not installed by startup. They create temporary wrapper files in `/report_aliases/` and only affect the current shell after you explicitly enable them.
 Running `update` clears active report-only aliases, so re-run `report_shell enable` after updating.
-When disabled, `ls` and `dir` are restored as normal aliases for ComputerCraft's `list` command.
+When disabled, aliases are restored to whatever they were before `report_shell enable`.
 
 To check what the shell will resolve:
 

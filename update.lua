@@ -51,11 +51,6 @@ local temporaryAliases = {
   "ls",
 }
 
-local normalAliases = {
-  dir = "/rom/programs/list.lua",
-  ls = "/rom/programs/list.lua",
-}
-
 local args = { ... }
 local skipSelfUpdate = args[1] == "--no-self-update"
 
@@ -146,23 +141,42 @@ local function downloadFile(path)
   print("Updated " .. path)
 end
 
+local function restoreReportShellAliases()
+  local originalAliasesPath = "/report_aliases/original_aliases.lua"
+  local originals = nil
+
+  if fs.exists(originalAliasesPath) then
+    local handle = fs.open(originalAliasesPath, "r")
+    if handle then
+      originals = textutils.unserialize(handle.readAll())
+      handle.close()
+    end
+  end
+
+  for _, alias in ipairs(temporaryAliases) do
+    if shell.aliases()[alias] then
+      print("Clearing temporary alias " .. alias)
+      shell.clearAlias(alias)
+    end
+  end
+
+  if originals then
+    for alias, target in pairs(originals) do
+      if target then
+        print("Restoring original alias " .. alias)
+        shell.setAlias(alias, target)
+      end
+    end
+  end
+end
+
 if selfUpdate() then
   return
 end
 
 print("Updating from " .. githubUser .. "/" .. githubRepo .. " (" .. branch .. ")")
 
-for _, alias in ipairs(temporaryAliases) do
-  if shell.aliases()[alias] then
-    print("Clearing temporary alias " .. alias)
-    shell.clearAlias(alias)
-  end
-end
-
-for alias, target in pairs(normalAliases) do
-  print("Restoring normal alias " .. alias)
-  shell.setAlias(alias, target)
-end
+restoreReportShellAliases()
 
 for _, path in ipairs(staleFiles) do
   if fs.exists(path) then
