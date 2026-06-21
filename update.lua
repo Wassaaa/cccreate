@@ -4,7 +4,7 @@ local githubUser = "Wassaaa"
 local githubRepo = "cccreate"
 local branch = "main"
 local basePath = "src"
-local updaterPath = "update"
+local updaterPath = "/update"
 
 local baseUrl = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. githubRepo .. "/" .. branch .. "/" .. basePath .. "/"
 local updaterUrl = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. githubRepo .. "/" .. branch .. "/update.lua"
@@ -25,6 +25,10 @@ local files = {
 
 local args = { ... }
 local skipSelfUpdate = args[1] == "--no-self-update"
+
+local function installPath(path)
+  return fs.combine("/", path)
+end
 
 local function ensureFolder(path)
   local folder = fs.getDir(path)
@@ -99,11 +103,12 @@ end
 
 local function downloadFile(path)
   local url = baseUrl .. path
+  local targetPath = installPath(path)
 
   print("Downloading " .. path)
 
   local contents = downloadText(url)
-  writeFile(path, contents)
+  writeFile(targetPath, contents)
 
   print("Updated " .. path)
 end
