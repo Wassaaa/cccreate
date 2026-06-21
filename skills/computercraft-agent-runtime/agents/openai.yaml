@@ -1,0 +1,4 @@
+interface:
+  display_name: "ComputerCraft Agent Runtime"
+  short_description: "Operate live CC:Tweaked computers"
+  default_prompt: "Use $computercraft-agent-runtime to debug a live ComputerCraft/CC:Tweaked project with reports, screenshots, key sending, and webhook tooling."
