@@ -19,15 +19,15 @@ Read the latest in-game report:
 Send text to the background Minecraft window:
 
 ```powershell
-python tools\minecraft_send.py --title "Minecraft NeoForge" "update"
-python tools\minecraft_send.py --title "Minecraft NeoForge" "report run inventory_example status"
+uv run python tools\minecraft_send.py --title "Minecraft NeoForge" "update"
+uv run python tools\minecraft_send.py --title "Minecraft NeoForge" "report run inventory_example status"
 ```
 
 Post a mouse click to Minecraft:
 
 ```powershell
-python tools\minecraft_send.py --title "Minecraft NeoForge" --click right
-python tools\minecraft_send.py --title "Minecraft NeoForge" --click left --x 960 --y 540
+uv run python tools\minecraft_send.py --title "Minecraft NeoForge" --click right
+uv run python tools\minecraft_send.py --title "Minecraft NeoForge" --click left --x 960 --y 540
 ```
 
 Mouse clicks are best-effort `PostMessage` events. Use them only after a screenshot confirms the window is in the expected state. If the ComputerCraft terminal is not open but the player is facing the computer, a right click may open it; if the crosshair is not on the computer, ask the player to align the view.
@@ -35,13 +35,13 @@ Mouse clicks are best-effort `PostMessage` events. Use them only after a screens
 Capture the Minecraft window:
 
 ```powershell
-python tools\minecraft_screenshot.py --title "Minecraft NeoForge" --method screen --out inbox\minecraft-window.bmp
+uv run python tools\minecraft_screenshot.py --title "Minecraft NeoForge" --method screen --out inbox\minecraft-window.bmp
 ```
 
 Capture only a smaller region to reduce image parsing cost:
 
 ```powershell
-python tools\minecraft_screenshot.py --title "Minecraft NeoForge" --method screen --crop 600,300,1450,850 --out inbox\terminal-crop.bmp
+uv run python tools\minecraft_screenshot.py --title "Minecraft NeoForge" --method screen --crop 600,300,1450,850 --out inbox\terminal-crop.bmp
 ```
 
 Use `--method screen` for current visible pixels. Use `--method printwindow` only when the window is covered; it can return stale game frames.

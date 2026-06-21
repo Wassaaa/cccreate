@@ -50,6 +50,8 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- webhook_receiver.py
 +-- Dockerfile.webhook
 +-- docker-compose.webhook-proxy.yml
++-- pyproject.toml
++-- uv.lock
 +-- update.lua
 +-- repair.lua
 +-- README.md
@@ -65,6 +67,30 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `inventory_example` demonstrates reading and moving between the bottom and back inventories.
 - `tools/webhook_receiver.py` receives reports and writes them into `inbox/`.
 - `docker-compose.webhook-proxy.yml` runs the webhook, Nginx Proxy Manager, and Cloudflare DDNS.
+
+## Python Tooling
+
+This repo uses `uv` for local Python helper scripts.
+
+Set up the base environment:
+
+```powershell
+uv sync
+```
+
+Run Python helpers through `uv run`:
+
+```powershell
+uv run python tools/minecraft_send.py --title "Minecraft" update
+uv run python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method screen
+uv run python tools/webhook_receiver.py
+```
+
+Install optional schematic tooling when generating or validating `.nbt` schematic files:
+
+```powershell
+uv sync --extra schematics
+```
 
 ## Start The Webhook Stack
 
@@ -222,14 +248,14 @@ Read the latest report on this PC:
 Optionally send commands to the Minecraft window from this PC:
 
 ```powershell
-python tools/minecraft_send.py --title "Minecraft" update
-python tools/minecraft_send.py --title "Minecraft" "report run inventory_example status"
+uv run python tools/minecraft_send.py --title "Minecraft" update
+uv run python tools/minecraft_send.py --title "Minecraft" "report run inventory_example status"
 ```
 
 Capture the Minecraft window:
 
 ```powershell
-python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method screen
+uv run python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method screen
 ```
 
 Send one command and immediately capture the result:

@@ -5,6 +5,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-python tools/minecraft_send.py --title $WindowTitle "update"
-Start-Sleep -Seconds $WaitSeconds
-python tools/minecraft_send.py --title $WindowTitle "report"
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+
+Push-Location $RepoRoot
+try {
+  uv run python tools\minecraft_send.py --title $WindowTitle "update"
+  Start-Sleep -Seconds $WaitSeconds
+  uv run python tools\minecraft_send.py --title $WindowTitle "report"
+}
+finally {
+  Pop-Location
+}

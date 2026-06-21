@@ -12,10 +12,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-python "$PSScriptRoot\minecraft_send.py" --title $Title --delay 0.02 $Command
-Start-Sleep -Seconds $AfterSeconds
-$screenshotArgs = @("$PSScriptRoot\minecraft_screenshot.py", "--title", $Title, "--method", $Method, "--out", $Out)
-if ($Crop) {
-  $screenshotArgs += @("--crop", $Crop)
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+
+Push-Location $RepoRoot
+try {
+  uv run python tools\minecraft_send.py --title $Title --delay 0.02 $Command
+  Start-Sleep -Seconds $AfterSeconds
+
+  $screenshotArgs = @("python", "tools\minecraft_screenshot.py", "--title", $Title, "--method", $Method, "--out", $Out)
+  if ($Crop) {
+    $screenshotArgs += @("--crop", $Crop)
+  }
+  uv run @screenshotArgs
 }
-python @screenshotArgs
+finally {
+  Pop-Location
+}

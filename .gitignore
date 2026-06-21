@@ -8,6 +8,7 @@
 .luarc.json
 
 # Python helper cache
+.venv/
 __pycache__/
 *.pyc
 
@@ -15,6 +16,11 @@ __pycache__/
 .craftos/
 computer/
 disk/
+
+# Generated schematic experiments
+schematics/
+tools/generate_simple_flower_house_nbt.py
+tools/requirements-nbt.txt
 
 # Logs and temporary files
 inbox/

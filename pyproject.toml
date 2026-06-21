@@ -1,0 +1,15 @@
+[project]
+name = "computercraft-tools"
+version = "0.1.0"
+description = "Local Python helper tools for the ComputerCraft/CC:Tweaked workflow."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[project.optional-dependencies]
+schematics = [
+  "amulet-nbt==2.1.8",
+]
+
+[tool.uv]
+package = false

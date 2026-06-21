@@ -167,19 +167,19 @@ The `tools/minecraft_send.py` helper can send commands to the Minecraft window f
 List visible windows:
 
 ```powershell
-python tools/minecraft_send.py --list
+uv run python tools/minecraft_send.py --list
 ```
 
 Send `update`:
 
 ```powershell
-python tools/minecraft_send.py --title "Minecraft" update
+uv run python tools/minecraft_send.py --title "Minecraft" update
 ```
 
 Send a report command:
 
 ```powershell
-python tools/minecraft_send.py --title "Minecraft" "report run inventory_example status"
+uv run python tools/minecraft_send.py --title "Minecraft" "report run inventory_example status"
 ```
 
 Run update and then report:
@@ -201,7 +201,7 @@ Send one command and capture the terminal shortly after:
 Capture the Minecraft window when command sending or report output does not explain enough:
 
 ```powershell
-python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method screen
+uv run python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method screen
 ```
 
 Output:
@@ -213,7 +213,7 @@ inbox/minecraft-window.bmp
 If the Minecraft window is covered, try `PrintWindow` mode:
 
 ```powershell
-python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method printwindow
+uv run python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method printwindow
 ```
 
 ## Terminal Output Capture
