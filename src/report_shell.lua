@@ -1,16 +1,38 @@
+local wrapperDir = "/report_aliases"
+
 local aliases = {
-  dir = "ccwrap.lua --quiet /rom/programs/list.lua",
-  id = "ccwrap.lua --quiet /rom/programs/id.lua",
-  list = "ccwrap.lua --quiet /rom/programs/list.lua",
-  ls = "ccwrap.lua --quiet /rom/programs/list.lua",
+  dir = "/rom/programs/list.lua",
+  id = "/rom/programs/id.lua",
+  list = "/rom/programs/list.lua",
+  ls = "/rom/programs/list.lua",
 }
 
 local args = { ... }
 local command = args[1] or "status"
 
+local function writeWrapper(alias, target)
+  if not fs.exists(wrapperDir) then
+    fs.makeDir(wrapperDir)
+  end
+
+  local path = fs.combine(wrapperDir, alias)
+  local handle = fs.open(path, "w")
+  if not handle then
+    error("Failed to create " .. path, 0)
+  end
+
+  handle.writeLine("local args = { ... }")
+  handle.writeLine("local unpackArgs = table.unpack or unpack")
+  handle.writeLine('shell.run("/ccwrap.lua", "--quiet", "' .. target .. '", unpackArgs(args))')
+  handle.close()
+
+  return path
+end
+
 local function enable()
   for alias, target in pairs(aliases) do
-    shell.setAlias(alias, target)
+    local wrapperPath = writeWrapper(alias, target)
+    shell.setAlias(alias, wrapperPath)
     print("Reporting " .. alias)
   end
 
@@ -21,6 +43,10 @@ local function disable()
   for alias, _ in pairs(aliases) do
     shell.clearAlias(alias)
     print("Cleared " .. alias)
+  end
+
+  if fs.exists(wrapperDir) then
+    fs.delete(wrapperDir)
   end
 
   print("Report-only shell aliases disabled.")

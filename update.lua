@@ -40,6 +40,7 @@ local staleFiles = {
   "/mkdir",
   "/move",
   "/mv",
+  "/report_aliases",
   "/rm",
 }
 

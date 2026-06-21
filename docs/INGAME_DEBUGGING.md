@@ -244,7 +244,7 @@ dir
 id
 ```
 
-These aliases are intentionally not installed by startup and do not create files named after normal commands. They only affect the current shell after you explicitly enable them.
+These aliases are intentionally not installed by startup. They create temporary wrapper files in `/report_aliases/` and only affect the current shell after you explicitly enable them.
 Running `update` clears active report-only aliases, so re-run `report_shell enable` after updating.
 
 To check what the shell will resolve:
