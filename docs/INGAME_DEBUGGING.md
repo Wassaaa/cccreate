@@ -226,6 +226,25 @@ report run list
 
 Interactive commands such as `edit` should be run directly in-game, not through `report run`.
 
+For a temporary report-only shell, run:
+
+```text
+report_shell enable
+ls
+report_shell disable
+```
+
+Supported aliases:
+
+```text
+ls
+list
+dir
+id
+```
+
+These aliases are intentionally not installed by startup and do not create files named after normal commands. They only affect the current shell after you explicitly enable them.
+
 To check what the shell will resolve:
 
 ```text

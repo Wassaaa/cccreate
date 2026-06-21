@@ -17,6 +17,7 @@ local files = {
   "path_check.lua",
   "reset_project.lua",
   "report.lua",
+  "report_shell.lua",
   "wrap_commands.lua",
   "config/webhook.example.lua",
   "lib/diagnostics.lua",

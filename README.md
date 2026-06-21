@@ -28,6 +28,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- main.lua
 |   +-- inventory_example.lua
 |   +-- report.lua
+|   +-- report_shell.lua
 |   +-- wrap_commands.lua
 |   +-- path_check.lua
 |   +-- reset_project.lua
@@ -60,6 +61,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `update.lua` downloads the latest `src/` files from GitHub.
 - `report` sends in-game diagnostics to the webhook.
 - `report run <command>` captures command output explicitly when debugging.
+- `report_shell enable` can temporarily make simple commands such as `ls` report-only.
 - `inventory_example` demonstrates reading and moving between the bottom and back inventories.
 - `tools/webhook_receiver.py` receives reports and writes them into `inbox/`.
 - `docker-compose.webhook-proxy.yml` runs the webhook, Nginx Proxy Manager, and Cloudflare DDNS.
@@ -237,6 +239,16 @@ Send one command and immediately capture the result:
 ```
 
 Use `report run <command>` when you want command output sent to the webhook.
+
+For a temporary report-only shell, run:
+
+```text
+report_shell enable
+ls
+report_shell disable
+```
+
+In that mode, supported commands send their output to the webhook instead of printing the command output in the terminal.
 
 Reports are saved to:
 
