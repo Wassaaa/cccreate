@@ -2,6 +2,24 @@
 
 A small CC:Tweaked/ComputerCraft Lua project that you can edit in VS Code, push to GitHub, and update in-game with one command.
 
+## Current Workflow
+
+This repo is set up for a simple GitHub-to-ComputerCraft update loop and an in-game-to-workspace report loop.
+
+Code update path:
+
+```text
+VS Code -> GitHub -> in-game update command
+```
+
+Debug report path:
+
+```text
+ComputerCraft report command -> https://cc-webhook.transcenders.online/report -> inbox/latest-report.json
+```
+
+For the exact debugging loop, see [docs/INGAME_DEBUGGING.md](docs/INGAME_DEBUGGING.md).
+
 ## Project Layout
 
 ```text
@@ -19,9 +37,12 @@ A small CC:Tweaked/ComputerCraft Lua project that you can edit in VS Code, push 
 +-- update.lua
 +-- tools/
 |   +-- webhook_receiver.py
+|   +-- read_latest_report.ps1
 |   +-- start_webhook_receiver.ps1
 |   +-- stop_webhook_receiver.ps1
 |   +-- status_webhook_receiver.ps1
++-- docs/
+|   +-- INGAME_DEBUGGING.md
 +-- README.md
 +-- .gitignore
 ```
@@ -341,6 +362,12 @@ Run a report in-game:
 
 ```text
 report
+```
+
+Read the latest report on this PC:
+
+```powershell
+.\tools\read_latest_report.ps1
 ```
 
 To run an in-game shell command and send the captured output:
