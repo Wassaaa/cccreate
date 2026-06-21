@@ -19,6 +19,9 @@ A small CC:Tweaked/ComputerCraft Lua project that you can edit in VS Code, push 
 +-- update.lua
 +-- tools/
 |   +-- webhook_receiver.py
+|   +-- start_webhook_receiver.ps1
+|   +-- stop_webhook_receiver.ps1
+|   +-- status_webhook_receiver.ps1
 +-- README.md
 +-- .gitignore
 ```
@@ -96,7 +99,7 @@ The project includes a small Python webhook receiver. It saves incoming reports 
 Start it on your PC:
 
 ```powershell
-python tools/webhook_receiver.py
+.\tools\start_webhook_receiver.ps1
 ```
 
 By default it listens here:
@@ -105,7 +108,52 @@ By default it listens here:
 http://0.0.0.0:8765/report
 ```
 
-For a first local test, use your computer's local LAN IP rather than your external IP if Minecraft is running on the same network.
+Check whether it is running:
+
+```powershell
+.\tools\status_webhook_receiver.ps1
+```
+
+Stop it when you are done:
+
+```powershell
+.\tools\stop_webhook_receiver.ps1
+```
+
+The scripts keep a PID file in `.webhook/` so the receiver is not left running randomly.
+
+## Multiplayer Server Networking
+
+If you are playing on a multiplayer server, the HTTP request comes from the Minecraft server, not from your Minecraft client. That means the server must be able to reach your PC over the internet.
+
+This project is currently configured to try:
+
+```text
+http://84.231.9.21:8765/report
+```
+
+For that to work:
+
+- your router must forward TCP port `8765` to this PC
+- Windows Firewall must allow inbound TCP `8765`
+- the server's CC:Tweaked config must allow outbound HTTP requests to your IP and port
+
+If port `8765` does not work, use a port you already expose, such as `80`, and start the receiver on that port:
+
+```powershell
+.\tools\start_webhook_receiver.ps1 -Port 80
+```
+
+Then use this in `config/webhook.lua`:
+
+```lua
+return {
+  url = "http://84.231.9.21/report",
+  token = "change-me",
+}
+```
+
+Port `443` usually needs a real HTTPS reverse proxy or tunnel in front of the Python script. The Python receiver itself speaks plain HTTP.
 
 On the ComputerCraft computer, copy the example config:
 
@@ -117,8 +165,8 @@ Then edit `config/webhook.lua` and set the URL:
 
 ```lua
 return {
-  url = "http://YOUR_IP:8765/report",
-  token = "",
+  url = "http://84.231.9.21:8765/report",
+  token = "change-me",
 }
 ```
 
@@ -141,8 +189,7 @@ If you expose this outside your LAN, set a token on both sides.
 Start the Python server with a token:
 
 ```powershell
-$env:CC_WEBHOOK_TOKEN="change-me"
-python tools/webhook_receiver.py
+.\tools\start_webhook_receiver.ps1 -Token "change-me"
 ```
 
 Then use the same token in `config/webhook.lua`:
