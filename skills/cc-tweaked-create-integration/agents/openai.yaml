@@ -1,4 +1,4 @@
 interface:
   display_name: "CC:Tweaked Create Integration"
-  short_description: "Build CC:Tweaked automation for Create"
-  default_prompt: "Use $cc-tweaked-create-integration to plan and implement CC:Tweaked automation against Create peripherals."
+  short_description: "Build CC:Tweaked automation for Create and Advanced Peripherals"
+  default_prompt: "Use $cc-tweaked-create-integration to plan and implement CC:Tweaked automation against Create and Advanced Peripherals."

@@ -4,21 +4,7 @@ Use this when the task involves mod-stack blocks beyond base CC:Tweaked and base
 
 ## Advanced Peripherals
 
-Main docs: https://docs.advanced-peripherals.de/
-
-Useful pages:
-
-- Inventory Manager: https://docs.advanced-peripherals.de/0.7/peripherals/inventory_manager/
-- Redstone Integrator: https://docs.advanced-peripherals.de/0.7/peripherals/redstone_integrator/
-- ME Bridge: https://docs.advanced-peripherals.de/0.7/peripherals/me_bridge/
-- RS Bridge: https://docs.advanced-peripherals.de/0.7/peripherals/rs_bridge/
-
-Notes:
-
-- Inventory Manager is for player inventory integration, not normal chest-to-chest movement. It requires a bound memory card.
-- The Inventory Manager peripheral name changed around 1.21.1 from `inventoryManager` to `inventory_manager`; detect by type rather than hard-coding.
-- Redstone Integrator was superseded by CC:Tweaked's `redstone_relay` in newer versions. Prefer `redstone_relay` when both exist.
-- ME/RS bridges are high-value for storage systems. Keep their usage behind an adapter so the base Create/inventory logic does not require AE2 or Refined Storage.
+Read `advanced-peripherals.md` for the dedicated API map. Advanced Peripherals is broad enough that it should not be handled from this add-on summary.
 
 ## CC:C Bridge
 

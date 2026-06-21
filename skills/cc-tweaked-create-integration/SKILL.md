@@ -20,7 +20,8 @@ Work from observed peripherals first. CC:Tweaked, Create, and add-ons vary by Mi
 2. Choose the relevant reference:
    - Core CC:Tweaked peripherals, inventory movement, redstone, modems, events, HTTP, turtles: `references/cc-tweaked-apis.md`.
    - Native Create CC:Tweaked peripherals for kinetics, trains, logistics, displays: `references/create-native-peripherals.md`.
-   - Optional add-ons such as Advanced Peripherals, CC:C Bridge, redstone-link bridges, Create: Simulated/Aeronautics, Create: Avionics: `references/addon-integrations.md`.
+   - Advanced Peripherals blocks, turtle upgrades, storage bridges, world sensors, Create integration surfaces, item/fluid filters, cooldowns, and memory-card ownership: `references/advanced-peripherals.md`.
+   - Other optional add-ons such as CC:C Bridge, redstone-link bridges, Create: Simulated/Aeronautics, Create: Avionics: `references/addon-integrations.md`.
    - Missing, stale, or incomplete docs; live probing; screenshot requests; player placement experiments: `references/live-discovery.md`.
    - Create schematic artifacts, blueprint handoff, Shulkr viewer links, material/placement notes: `references/schematics-and-visual-plans.md`.
 3. Probe the live world when behavior depends on block placement or mod version. Add or run a small program that captures `peripheral.getNames()`, all `peripheral.getType(name)` values, `peripheral.getMethods(name)`, redstone inputs, inventory summaries, and any target-specific method return values.
@@ -85,6 +86,7 @@ When docs are thin, stale, or inconsistent with the live pack, use `references/l
 ## Design Priorities
 
 - Inventory systems: prefer generic inventory peripherals and wired modem networks before turtle slot juggling. Track item names, counts, slot numbers, and NBT hashes when exact identity matters.
+- Advanced Peripherals: treat peripherals and turtle upgrades as optional capability layers. Detect by live type/method list first, then read `references/advanced-peripherals.md` before using Inventory Manager, ME/RS Bridge, Player/Environment/Geo tools, Chat Box, Colony Integrator, or AP Create integrations.
 - Redstone systems: prefer analog output for 0-15 control, `redstone_relay` for remote multi-side control, and Create Redstone Links for in-world wireless routing when direct peripheral control is not available.
 - Create kinetics: use native Create peripherals such as rotational speed controllers, sequenced gearshifts, speedometers, and stressometers when present. Fall back to redstone control only when no direct peripheral exists.
 - Create logistics: use Stock Ticker, Packager/Re-Packager, Redstone Requester, and Table Cloth docs when Create 6 logistics are in the pack; verify live methods because this surface is version-sensitive.
