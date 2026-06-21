@@ -266,6 +266,42 @@ Stop the standalone stack:
 docker compose -f docker-compose.webhook-proxy.yml down
 ```
 
+## Using The MediaServer Proxy
+
+If your existing MediaServer Nginx Proxy Manager is already running and has working SSL, use this mode instead of the standalone proxy stack.
+
+Start only the webhook receiver and attach it to the MediaServer proxy network:
+
+```powershell
+$env:CC_WEBHOOK_TOKEN="change-me"
+docker compose -f docker-compose.webhook-mediaserver.yml up -d --build
+```
+
+In the MediaServer Nginx Proxy Manager, create a proxy host:
+
+```text
+Domain: cc-webhook.transcenders.online
+Scheme: http
+Forward Hostname/IP: cc-webhook
+Forward Port: 8765
+Block Common Exploits: on
+Websockets Support: off
+```
+
+Then use the same SSL settings as your other working hosts.
+
+Test the container network from the Nginx Proxy Manager container:
+
+```powershell
+docker exec npm getent hosts cc-webhook
+```
+
+Stop only the webhook receiver:
+
+```powershell
+docker compose -f docker-compose.webhook-mediaserver.yml down
+```
+
 On the ComputerCraft computer, copy the example config:
 
 ```text
