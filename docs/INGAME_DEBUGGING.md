@@ -218,42 +218,13 @@ python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method print
 
 `report run <command>` already captures output from commands that write through the ComputerCraft terminal API while they run under the report wrapper.
 
-Common shell commands are installed as root-level reporting shims:
-
-```text
-ls
-dir
-list
-cd
-rm
-del
-delete
-cp
-copy
-mv
-move
-mkdir
-id
-```
-
-Each shim calls `ccwrap`, mirrors output to the terminal, and sends the same output to the webhook.
-
 Example:
 
 ```text
-ls
+report run list
 ```
 
-Interactive commands such as `edit` are intentionally not wrapped.
-
-This shim approach:
-
-- captures commands typed normally into the shell
-- preserves commands such as `cd` because the real ROM program still runs
-- does not capture programs that bypass the ComputerCraft terminal API
-- depends on the root directory being in the ComputerCraft shell path
-
-Use `report run ...` for one-off explicit captures and the command shims for normal shell use.
+Interactive commands such as `edit` should be run directly in-game, not through `report run`.
 
 To check what the shell will resolve:
 

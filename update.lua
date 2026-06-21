@@ -12,30 +12,34 @@ local updaterUrl = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. 
 local files = {
   "startup.lua",
   "ccwrap.lua",
-  "cd",
-  "copy",
-  "cp",
-  "del",
-  "delete",
-  "dir",
-  "id",
   "main.lua",
   "inventory_example.lua",
   "path_check.lua",
   "reset_project.lua",
-  "list",
-  "ls",
-  "mkdir",
-  "move",
-  "mv",
   "report.lua",
-  "rm",
   "wrap_commands.lua",
   "config/webhook.example.lua",
   "lib/diagnostics.lua",
   "lib/inventory_tools.lua",
   "lib/logger.lua",
   "lib/reporter.lua",
+}
+
+local staleFiles = {
+  "/.wrap_commands_enabled",
+  "/cd",
+  "/copy",
+  "/cp",
+  "/del",
+  "/delete",
+  "/dir",
+  "/id",
+  "/list",
+  "/ls",
+  "/mkdir",
+  "/move",
+  "/mv",
+  "/rm",
 }
 
 local args = { ... }
@@ -133,6 +137,13 @@ if selfUpdate() then
 end
 
 print("Updating from " .. githubUser .. "/" .. githubRepo .. " (" .. branch .. ")")
+
+for _, path in ipairs(staleFiles) do
+  if fs.exists(path) then
+    print("Removing stale " .. path)
+    fs.delete(path)
+  end
+end
 
 for _, path in ipairs(files) do
   downloadFile(path)

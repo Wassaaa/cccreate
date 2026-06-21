@@ -25,8 +25,6 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 +-- src/
 |   +-- startup.lua
 |   +-- ccwrap.lua
-|   +-- ls
-|   +-- cd
 |   +-- main.lua
 |   +-- inventory_example.lua
 |   +-- report.lua
@@ -60,7 +58,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `src/` contains files that are installed on the ComputerCraft computer.
 - `update.lua` downloads the latest `src/` files from GitHub.
 - `report` sends in-game diagnostics to the webhook.
-- `ccwrap` and root command shims can report common shell command output automatically.
+- `report run <command>` captures command output explicitly when debugging.
 - `inventory_example` demonstrates reading and moving between the bottom and back inventories.
 - `tools/webhook_receiver.py` receives reports and writes them into `inbox/`.
 - `docker-compose.webhook-proxy.yml` runs the webhook, Nginx Proxy Manager, and Cloudflare DDNS.
@@ -237,7 +235,7 @@ Send one command and immediately capture the result:
 .\tools\cc_send_and_capture.ps1 "ls"
 ```
 
-Common in-game shell commands such as `ls`, `cd`, `rm`, `cp`, `mv`, `mkdir`, and `id` are installed as reporting shims.
+Use `report run <command>` when you want command output sent to the webhook.
 
 Reports are saved to:
 

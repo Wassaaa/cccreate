@@ -1,97 +1,28 @@
-local commandMap = {
-  cd = "/rom/programs/cd.lua",
-  cp = "/rom/programs/copy.lua",
-  copy = "/rom/programs/copy.lua",
-  del = "/rom/programs/delete.lua",
-  delete = "/rom/programs/delete.lua",
-  dir = "/rom/programs/list.lua",
-  id = "/rom/programs/id.lua",
-  list = "/rom/programs/list.lua",
-  ls = "/rom/programs/list.lua",
-  mkdir = "/rom/programs/mkdir.lua",
-  move = "/rom/programs/move.lua",
-  mv = "/rom/programs/move.lua",
-  rm = "/rom/programs/delete.lua",
-}
-
 local flagPath = "/.wrap_commands_enabled"
 
-local args = { ... }
-local command = args[1] or "status"
+local staleAliases = {
+  "cd",
+  "cp",
+  "copy",
+  "del",
+  "delete",
+  "dir",
+  "id",
+  "list",
+  "ls",
+  "mkdir",
+  "move",
+  "mv",
+  "rm",
+}
 
-local function exists(path)
-  return fs.exists(path)
+for _, alias in ipairs(staleAliases) do
+  shell.clearAlias(alias)
 end
 
-local function install()
-  local currentPath = shell.path()
-  local hasRoot = false
-
-  for entry in string.gmatch(currentPath, "[^:]+") do
-    if entry == "/" then
-      hasRoot = true
-      break
-    end
-  end
-
-  if not hasRoot then
-    shell.setPath("/:" .. currentPath)
-    print("Added / to shell path")
-  end
-
-  for alias, target in pairs(commandMap) do
-    if exists(target) then
-      shell.setAlias(alias, "ccwrap " .. target)
-      print("Wrapped " .. alias .. " -> " .. target)
-    else
-      print("Skipped " .. alias .. ": missing " .. target)
-    end
-  end
+if fs.exists(flagPath) then
+  fs.delete(flagPath)
 end
 
-local function uninstall()
-  for alias, _ in pairs(commandMap) do
-    shell.clearAlias(alias)
-    print("Cleared " .. alias)
-  end
-end
-
-local function setEnabled(enabled)
-  if enabled then
-    local handle = fs.open(flagPath, "w")
-    if handle then
-      handle.write("true")
-      handle.close()
-    end
-    print("Command wrapping will be installed on startup.")
-    install()
-  else
-    if fs.exists(flagPath) then
-      fs.delete(flagPath)
-    end
-    print("Command wrapping disabled for future startups.")
-    uninstall()
-  end
-end
-
-local function status()
-  print("Startup enabled: " .. tostring(fs.exists(flagPath)))
-  print("Shell path: " .. shell.path())
-  for alias, target in pairs(commandMap) do
-    print(alias .. " -> " .. tostring(shell.aliases()[alias]) .. " (target " .. target .. ")")
-  end
-end
-
-if command == "enable" then
-  setEnabled(true)
-elseif command == "disable" then
-  setEnabled(false)
-elseif command == "install" then
-  install()
-elseif command == "uninstall" then
-  uninstall()
-elseif command == "status" then
-  status()
-else
-  print("Usage: wrap_commands enable|disable|install|uninstall|status")
-end
+print("Command wrapping is disabled.")
+print("Use report run <command> for captured command output.")
