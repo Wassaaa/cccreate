@@ -1,0 +1,19 @@
+# VS Code
+.vscode/
+
+# Lua language servers and tools
+.luarc.json
+
+# ComputerCraft local emulator data
+.craftos/
+computer/
+disk/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db
