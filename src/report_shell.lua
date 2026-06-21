@@ -7,6 +7,11 @@ local aliases = {
   ls = "/rom/programs/list.lua",
 }
 
+local normalAliases = {
+  dir = "/rom/programs/list.lua",
+  ls = "/rom/programs/list.lua",
+}
+
 local args = { ... }
 local command = args[1] or "status"
 
@@ -47,6 +52,11 @@ local function disable()
 
   if fs.exists(wrapperDir) then
     fs.delete(wrapperDir)
+  end
+
+  for alias, target in pairs(normalAliases) do
+    shell.setAlias(alias, target)
+    print("Restored " .. alias)
   end
 
   print("Report-only shell aliases disabled.")

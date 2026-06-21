@@ -51,6 +51,11 @@ local temporaryAliases = {
   "ls",
 }
 
+local normalAliases = {
+  dir = "/rom/programs/list.lua",
+  ls = "/rom/programs/list.lua",
+}
+
 local args = { ... }
 local skipSelfUpdate = args[1] == "--no-self-update"
 
@@ -152,6 +157,11 @@ for _, alias in ipairs(temporaryAliases) do
     print("Clearing temporary alias " .. alias)
     shell.clearAlias(alias)
   end
+end
+
+for alias, target in pairs(normalAliases) do
+  print("Restoring normal alias " .. alias)
+  shell.setAlias(alias, target)
 end
 
 for _, path in ipairs(staleFiles) do
