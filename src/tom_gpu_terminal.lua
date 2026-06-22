@@ -37,7 +37,7 @@ local function usage()
   print("  --keyboard-prefixed    map tm_keyboard_* events into key/char")
   print("  --keyboard-none        do not configure or map keyboard events")
   print("  --size <pixels>        per-block monitor size, default 64")
-  print("  --scale <n>            terminal text scale, default 1")
+  print("  --scale <n>            terminal text scale, default 1; try 0.5 or 0.25")
 end
 
 local function readNumber(value, name)
@@ -161,6 +161,11 @@ local function parseArgs(args)
       i = i + 2
     elseif arg == "--scale" then
       config.scale = readNumber(args[i + 1], "--scale")
+
+      if config.scale <= 0 then
+        error("--scale must be greater than zero", 0)
+      end
+
       i = i + 2
     else
       config.mode = "run"
@@ -272,6 +277,10 @@ local function prepareGpu(gpu)
   return width, height
 end
 
+local function charSize(scale)
+  return math.max(1, math.ceil(scale * 6)), math.max(1, math.ceil(scale * 9))
+end
+
 local function matchesPeripheral(filter, peripheralName)
   return filter == nil or filter == "any" or filter == peripheralName
 end
@@ -370,8 +379,9 @@ end
 local gpu, source = wrapGpu()
 local keyboard, keyboardSource = wrapKeyboard()
 local pixelWidth, pixelHeight = prepareGpu(gpu)
-local termWidth = math.floor(pixelWidth / (6 * config.scale))
-local termHeight = math.floor(pixelHeight / (9 * config.scale))
+local charWidth, charHeight = charSize(config.scale)
+local termWidth = math.floor(pixelWidth / charWidth)
+local termHeight = math.floor(pixelHeight / charHeight)
 
 if termWidth < 5 or termHeight < 3 then
   error("Monitor is too small for scale " .. config.scale .. ": " .. termWidth .. "x" .. termHeight, 0)

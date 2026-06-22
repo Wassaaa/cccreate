@@ -281,10 +281,12 @@ Tom's Peripherals GPU terminal:
 tom_keyboard_probe prefixed 20
 tom_gpu_terminal demo
 tom_gpu_terminal multishell
+tom_gpu_terminal shell --scale 0.5
+tom_gpu_terminal shell --scale 0.25
 tom_gpu_terminal run requester_test status
 ```
 
-Defaults are router GPU coordinates `-1 1 0`, router keyboard coordinates `-3 0 -2`, monitor block resolution `64`, and terminal text scale `1`. A 2x2 bitmap monitor is about `128x128` pixels, which gives roughly a `21x14` character terminal. With a router-wrapped keyboard, Tom's keyboard events report from the router side, such as `back`; the terminal runner detects that side automatically.
+Defaults are router GPU coordinates `-1 1 0`, router keyboard coordinates `-3 0 -2`, monitor block resolution `64`, and terminal text scale `1`. A 2x2 bitmap monitor is about `128x128` pixels, which gives roughly a `21x14` character terminal at scale `1`, about `42x25` at scale `0.5`, and about `64x42` at scale `0.25`. With a router-wrapped keyboard, Tom's keyboard events report from the router side, such as `back`; the terminal runner detects that side automatically.
 
 Read the latest report on this PC:
 

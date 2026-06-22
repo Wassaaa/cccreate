@@ -73,8 +73,8 @@ local function normalizeOptions(options)
   options = options or {}
 
   local scale = tonumber(options.scale) or 1
-  if scale < 1 then
-    scale = 1
+  if scale <= 0 then
+    error("scale must be greater than zero", 2)
   end
 
   return {
@@ -92,8 +92,8 @@ function gpuTerm.create(gpu, options)
   end
 
   local config = normalizeOptions(options)
-  local charW = config.scale * 6
-  local charH = config.scale * 9
+  local charW = math.max(1, math.ceil(config.scale * 6))
+  local charH = math.max(1, math.ceil(config.scale * 9))
   local cursorX = 1
   local cursorY = 1
   local cursorBlink = false
@@ -155,7 +155,7 @@ function gpuTerm.create(gpu, options)
       local textWidth = charW
 
       if type(gpu.getTextLength) == "function" then
-        local ok, width = pcall(gpu.getTextLength, cell.char)
+        local ok, width = pcall(gpu.getTextLength, cell.char, config.scale)
         if ok and type(width) == "number" then
           textWidth = width
         end
@@ -189,7 +189,7 @@ function gpuTerm.create(gpu, options)
     local py = (cursorY - 1) * charH + charH
     local fg = config.palette[textColor] or config.palette[colors.white]
 
-    gpu.filledRectangle(px, py, math.max(1, charW - 1), config.scale, fg)
+    gpu.filledRectangle(px, py, math.max(1, charW - 1), math.max(1, math.ceil(config.scale)), fg)
     cursorDrawn = true
     cursorDrawnX = cursorX
     cursorDrawnY = cursorY
