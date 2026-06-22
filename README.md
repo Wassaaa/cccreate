@@ -28,6 +28,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- main.lua
 |   +-- inventory_example.lua
 |   +-- ap_inventory_manager_test.lua
+|   +-- tom_gpu_terminal.lua
 |   +-- requester_test.lua
 |   +-- report.lua
 |   +-- report_shell.lua
@@ -41,6 +42,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |       +-- inventory_tools.lua
 |       +-- logger.lua
 |       +-- reporter.lua
+|       +-- tom_gpu_term.lua
 +-- docs/
 |   +-- INGAME_DEBUGGING.md
 +-- tools/
@@ -70,6 +72,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `inventory_example` demonstrates reading and moving between the bottom and back inventories.
 - `ap_inventory_manager_test` probes and tests Advanced Peripherals Inventory Manager player transfers.
 - `requester_test` probes a Create Redstone Requester and can request sample items to address `out`.
+- `tom_gpu_terminal` runs a small terminal adapter on Tom's Peripherals GPU monitors.
 - `tools/webhook_receiver.py` receives reports and writes them into `inbox/`.
 - `tools/report_viewer.py` serves a live human-readable report viewer for `inbox/`.
 - `docker-compose.webhook-proxy.yml` runs the webhook, Nginx Proxy Manager, and Cloudflare DDNS.
@@ -271,6 +274,16 @@ requester_test request out 1 3 bottom
 requester_test craft-preview crafter 1 minecraft:oak_planks minecraft:oak_planks - minecraft:oak_planks minecraft:oak_planks
 requester_test craft crafter 1 minecraft:oak_planks minecraft:oak_planks - minecraft:oak_planks minecraft:oak_planks
 ```
+
+Tom's Peripherals GPU terminal:
+
+```text
+tom_gpu_terminal demo
+tom_gpu_terminal multishell
+tom_gpu_terminal run requester_test status
+```
+
+Defaults are router GPU coordinates `-1 1 0`, router keyboard coordinates `-3 1 -1`, monitor block resolution `64`, and terminal text scale `1`. A 2x2 bitmap monitor is about `128x128` pixels, which gives roughly a `21x14` character terminal.
 
 Read the latest report on this PC:
 
