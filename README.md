@@ -49,6 +49,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- cc_send_and_capture.ps1
 |   +-- minecraft_send.py
 |   +-- minecraft_screenshot.py
+|   +-- report_viewer.py
 |   +-- webhook_receiver.py
 +-- Dockerfile.webhook
 +-- docker-compose.webhook-proxy.yml
@@ -70,6 +71,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `ap_inventory_manager_test` probes and tests Advanced Peripherals Inventory Manager player transfers.
 - `requester_test` probes a Create Redstone Requester and can request sample items to address `out`.
 - `tools/webhook_receiver.py` receives reports and writes them into `inbox/`.
+- `tools/report_viewer.py` serves a live human-readable report viewer for `inbox/`.
 - `docker-compose.webhook-proxy.yml` runs the webhook, Nginx Proxy Manager, and Cloudflare DDNS.
 
 ## Python Tooling
@@ -87,6 +89,7 @@ Run Python helpers through `uv run`:
 ```powershell
 uv run python tools/minecraft_send.py --title "Minecraft" update
 uv run python tools/minecraft_screenshot.py --title "Minecraft NeoForge" --method screen
+uv run python tools/report_viewer.py
 uv run python tools/webhook_receiver.py
 ```
 
@@ -266,6 +269,18 @@ Read the latest report on this PC:
 
 ```powershell
 .\tools\read_latest_report.ps1
+```
+
+Open a live human-readable report viewer:
+
+```powershell
+uv run python tools/report_viewer.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8786
 ```
 
 Optionally send commands to the Minecraft window from this PC:

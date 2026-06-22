@@ -38,6 +38,14 @@ report
 .\tools\read_latest_report.ps1
 ```
 
+For a live human-readable report view:
+
+```powershell
+uv run python tools/report_viewer.py
+```
+
+Open `http://127.0.0.1:8786`.
+
 6. For command-specific debugging, run:
 
 ```text
