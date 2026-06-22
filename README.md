@@ -278,6 +278,7 @@ requester_test craft crafter 1 minecraft:oak_planks minecraft:oak_planks - minec
 Tom's Peripherals GPU terminal:
 
 ```text
+tom_keyboard_probe prefixed 20
 tom_gpu_terminal demo
 tom_gpu_terminal multishell
 tom_gpu_terminal run requester_test status

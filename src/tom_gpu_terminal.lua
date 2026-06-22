@@ -179,30 +179,6 @@ local function wrapGpu()
   error("No Tom's GPU found. Try --direct <name> or --router <x> <y> <z>.", 0)
 end
 
-local function wrapKeyboard()
-  if config.keyboardRouter then
-    local router = peripheral.find("peripheral_router")
-
-    if router and type(router.wrap) == "function" then
-      local ok, keyboard = pcall(router.wrap, config.keyboardRouterX, config.keyboardRouterY, config.keyboardRouterZ)
-
-      if ok and keyboard then
-        return keyboard, "router(" .. config.keyboardRouterX .. "," .. config.keyboardRouterY .. "," .. config.keyboardRouterZ .. ")"
-      end
-    end
-  end
-
-  if config.keyboardDirect then
-    local keyboard = peripheral.wrap(config.keyboardDirect)
-
-    if keyboard then
-      return keyboard, config.keyboardDirect
-    end
-  end
-
-  return nil, nil
-end
-
 local function callIfPresent(object, method, ...)
   if type(object[method]) ~= "function" then
     return nil
@@ -215,6 +191,32 @@ local function callIfPresent(object, method, ...)
   end
 
   return nil
+end
+
+local function wrapKeyboard()
+  if config.keyboardRouter then
+    local router = peripheral.find("peripheral_router")
+
+    if router and type(router.wrap) == "function" then
+      local ok, keyboard = pcall(router.wrap, config.keyboardRouterX, config.keyboardRouterY, config.keyboardRouterZ)
+
+      if ok and keyboard then
+        callIfPresent(keyboard, "setFireNativeEvents", false)
+        return keyboard, "router(" .. config.keyboardRouterX .. "," .. config.keyboardRouterY .. "," .. config.keyboardRouterZ .. ")"
+      end
+    end
+  end
+
+  if config.keyboardDirect then
+    local keyboard = peripheral.wrap(config.keyboardDirect)
+
+    if keyboard then
+      callIfPresent(keyboard, "setFireNativeEvents", false)
+      return keyboard, config.keyboardDirect
+    end
+  end
+
+  return nil, nil
 end
 
 local function prepareGpu(gpu)
@@ -262,6 +264,10 @@ local function pipeEvents(terminal)
       os.queueEvent("key_up", x)
     elseif event == "tm_keyboard_char" and matchesPeripheral(config.keyboard, peripheralName) then
       os.queueEvent("char", x)
+    elseif event == "tm_keyboard_paste" and matchesPeripheral(config.keyboard, peripheralName) then
+      os.queueEvent("paste", x)
+    elseif event == "tm_keyboard_terminate" and matchesPeripheral(config.keyboard, peripheralName) then
+      os.queueEvent("terminate")
     end
   end
 end

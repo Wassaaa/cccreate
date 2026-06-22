@@ -15,6 +15,7 @@ local files = {
   "main.lua",
   "inventory_example.lua",
   "ap_inventory_manager_test.lua",
+  "tom_keyboard_probe.lua",
   "tom_gpu_terminal.lua",
   "requester_test.lua",
   "path_check.lua",
