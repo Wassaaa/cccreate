@@ -73,18 +73,30 @@ function TerminalEmu.create(gpu, syncFun, width, height, colorMode, scale, useCu
   local charWh = charW / 2 + 1
   local charH = scale * 9
 
+  local function color_name(color)
+    if type(color) == "number" then
+      return inverted_colors[color]
+    end
+
+    return color
+  end
+
+  local function palette_color(color, fallback)
+    return palette[color_name(color)] or palette[fallback] or colorTable[fallback] or colorTable.black
+  end
+
   local function set_character_default(term_x, term_y, fg, bg, char)
     local s = gpu.getTextLength(char)
-    gpu.filledRectangle((term_x - 1) * charW + 1, (term_y - 1) * charH + 1, charW, charH, palette[bg])
+    gpu.filledRectangle((term_x - 1) * charW + 1, (term_y - 1) * charH + 1, charW, charH, palette_color(bg, "black"))
     if char ~= " " then
-      gpu.drawText((term_x - 1) * charW + charWh - (s / 2), (term_y - 1) * charH + 1, char, palette[fg], -1, scale)
+      gpu.drawText((term_x - 1) * charW + charWh - (s / 2), (term_y - 1) * charH + 1, char, palette_color(fg, "white"), -1, scale)
     end
   end
 
   local function set_character_font(term_x, term_y, fg, bg, char)
-    gpu.filledRectangle((term_x - 1) * charW + 1, (term_y - 1) * charH + 1, charW, charH, palette[bg])
+    gpu.filledRectangle((term_x - 1) * charW + 1, (term_y - 1) * charH + 1, charW, charH, palette_color(bg, "black"))
     if char ~= " " then
-      gpu.drawChar((term_x - 1) * charW + 1, (term_y - 1) * charH + 1, char:byte(), palette[fg], -1, scale)
+      gpu.drawChar((term_x - 1) * charW + 1, (term_y - 1) * charH + 1, char:byte(), palette_color(fg, "white"), -1, scale)
     end
   end
 
@@ -95,7 +107,7 @@ function TerminalEmu.create(gpu, syncFun, width, height, colorMode, scale, useCu
   end
   
   local function clear_screen(bg)
-    local co = palette[bg]
+    local co = palette_color(bg, "black")
     if not co then
       error ("Invalid color input: "..bg)
     end
@@ -426,7 +438,7 @@ function TerminalEmu.create(gpu, syncFun, width, height, colorMode, scale, useCu
       for y = 1, size.y do
         for x = 1, size.x do
           local char = new_buffer[y][x]
-          set_character(x, y, inverted_colors[char.fg], inverted_colors[char.bg], char.char)
+          set_character(x, y, char.fg, char.bg, char.char)
         end
         syncFun()
       end
@@ -570,7 +582,7 @@ function TerminalEmu.create(gpu, syncFun, width, height, colorMode, scale, useCu
       if lastCurOn and (switchVis or lastCurX ~= cursor_x or lastCurY ~= cursor_y) then
         eraseCursor()
         --(term_x - 1) * 8 + 1, (term_y - 1) * 10 + 1, 8, 10
-        gpu.filledRectangle((cursor_x - 1) * charW + 1, (cursor_y - 1) * charH + scale * 8, scale * 5, scale, palette[inverted_colors[text_color]])
+        gpu.filledRectangle((cursor_x - 1) * charW + 1, (cursor_y - 1) * charH + scale * 8, scale * 5, scale, palette_color(text_color, "white"))
         lastCurX = cursor_x
         lastCurY = cursor_y
         syncFun()
