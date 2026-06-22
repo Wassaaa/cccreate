@@ -15,8 +15,9 @@ local config = {
   keyboardRouter = true,
   keyboardRouterX = -3,
   keyboardRouterY = 0,
-  keyboardRouterZ = -1,
+  keyboardRouterZ = -2,
   keyboardDirect = nil,
+  keyboardMode = "native",
   resolution = 64,
   scale = 1,
   program = nil,
@@ -29,9 +30,12 @@ local function usage()
   print("  --router <x> <y> <z>   default: -1 1 0")
   print("  --direct <name>        wrap GPU directly instead of router")
   print("  --gpu-event <name>     only map monitor events from this id")
-  print("  --keyboard <name>      only map keyboard events from this id")
-  print("  --keyboard-router <x> <y> <z>  default: -3 0 -1")
+  print("  --keyboard <name>      only map keyboard events from this source")
+  print("  --keyboard-router <x> <y> <z>  default: -3 0 -2")
   print("  --keyboard-direct <name>")
+  print("  --keyboard-native      use Tom native key/char events, default")
+  print("  --keyboard-prefixed    map tm_keyboard_* events into key/char")
+  print("  --keyboard-none        do not configure or map keyboard events")
   print("  --size <pixels>        per-block monitor size, default 64")
   print("  --scale <n>            terminal text scale, default 1")
 end
@@ -134,6 +138,24 @@ local function parseArgs(args)
 
       config.keyboard = config.keyboardDirect
       i = i + 2
+    elseif arg == "--keyboard-native" then
+      config.keyboardMode = "native"
+      i = i + 1
+    elseif arg == "--keyboard-prefixed" then
+      config.keyboardMode = "prefixed"
+      i = i + 1
+    elseif arg == "--keyboard-none" then
+      config.keyboardMode = "none"
+      i = i + 1
+    elseif arg == "--keyboard-mode" then
+      local mode = args[i + 1]
+
+      if mode ~= "native" and mode ~= "prefixed" and mode ~= "none" then
+        error("--keyboard-mode must be native, prefixed, or none", 0)
+      end
+
+      config.keyboardMode = mode
+      i = i + 2
     elseif arg == "--size" then
       config.resolution = readNumber(args[i + 1], "--size")
       i = i + 2
@@ -195,14 +217,24 @@ end
 
 local function wrapKeyboard()
   if config.keyboardRouter then
-    local router = peripheral.find("peripheral_router")
+    local router, routerName = peripheral.find("peripheral_router")
 
     if router and type(router.wrap) == "function" then
       local ok, keyboard = pcall(router.wrap, config.keyboardRouterX, config.keyboardRouterY, config.keyboardRouterZ)
 
       if ok and keyboard then
-        callIfPresent(keyboard, "setFireNativeEvents", false)
-        return keyboard, "router(" .. config.keyboardRouterX .. "," .. config.keyboardRouterY .. "," .. config.keyboardRouterZ .. ")"
+        if config.keyboardMode == "native" then
+          callIfPresent(keyboard, "setFireNativeEvents", true)
+        elseif config.keyboardMode == "prefixed" then
+          callIfPresent(keyboard, "setFireNativeEvents", false)
+        end
+
+        if config.keyboardMode == "prefixed" and config.keyboard == nil and routerName then
+          config.keyboard = routerName
+        end
+
+        return keyboard,
+          "router(" .. config.keyboardRouterX .. "," .. config.keyboardRouterY .. "," .. config.keyboardRouterZ .. ")"
       end
     end
   end
@@ -211,7 +243,12 @@ local function wrapKeyboard()
     local keyboard = peripheral.wrap(config.keyboardDirect)
 
     if keyboard then
-      callIfPresent(keyboard, "setFireNativeEvents", false)
+      if config.keyboardMode == "native" then
+        callIfPresent(keyboard, "setFireNativeEvents", true)
+      elseif config.keyboardMode == "prefixed" then
+        callIfPresent(keyboard, "setFireNativeEvents", false)
+      end
+
       return keyboard, config.keyboardDirect
     end
   end
@@ -258,15 +295,15 @@ local function pipeEvents(terminal)
       queueMouse("mouse_drag", extra, terminal.mapPixel(x, y))
     elseif event == "tm_monitor_mouse_scroll" and matchesPeripheral(config.gpuEvent, peripheralName) then
       queueMouse("mouse_scroll", extra, terminal.mapPixel(x, y))
-    elseif event == "tm_keyboard_key" and matchesPeripheral(config.keyboard, peripheralName) then
+    elseif config.keyboardMode == "prefixed" and event == "tm_keyboard_key" and matchesPeripheral(config.keyboard, peripheralName) then
       os.queueEvent("key", x, y)
-    elseif event == "tm_keyboard_key_up" and matchesPeripheral(config.keyboard, peripheralName) then
+    elseif config.keyboardMode == "prefixed" and event == "tm_keyboard_key_up" and matchesPeripheral(config.keyboard, peripheralName) then
       os.queueEvent("key_up", x)
-    elseif event == "tm_keyboard_char" and matchesPeripheral(config.keyboard, peripheralName) then
+    elseif config.keyboardMode == "prefixed" and event == "tm_keyboard_char" and matchesPeripheral(config.keyboard, peripheralName) then
       os.queueEvent("char", x)
-    elseif event == "tm_keyboard_paste" and matchesPeripheral(config.keyboard, peripheralName) then
+    elseif config.keyboardMode == "prefixed" and event == "tm_keyboard_paste" and matchesPeripheral(config.keyboard, peripheralName) then
       os.queueEvent("paste", x)
-    elseif event == "tm_keyboard_terminate" and matchesPeripheral(config.keyboard, peripheralName) then
+    elseif config.keyboardMode == "prefixed" and event == "tm_keyboard_terminate" and matchesPeripheral(config.keyboard, peripheralName) then
       os.queueEvent("terminate")
     end
   end
@@ -290,6 +327,8 @@ local function runDemo(source, keyboardSource, pixelWidth, pixelHeight, termWidt
   print("Tom GPU terminal")
   print("source: " .. source)
   print("keyboard: " .. (keyboardSource or "computer"))
+  print("key mode: " .. config.keyboardMode)
+  print("key events: " .. (config.keyboard or "any"))
   print("pixels: " .. pixelWidth .. "x" .. pixelHeight)
   print("chars: " .. termWidth .. "x" .. termHeight)
   print("")

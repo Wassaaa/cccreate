@@ -7,14 +7,14 @@ local config = {
   router = true,
   routerX = -3,
   routerY = 0,
-  routerZ = -1,
+  routerZ = -2,
   direct = nil,
 }
 
 local function usage()
   print("tom_keyboard_probe [prefixed|native|observe] [seconds]")
   print("Options:")
-  print("  --router <x> <y> <z>  default: -3 0 -1")
+  print("  --router <x> <y> <z>  default: -3 0 -2")
   print("  --direct <name>")
   print("")
   print("prefixed: setFireNativeEvents(false), expects tm_keyboard_*")
@@ -189,18 +189,18 @@ while true do
   end
 
   if event == "key"
-    or event == "key_up"
-    or event == "char"
-    or event == "paste"
-    or event == "tm_keyboard_key"
-    or event == "tm_keyboard_key_up"
-    or event == "tm_keyboard_char"
-    or event == "tm_keyboard_paste"
-    or event == "tm_keyboard_terminate"
-    or event == "portable_connect"
-    or event == "portable_disconnect"
-    or event == "tm_keyboard_portable_connect"
-    or event == "tm_keyboard_portable_disconnect" then
+      or event == "key_up"
+      or event == "char"
+      or event == "paste"
+      or event == "tm_keyboard_key"
+      or event == "tm_keyboard_key_up"
+      or event == "tm_keyboard_char"
+      or event == "tm_keyboard_paste"
+      or event == "tm_keyboard_terminate"
+      or event == "portable_connect"
+      or event == "portable_disconnect"
+      or event == "tm_keyboard_portable_connect"
+      or event == "tm_keyboard_portable_disconnect" then
     count = count + 1
     printEvent(values)
   end
