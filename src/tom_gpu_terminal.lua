@@ -14,7 +14,7 @@ local config = {
   keyboard = nil,
   keyboardRouter = true,
   keyboardRouterX = -3,
-  keyboardRouterY = 1,
+  keyboardRouterY = 0,
   keyboardRouterZ = -1,
   keyboardDirect = nil,
   resolution = 64,
@@ -30,7 +30,7 @@ local function usage()
   print("  --direct <name>        wrap GPU directly instead of router")
   print("  --gpu-event <name>     only map monitor events from this id")
   print("  --keyboard <name>      only map keyboard events from this id")
-  print("  --keyboard-router <x> <y> <z>  default: -3 1 -1")
+  print("  --keyboard-router <x> <y> <z>  default: -3 0 -1")
   print("  --keyboard-direct <name>")
   print("  --size <pixels>        per-block monitor size, default 64")
   print("  --scale <n>            terminal text scale, default 1")
