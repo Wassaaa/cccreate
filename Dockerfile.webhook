@@ -3,10 +3,14 @@ FROM python:3.14-alpine
 WORKDIR /app
 
 COPY tools/webhook_receiver.py /app/tools/webhook_receiver.py
+COPY tools/report_viewer.py /app/tools/report_viewer.py
 
 ENV CC_WEBHOOK_HOST=0.0.0.0
 ENV CC_WEBHOOK_PORT=8765
+ENV CC_REPORT_VIEWER_HOST=0.0.0.0
+ENV CC_REPORT_VIEWER_PORT=8786
 
 EXPOSE 8765
+EXPOSE 8786
 
 CMD ["python", "tools/webhook_receiver.py"]

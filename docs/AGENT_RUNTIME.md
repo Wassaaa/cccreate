@@ -16,13 +16,13 @@ Read the latest in-game report:
 .\tools\read_latest_report.ps1
 ```
 
-Serve a live human-readable report viewer:
+The Docker stack serves a live human-readable report viewer at `http://127.0.0.1:8786`.
+
+Serve the same viewer directly without Docker:
 
 ```powershell
 uv run python tools\report_viewer.py
 ```
-
-Open `http://127.0.0.1:8786`.
 
 Send text to the background Minecraft window:
 

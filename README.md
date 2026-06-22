@@ -126,9 +126,10 @@ docker compose -f docker-compose.webhook-proxy.yml up -d --build
 The stack runs:
 
 ```text
-cc-webhook          Python report receiver
-cc-proxy            Nginx Proxy Manager
-cc-cloudflare-ddns  Cloudflare DNS updater
+cc-webhook         Python report receiver
+cc-report-viewer   live local report viewer
+cc-proxy           Nginx Proxy Manager
+cc-cloudflare-ddns Cloudflare DNS updater
 ```
 
 Open Nginx Proxy Manager:
@@ -160,6 +161,12 @@ Expected response:
 
 ```text
 ok
+```
+
+Local report viewer:
+
+```text
+http://127.0.0.1:8786
 ```
 
 Stop the stack:
@@ -271,16 +278,16 @@ Read the latest report on this PC:
 .\tools\read_latest_report.ps1
 ```
 
-Open a live human-readable report viewer:
-
-```powershell
-uv run python tools/report_viewer.py
-```
-
-Then open:
+Open a live human-readable report viewer from the Docker stack:
 
 ```text
 http://127.0.0.1:8786
+```
+
+You can also run the viewer directly without Docker:
+
+```powershell
+uv run python tools/report_viewer.py
 ```
 
 Optionally send commands to the Minecraft window from this PC:
