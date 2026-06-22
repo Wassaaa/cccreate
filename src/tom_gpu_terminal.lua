@@ -1,4 +1,5 @@
-local gpuTerm = require("lib.tom_gpu_term")
+local termEmu = require("lib.tom_term_emu")
+local termFont = require("lib.tom_cc_term_font")
 
 local unpackArgs = table.unpack or unpack
 local rawArgs = { ... }
@@ -18,6 +19,7 @@ local config = {
   keyboardRouterZ = -2,
   keyboardDirect = nil,
   keyboardMode = "native",
+  uploadFont = true,
   resolution = 64,
   scale = 1,
   program = nil,
@@ -36,8 +38,9 @@ local function usage()
   print("  --keyboard-native      use Tom native key/char events, default")
   print("  --keyboard-prefixed    map tm_keyboard_* events into key/char")
   print("  --keyboard-none        do not configure or map keyboard events")
+  print("  --no-font              use built-in GPU text instead of bitmap font")
   print("  --size <pixels>        per-block monitor size, default 64")
-  print("  --scale <n>            terminal text scale, default 1; try 0.5 or 0.25")
+  print("  --scale <n>            terminal text scale, default 1")
 end
 
 local function readNumber(value, name)
@@ -156,6 +159,9 @@ local function parseArgs(args)
 
       config.keyboardMode = mode
       i = i + 2
+    elseif arg == "--no-font" then
+      config.uploadFont = false
+      i = i + 1
     elseif arg == "--size" then
       config.resolution = readNumber(args[i + 1], "--size")
       i = i + 2
@@ -278,7 +284,7 @@ local function prepareGpu(gpu)
 end
 
 local function charSize(scale)
-  return math.max(1, math.ceil(scale * 6)), math.max(1, math.ceil(scale * 9))
+  return scale * 6, scale * 9
 end
 
 local function matchesPeripheral(filter, peripheralName)
@@ -338,11 +344,12 @@ local function runDemo(source, keyboardSource, pixelWidth, pixelHeight, termWidt
   print("keyboard: " .. (keyboardSource or "computer"))
   print("key mode: " .. config.keyboardMode)
   print("key events: " .. (config.keyboard or "any"))
+  print("font: " .. (config.uploadFont and "bitmap" or "gpu"))
   print("pixels: " .. pixelWidth .. "x" .. pixelHeight)
   print("chars: " .. termWidth .. "x" .. termHeight)
   print("")
   term.setTextColor(colors.lime)
-  print("No PNG font required.")
+  print(config.uploadFont and "Bitmap font loaded." or "Using built-in GPU font.")
   term.setTextColor(colors.yellow)
   print("Ctrl+T exits.")
   term.setTextColor(colors.white)
@@ -387,16 +394,23 @@ if termWidth < 5 or termHeight < 3 then
   error("Monitor is too small for scale " .. config.scale .. ": " .. termWidth .. "x" .. termHeight, 0)
 end
 
-local terminal = gpuTerm.create(gpu, {
-  width = termWidth,
-  height = termHeight,
-  scale = config.scale,
-  sync = function()
+if config.uploadFont then
+  termFont.upload(gpu)
+end
+
+local terminal = termEmu.create(
+  gpu,
+  function()
     callIfPresent(gpu, "sync")
   end,
-})
+  termWidth,
+  termHeight,
+  true,
+  config.scale,
+  config.uploadFont and "unicode_page_e0" or nil
+)
 
-terminal.autoUpdate()
+terminal.auto_update()
 
 local oldTerm = term.redirect(terminal.term)
 local ok, err = pcall(function()

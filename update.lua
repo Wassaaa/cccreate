@@ -25,7 +25,9 @@ local files = {
   "wrap_commands.lua",
   "config/webhook.example.lua",
   "lib/diagnostics.lua",
-  "lib/tom_gpu_term.lua",
+  "lib/tom_cc_term_font.lua",
+  "lib/tom_term_emu.lua",
+  { path = "lib/tom_term_font.png", binary = true },
   "lib/inventory_tools.lua",
   "lib/logger.lua",
   "lib/reporter.lua",
@@ -42,6 +44,7 @@ local staleFiles = {
   "/id",
   "/list",
   "/ls",
+  "/lib/tom_gpu_term.lua",
   "/mkdir",
   "/move",
   "/mv",
@@ -87,10 +90,10 @@ local function readFile(path)
   return contents
 end
 
-local function writeFile(path, contents)
+local function writeFile(path, contents, binary)
   ensureFolder(path)
 
-  local handle = fs.open(path, "w")
+  local handle = fs.open(path, binary and "wb" or "w")
   if not handle then
     error("Failed to open " .. path .. " for writing", 0)
   end
@@ -99,8 +102,8 @@ local function writeFile(path, contents)
   handle.close()
 end
 
-local function downloadText(url)
-  local response, errorMessage = http.get(url)
+local function download(url, binary)
+  local response, errorMessage = http.get(url, nil, binary)
   if not response then
     error("Failed to download " .. url .. ": " .. tostring(errorMessage), 0)
   end
@@ -109,6 +112,10 @@ local function downloadText(url)
   response.close()
 
   return contents
+end
+
+local function downloadText(url)
+  return download(url, false)
 end
 
 local function selfUpdate()
@@ -133,14 +140,22 @@ local function selfUpdate()
   return true
 end
 
-local function downloadFile(path)
+local function downloadFile(entry)
+  local path = entry
+  local binary = false
+
+  if type(entry) == "table" then
+    path = entry.path
+    binary = entry.binary
+  end
+
   local url = baseUrl .. path
   local targetPath = installPath(path)
 
   print("Downloading " .. path)
 
-  local contents = downloadText(url)
-  writeFile(targetPath, contents)
+  local contents = download(url, binary)
+  writeFile(targetPath, contents, binary)
 
   print("Updated " .. path)
 end
