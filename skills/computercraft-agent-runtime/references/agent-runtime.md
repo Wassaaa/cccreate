@@ -80,6 +80,10 @@ Use signed-off commits for repo changes:
 git commit -s -m "Describe the change"
 ```
 
+This repo is intended to be deployed through `origin/main`. After making a clean signed-off commit for a requested change, run `git push origin main` automatically unless the user explicitly asks not to.
+
+Before pushing, inspect the staged diff and status. Do not push secrets, tokens, `.env`, private local reports, unrelated user work, or bulky generated artifacts that are not part of the requested change.
+
 Before suggesting a raw GitHub `wget` command, make sure the referenced file is committed and pushed to the branch named in the URL. A local-only commit is not enough for `raw.githubusercontent.com` downloads.
 
 ## Report-Only Shell

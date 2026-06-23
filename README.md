@@ -221,6 +221,8 @@ git commit -s -m "Update ComputerCraft project"
 git push
 ```
 
+For agent-made changes in this repo, a clean signed-off commit should normally be pushed to `origin/main` immediately so in-game `update` and raw GitHub `wget` commands can see it. Check the diff first and do not push secrets, `.env`, private local reports, or unrelated files.
+
 Then in-game:
 
 ```text
