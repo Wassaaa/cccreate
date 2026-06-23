@@ -100,6 +100,16 @@ Good report contents:
 
 Avoid relying on terminal text for program errors when the program can call the reporter directly. The terminal has limited space and screenshots are harder to parse than JSON reports.
 
+## Git And Download Discipline
+
+Use signed-off commits for repo changes:
+
+```powershell
+git commit -s -m "Describe the change"
+```
+
+Before suggesting a raw GitHub `wget` command, make sure the referenced file is committed and pushed to the branch named in the URL. A local-only commit is not enough for `raw.githubusercontent.com` downloads.
+
 ## Webhook Stack
 
 The current endpoint is an HTTP webhook receiver, not a websocket:

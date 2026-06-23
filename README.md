@@ -217,7 +217,7 @@ After editing files:
 
 ```powershell
 git add .
-git commit -m "Update ComputerCraft project"
+git commit -s -m "Update ComputerCraft project"
 git push
 ```
 
