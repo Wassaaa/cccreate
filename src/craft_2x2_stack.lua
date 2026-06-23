@@ -1,5 +1,11 @@
-local INPUT = "minecraft:nether_brick"
-local OUTPUT = "minecraft:nether_bricks"
+local INPUT_ITEM = "minecraft:nether_brick"
+local OUTPUT_ITEM = "minecraft:nether_bricks"
+
+local DEFAULT_INPUT_INVENTORY = nil
+local DEFAULT_OUTPUT_INVENTORY = nil
+local TICK_SECONDS = 0.05
+
+local CRAFT_COUNT = 16
 local CRAFT_SLOTS = { 1, 2, 5, 6 }
 local OUTPUT_SLOT = 16
 
@@ -13,31 +19,79 @@ local function isInventory(name)
     and type(object.pullItems) == "function"
 end
 
-local function findInventory()
-  local inventories = {}
+local function inventoryNames()
+  local names = {}
 
   for _, name in ipairs(peripheral.getNames()) do
     if isInventory(name) then
-      table.insert(inventories, name)
+      table.insert(names, name)
     end
   end
 
-  if #inventories == 1 then
-    return inventories[1]
-  end
-
-  if #inventories == 0 then
-    error("No inventory found on the wired network", 0)
-  end
-
-  error("Multiple inventories found: " .. table.concat(inventories, ", ") .. ". Run with the inventory name.", 0)
+  table.sort(names)
+  return names
 end
 
-local chestName = args[1] or findInventory()
-local chest = peripheral.wrap(chestName) or error("No inventory named " .. chestName, 0)
+local function chooseInventory(prompt, names, exclude)
+  while true do
+    print(prompt)
+    for index, name in ipairs(names) do
+      if name ~= exclude then
+        print(index .. ": " .. name)
+      end
+    end
 
-if not isInventory(chestName) then
-  error(chestName .. " is not an inventory", 0)
+    write("> ")
+    local answer = read()
+    local index = tonumber(answer)
+
+    if index and names[index] and names[index] ~= exclude then
+      return names[index]
+    end
+
+    if isInventory(answer) and answer ~= exclude then
+      return answer
+    end
+
+    print("Choose one of the listed inventory names.")
+  end
+end
+
+local function selectInventories()
+  local inputName = args[1] or DEFAULT_INPUT_INVENTORY
+  local outputName = args[2] or DEFAULT_OUTPUT_INVENTORY
+  local names = inventoryNames()
+
+  if #names < 2 then
+    error("Need at least two wired inventories: one input and one output", 0)
+  end
+
+  if inputName and not isInventory(inputName) then
+    error("Input inventory not found: " .. inputName, 0)
+  end
+
+  if outputName and not isInventory(outputName) then
+    error("Output inventory not found: " .. outputName, 0)
+  end
+
+  if not inputName and not outputName and #names == 2 then
+    outputName = chooseInventory("Which inventory is output?", names)
+    inputName = names[1] == outputName and names[2] or names[1]
+  else
+    if not inputName then
+      inputName = chooseInventory("Which inventory is input?", names, outputName)
+    end
+
+    if not outputName then
+      outputName = chooseInventory("Which inventory is output?", names, inputName)
+    end
+  end
+
+  if inputName == outputName then
+    error("Input and output inventories must be different", 0)
+  end
+
+  return inputName, outputName
 end
 
 local function findTurtleName()
@@ -55,40 +109,70 @@ local function findTurtleName()
   end
 end
 
+local inputName, outputName = selectInventories()
+local input = peripheral.wrap(inputName)
+local output = peripheral.wrap(outputName)
 local turtleName = findTurtleName()
+
 if not turtleName then
   error("Need an active wired modem. Wireless modems cannot do inventory transfers.", 0)
 end
 
-local function clearTurtle()
-  for slot = 1, 16 do
-    chest.pullItems(turtleName, slot, 64)
-    if turtle.getItemCount(slot) > 0 then
-      return false
-    end
-  end
-  return true
-end
-
 local function countInput()
   local total = 0
-  for _, item in pairs(chest.list()) do
-    if item.name == INPUT then
+
+  for _, item in pairs(input.list()) do
+    if item.name == INPUT_ITEM then
       total = total + item.count
     end
   end
+
   return total
 end
 
+local function pullUntilEmpty(target, slot)
+  while turtle.getItemCount(slot) > 0 do
+    local moved = target.pullItems(turtleName, slot, turtle.getItemCount(slot))
+    if not moved or moved <= 0 then
+      return false
+    end
+  end
+
+  return true
+end
+
+local function clearTurtle()
+  for slot = 1, 16 do
+    local item = turtle.getItemDetail(slot)
+
+    if item then
+      local target = nil
+      if item.name == INPUT_ITEM then
+        target = input
+      elseif item.name == OUTPUT_ITEM then
+        target = output
+      else
+        error("Unexpected item in turtle slot " .. slot .. ": " .. item.name, 0)
+      end
+
+      if not pullUntilEmpty(target, slot) then
+        return false
+      end
+    end
+  end
+
+  return true
+end
+
 local function pushInput(toSlot)
-  local needed = 16
+  local needed = CRAFT_COUNT
 
   while needed > 0 do
     local moved = 0
 
-    for slot, item in pairs(chest.list()) do
-      if item.name == INPUT then
-        moved = chest.pushItems(turtleName, slot, math.min(needed, item.count), toSlot)
+    for slot, item in pairs(input.list()) do
+      if item.name == INPUT_ITEM then
+        moved = input.pushItems(turtleName, slot, math.min(needed, item.count), toSlot)
         if moved > 0 then
           needed = needed - moved
           break
@@ -104,39 +188,40 @@ local function pushInput(toSlot)
   return true
 end
 
-print("Inventory: " .. chestName)
+print("Input: " .. inputName)
+print("Output: " .. outputName)
 print("Turtle: " .. turtleName)
-print("Crafting " .. INPUT .. " into " .. OUTPUT .. ". Hold Ctrl+T to stop.")
+print("Crafting " .. INPUT_ITEM .. " into " .. OUTPUT_ITEM .. ". Hold Ctrl+T to stop.")
 
 while true do
-  if not clearTurtle() then
-    error("Could not clear turtle inventory into " .. chestName, 0)
+  while not clearTurtle() do
+    sleep(TICK_SECONDS)
   end
 
-  if countInput() >= 64 then
+  if countInput() >= CRAFT_COUNT * #CRAFT_SLOTS then
     for _, slot in ipairs(CRAFT_SLOTS) do
       if not pushInput(slot) then
         clearTurtle()
-        error("Could not push " .. INPUT .. " into turtle slot " .. slot, 0)
+        error("Could not push " .. INPUT_ITEM .. " into turtle slot " .. slot, 0)
       end
     end
 
     turtle.select(OUTPUT_SLOT)
-    if not turtle.craft(16) then
+    if not turtle.craft(CRAFT_COUNT) then
       clearTurtle()
-      error("Craft failed; expected " .. OUTPUT, 0)
+      error("Craft failed; expected " .. OUTPUT_ITEM, 0)
     end
 
     local crafted = turtle.getItemDetail(OUTPUT_SLOT)
-    if not crafted or crafted.name ~= OUTPUT then
+    if not crafted or crafted.name ~= OUTPUT_ITEM then
       clearTurtle()
       error("Crafted unexpected item", 0)
     end
 
-    if chest.pullItems(turtleName, OUTPUT_SLOT, 64) == 0 then
-      error("Could not pull crafted " .. OUTPUT .. " back into front inventory", 0)
+    while not pullUntilEmpty(output, OUTPUT_SLOT) do
+      sleep(TICK_SECONDS)
     end
-  else
-    sleep(1)
   end
+
+  sleep(TICK_SECONDS)
 end
