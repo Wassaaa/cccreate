@@ -27,6 +27,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- ccwrap.lua
 |   +-- main.lua
 |   +-- inventory_example.lua
+|   +-- processing_router.lua
 |   +-- ap_inventory_manager_test.lua
 |   +-- tom_gpu_terminal.lua
 |   +-- requester_test.lua
@@ -36,6 +37,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- path_check.lua
 |   +-- reset_project.lua
 |   +-- config/
+|   |   +-- processing_router.example.lua
 |   |   +-- webhook.example.lua
 |   +-- lib/
 |       +-- diagnostics.lua
@@ -72,6 +74,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `report run <command>` captures command output explicitly when debugging.
 - `report_shell enable` can temporarily make simple commands such as `ls` report-only.
 - `inventory_example` demonstrates reading and moving between the bottom and back inventories.
+- `processing_router` runs simple filtered processing jobs: watch an input inventory, push required items to configured machine inventories, and return outputs to storage.
 - `ap_inventory_manager_test` probes and tests Advanced Peripherals Inventory Manager player transfers.
 - `requester_test` probes a Create Redstone Requester and can request sample items to address `out`.
 - `tom_gpu_terminal` runs Tom's Peripherals terminal emulator on router-wrapped GPU monitors.
@@ -257,6 +260,35 @@ inventory_example status
 inventory_example move
 inventory_example return
 ```
+
+Processing router:
+
+```text
+copy config/processing_router.example.lua config/processing_router.lua
+edit config/processing_router.lua
+processing_router status
+processing_router once
+processing_router watch
+```
+
+Each job has an `input`, `output`, and `items` list. An item entry uses `name`, `count`, and `to`:
+
+```lua
+{
+  name = "iron_press",
+  input = { x = 0, y = 0, z = 1, label = "iron input" },
+  output = { x = 0, y = 0, z = 2, label = "iron output" },
+  items = {
+    {
+      name = "minecraft:iron_ingot",
+      count = 1,
+      to = { x = 1, y = 0, z = 0, label = "press input" },
+    },
+  },
+}
+```
+
+Use `storage` globally or per job to choose where outputs are returned. Locations can be side/peripheral names such as `"back"`, Peripheral Router coordinates such as `{ x = 5, y = 1, z = 2 }`, or already-wrapped router objects from the config file.
 
 Advanced Peripherals Inventory Manager test:
 
