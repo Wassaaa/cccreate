@@ -5,7 +5,8 @@ local DEFAULT_INPUT_INVENTORY = nil
 local DEFAULT_OUTPUT_INVENTORY = nil
 local TICK_SECONDS = 0.05
 
-local CRAFT_COUNT = 16
+local CRAFT_STACK_SIZE = 64
+local CRAFT_COUNT = 64
 local CRAFT_SLOTS = { 1, 2, 5, 6 }
 local OUTPUT_SLOT = 16
 
@@ -130,6 +131,16 @@ local function countInput()
   return total
 end
 
+local function isCraftSlot(slot)
+  for _, craftSlot in ipairs(CRAFT_SLOTS) do
+    if slot == craftSlot then
+      return true
+    end
+  end
+
+  return false
+end
+
 local function pullUntilEmpty(target, slot)
   while turtle.getItemCount(slot) > 0 do
     local moved = target.pullItems(turtleName, slot, turtle.getItemCount(slot))
@@ -141,22 +152,23 @@ local function pullUntilEmpty(target, slot)
   return true
 end
 
-local function clearTurtle()
+local function flushOutput()
   for slot = 1, 16 do
     local item = turtle.getItemDetail(slot)
 
     if item then
-      local target = nil
-      if item.name == INPUT_ITEM then
-        target = input
-      elseif item.name == OUTPUT_ITEM then
-        target = output
+      if item.name == OUTPUT_ITEM then
+        if not pullUntilEmpty(output, slot) then
+          return false
+        end
+      elseif item.name == INPUT_ITEM and isCraftSlot(slot) and item.count <= CRAFT_STACK_SIZE then
+        -- Keep collected input in the turtle until all craft slots are full.
+      elseif item.name == INPUT_ITEM then
+        if not pullUntilEmpty(input, slot) then
+          return false
+        end
       else
         error("Unexpected item in turtle slot " .. slot .. ": " .. item.name, 0)
-      end
-
-      if not pullUntilEmpty(target, slot) then
-        return false
       end
     end
   end
@@ -164,8 +176,29 @@ local function clearTurtle()
   return true
 end
 
-local function pushInput(toSlot)
-  local needed = CRAFT_COUNT
+local function inputNeeded(slot)
+  local item = turtle.getItemDetail(slot)
+
+  if not item then
+    return CRAFT_STACK_SIZE
+  end
+
+  if item.name ~= INPUT_ITEM or item.count > CRAFT_STACK_SIZE then
+    error("Unexpected item in craft slot " .. slot .. ": " .. item.name, 0)
+  end
+
+  return CRAFT_STACK_SIZE - item.count
+end
+
+local function fillCraftSlot(toSlot)
+  local needed = inputNeeded(toSlot)
+  if needed == 0 then
+    return true
+  end
+
+  if countInput() < needed then
+    return false
+  end
 
   while needed > 0 do
     local moved = 0
@@ -188,33 +221,51 @@ local function pushInput(toSlot)
   return true
 end
 
+local function fillOneCraftSlot()
+  for _, slot in ipairs(CRAFT_SLOTS) do
+    if inputNeeded(slot) > 0 then
+      return fillCraftSlot(slot)
+    end
+  end
+
+  return true
+end
+
+local function craftSlotsReady()
+  for _, slot in ipairs(CRAFT_SLOTS) do
+    local item = turtle.getItemDetail(slot)
+    if not item or item.name ~= INPUT_ITEM or item.count ~= CRAFT_STACK_SIZE then
+      return false
+    end
+  end
+
+  return true
+end
+
 print("Input: " .. inputName)
 print("Output: " .. outputName)
 print("Turtle: " .. turtleName)
-print("Crafting " .. INPUT_ITEM .. " into " .. OUTPUT_ITEM .. ". Hold Ctrl+T to stop.")
+print("Crafting full stacks of " .. INPUT_ITEM .. " into " .. OUTPUT_ITEM .. ". Hold Ctrl+T to stop.")
 
 while true do
-  while not clearTurtle() do
+  while not flushOutput() do
     sleep(TICK_SECONDS)
   end
 
-  if countInput() >= CRAFT_COUNT * #CRAFT_SLOTS then
-    for _, slot in ipairs(CRAFT_SLOTS) do
-      if not pushInput(slot) then
-        clearTurtle()
-        error("Could not push " .. INPUT_ITEM .. " into turtle slot " .. slot, 0)
-      end
-    end
+  if not craftSlotsReady() then
+    fillOneCraftSlot()
+  end
 
+  if craftSlotsReady() then
     turtle.select(OUTPUT_SLOT)
     if not turtle.craft(CRAFT_COUNT) then
-      clearTurtle()
+      flushOutput()
       error("Craft failed; expected " .. OUTPUT_ITEM, 0)
     end
 
     local crafted = turtle.getItemDetail(OUTPUT_SLOT)
-    if not crafted or crafted.name ~= OUTPUT_ITEM then
-      clearTurtle()
+    if not crafted or crafted.name ~= OUTPUT_ITEM or crafted.count ~= CRAFT_COUNT then
+      flushOutput()
       error("Crafted unexpected item", 0)
     end
 
