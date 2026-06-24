@@ -374,7 +374,6 @@ for _, inputName in ipairs(inputNames) do
   })
 end
 
-local firstInput = inputs[1].object
 local output = peripheral.wrap(outputName)
 local turtleName = findTurtleName()
 
@@ -382,59 +381,71 @@ if not turtleName then
   error("Need an active wired modem. Wireless modems cannot do inventory transfers.", 0)
 end
 
-local function countInput()
-  local total = 0
+local craftSlotSet = {}
 
-  for _, input in ipairs(inputs) do
-    for _, item in pairs(input.object.list()) do
-      if item.name == INPUT_ITEM then
-        total = total + item.count
-      end
-    end
-  end
-
-  return total
+for _, slot in ipairs(craftSlots) do
+  craftSlotSet[slot] = true
 end
 
 local function isCraftSlot(slot)
-  for _, craftSlot in ipairs(craftSlots) do
-    if slot == craftSlot then
-      return true
-    end
-  end
-
-  return false
+  return craftSlotSet[slot] == true
 end
 
-local function pullUntilEmpty(target, slot)
-  while turtle.getItemCount(slot) > 0 do
-    local moved = target.pullItems(turtleName, slot, turtle.getItemCount(slot))
-    if not moved or moved <= 0 then
-      return false
-    end
+local function itemLabel(item)
+  if not item then
+    return "empty"
   end
 
-  return true
+  return item.name .. " x" .. item.count
 end
 
-local function flushOutput()
+local function unexpectedSlot(slot, item, reason)
+  error(reason .. " in turtle slot " .. slot .. ": " .. itemLabel(item), 0)
+end
+
+local function validateCraftSlot(slot, item)
+  if not item then
+    return
+  end
+
+  if item.name ~= INPUT_ITEM then
+    unexpectedSlot(slot, item, "Unexpected craft-slot item")
+  end
+
+  if item.count > CRAFT_STACK_SIZE then
+    unexpectedSlot(slot, item, "Oversized craft-slot stack")
+  end
+end
+
+local function validateTurtleInventory(allowPendingOutput)
   for slot = 1, 16 do
     local item = turtle.getItemDetail(slot)
 
     if item then
-      if item.name == INPUT_ITEM and isCraftSlot(slot) and item.count <= CRAFT_STACK_SIZE then
-        -- Keep collected input in the turtle until all craft slots are full.
-      elseif item.name == INPUT_ITEM then
-        if not pullUntilEmpty(firstInput, slot) then
-          return false
-        end
-      elseif not pullUntilEmpty(output, slot) then
-        return false
+      if isCraftSlot(slot) then
+        validateCraftSlot(slot, item)
+      elseif allowPendingOutput and slot == OUTPUT_SLOT and item.name ~= INPUT_ITEM then
+        -- Crafted output waits here until the output inventory has room.
+      else
+        unexpectedSlot(slot, item, "Unexpected non-craft-slot item")
       end
     end
   end
+end
 
-  return true
+local function pushPendingOutput()
+  local item = turtle.getItemDetail(OUTPUT_SLOT)
+
+  if not item then
+    return true
+  end
+
+  if item.name == INPUT_ITEM then
+    unexpectedSlot(OUTPUT_SLOT, item, "Input item in output slot")
+  end
+
+  local moved = output.pullItems(turtleName, OUTPUT_SLOT, item.count)
+  return moved and moved >= item.count
 end
 
 local function inputNeeded(slot)
@@ -444,45 +455,35 @@ local function inputNeeded(slot)
     return CRAFT_STACK_SIZE
   end
 
-  if item.name ~= INPUT_ITEM or item.count > CRAFT_STACK_SIZE then
-    error("Unexpected item in craft slot " .. slot .. ": " .. item.name, 0)
+  validateCraftSlot(slot, item)
+  return CRAFT_STACK_SIZE - item.count
+end
+
+local function pushInputToSlot(toSlot, needed)
+  for _, input in ipairs(inputs) do
+    for slot, item in pairs(input.object.list()) do
+      if item.name == INPUT_ITEM then
+        local moved = input.object.pushItems(turtleName, slot, math.min(needed, item.count), toSlot)
+        if moved and moved > 0 then
+          return moved
+        end
+      end
+    end
   end
 
-  return CRAFT_STACK_SIZE - item.count
+  return 0
 end
 
 local function fillCraftSlot(toSlot)
   local needed = inputNeeded(toSlot)
-  if needed == 0 then
-    return true
-  end
-
-  if countInput() < needed then
-    return false
-  end
 
   while needed > 0 do
-    local moved = 0
-
-    for _, input in ipairs(inputs) do
-      for slot, item in pairs(input.object.list()) do
-        if item.name == INPUT_ITEM then
-          moved = input.object.pushItems(turtleName, slot, math.min(needed, item.count), toSlot)
-          if moved > 0 then
-            needed = needed - moved
-            break
-          end
-        end
-      end
-
-      if moved > 0 then
-        break
-      end
-    end
-
-    if moved == 0 then
+    local moved = pushInputToSlot(toSlot, needed)
+    if moved <= 0 then
       return false
     end
+
+    needed = needed - moved
   end
 
   return true
@@ -515,23 +516,34 @@ print("Output: " .. outputName)
 print("Turtle: " .. turtleName)
 print("Crafting full " .. gridSize .. " stacks of " .. INPUT_ITEM .. ". Hold Ctrl+T to stop.")
 
+turtle.select(OUTPUT_SLOT)
+validateTurtleInventory(false)
+
 while true do
-  while not flushOutput() do
+  while not pushPendingOutput() do
+    validateTurtleInventory(true)
     sleep(TICK_SECONDS)
   end
+
+  validateTurtleInventory(false)
 
   if not craftSlotsReady() then
     fillOneCraftSlot()
   end
 
+  validateTurtleInventory(false)
+
   if craftSlotsReady() then
-    turtle.select(OUTPUT_SLOT)
+    if turtle.getItemDetail(OUTPUT_SLOT) then
+      error("Output slot " .. OUTPUT_SLOT .. " is not empty before craft", 0)
+    end
+
     if not turtle.craft(CRAFT_COUNT) then
-      flushOutput()
       error("Craft failed", 0)
     end
 
-    while not flushOutput() do
+    while not pushPendingOutput() do
+      validateTurtleInventory(true)
       sleep(TICK_SECONDS)
     end
   end

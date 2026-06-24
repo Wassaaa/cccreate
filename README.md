@@ -238,6 +238,8 @@ The updater self-updates, so you normally do not need to run `wget` again unless
 
 `craft_2x2_stack` expects a crafting turtle and at least two generic inventory peripherals on the same wired modem network. It only moves `minecraft:nether_brick`, fills the selected 2x2 or 3x3 turtle crafting grid to 64 items per slot, crafts a full stack batch, and pushes whatever item was crafted to the selected output inventory.
 
+Item movement uses wired inventory `pushItems`/`pullItems`; the turtle uses `turtle.getItemDetail` only to validate its internal slots and `turtle.craft` to craft. The output slot is selected once at startup. Craft slots may contain partial `minecraft:nether_brick` stacks, but every non-craft slot must be empty at startup. During runtime, unexpected items outside the controlled craft slots or pending output slot stop the script instead of being routed into an input or output inventory.
+
 Run it with no arguments to choose the grid size, input inventories, and output inventory. Inputs are selected in priority order; enter one number/name at a time, comma-separate several entries, or press Enter when done. If only one unselected inventory remains, it is used as output automatically.
 
 To skip prompts, pass the optional grid size, then output inventory, then one or more input inventories. Input arguments may be comma-separated:
