@@ -188,4 +188,4 @@ for _, name in ipairs(names) do
   table.insert(report.names, inspectName(name))
 end
 
-print(textutils.serialize(report))
+print(textutils.serializeJSON(report))
