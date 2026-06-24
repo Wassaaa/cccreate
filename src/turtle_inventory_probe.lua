@@ -2,39 +2,6 @@ local function show(value)
   return textutils.serialize(value)
 end
 
-local function compactItem(item)
-  if type(item) ~= "table" then
-    return item
-  end
-
-  return {
-    name = item.name,
-    count = item.count,
-  }
-end
-
-local function compactList(items)
-  local result = {}
-
-  if type(items) ~= "table" then
-    return items
-  end
-
-  for slot, item in pairs(items) do
-    table.insert(result, {
-      slot = slot,
-      name = item.name,
-      count = item.count,
-    })
-  end
-
-  table.sort(result, function(a, b)
-    return a.slot < b.slot
-  end)
-
-  return result
-end
-
 local function run(label, fn)
   local values = { pcall(fn) }
   local ok = table.remove(values, 1)
@@ -57,6 +24,9 @@ local function hasMethod(methods, target)
 end
 
 local turtleName = nil
+
+term.clear()
+term.setCursorPos(1, 1)
 
 for _, name in ipairs(peripheral.getNames()) do
   local modem = peripheral.wrap(name)
@@ -98,30 +68,17 @@ run("methods", function()
   }
 end)
 
-run("wrap", function()
-  local object = peripheral.wrap(turtleName)
-  return {
-    object = type(object),
-    list = type(object and object.list),
-    size = type(object and object.size),
-    getItemDetail = type(object and object.getItemDetail),
-    pushItems = type(object and object.pushItems),
-    pullItems = type(object and object.pullItems),
-  }
+run("wrapObject", function()
+  return type(peripheral.wrap(turtleName))
 end)
 
 run("callList", function()
-  return compactList(peripheral.call(turtleName, "list"))
-end)
-
-run("callSize", function()
-  return peripheral.call(turtleName, "size")
-end)
-
-run("callDetail1", function()
-  return compactItem(peripheral.call(turtleName, "getItemDetail", 1))
+  return peripheral.call(turtleName, "list")
 end)
 
 run("turtleDetail1", function()
-  return compactItem(turtle.getItemDetail(1))
+  local item = turtle.getItemDetail(1)
+  if item then
+    return { name = item.name, count = item.count }
+  end
 end)
