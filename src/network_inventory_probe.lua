@@ -2,6 +2,8 @@ local function pack(...)
   return { ... }
 end
 
+local reporter = require("lib.reporter")
+
 local function contains(values, target)
   for _, value in ipairs(values or {}) do
     if value == target then
@@ -188,4 +190,5 @@ for _, name in ipairs(names) do
   table.insert(report.names, inspectName(name))
 end
 
-print(textutils.serializeJSON(report))
+reporter.saveLocal(report, "network_inventory_probe_report.txt")
+reporter.send(report)
