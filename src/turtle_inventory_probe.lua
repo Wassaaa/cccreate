@@ -1,10 +1,42 @@
+local function pack(...)
+  return { ... }
+end
+
 local function sorted(values)
   table.sort(values)
   return values
 end
 
-local function pack(...)
-  return { ... }
+local function compactList(items)
+  local result = {}
+
+  if type(items) ~= "table" then
+    return items
+  end
+
+  for slot, item in pairs(items) do
+    table.insert(result, {
+      slot = slot,
+      name = item.name,
+      count = item.count,
+    })
+  end
+
+  table.sort(result, function(a, b)
+    return a.slot < b.slot
+  end)
+
+  return result
+end
+
+local function hasMethod(methods, target)
+  for _, method in ipairs(methods or {}) do
+    if method == target then
+      return true
+    end
+  end
+
+  return false
 end
 
 local function printResult(label, ok, ...)
@@ -19,27 +51,27 @@ local function probe(label, fn)
   printResult(label, pcall(fn))
 end
 
-local function methodSummary(name)
+local function getMethods(name)
   local methods = peripheral.getMethods(name) or {}
-  sorted(methods)
+  table.sort(methods)
   return methods
 end
 
-print("Turtle inventory peripheral probe")
-print("Computer ID: " .. os.getComputerID())
-print("Label: " .. tostring(os.getComputerLabel()))
-print("Is turtle: " .. tostring(type(turtle) == "table"))
-
-print("Peripherals:")
-for _, name in ipairs(sorted(peripheral.getNames())) do
-  print("- " .. name)
-  print("  types: " .. textutils.serialize(pack(peripheral.getType(name))))
-  print("  methods: " .. textutils.serialize(methodSummary(name)))
-end
-
+local label = os.getComputerLabel()
+local names = sorted(peripheral.getNames())
 local turtleName = nil
 
-for _, name in ipairs(peripheral.getNames()) do
+print("Turtle inventory peripheral probe")
+print("Computer ID: " .. os.getComputerID())
+print("Label: " .. tostring(label))
+print("Is turtle: " .. tostring(type(turtle) == "table"))
+print("Peripherals: " .. textutils.serialize(names))
+
+for _, name in ipairs(names) do
+  print(name .. " types: " .. textutils.serialize(pack(peripheral.getType(name))))
+end
+
+for _, name in ipairs(names) do
   local modem = peripheral.wrap(name)
   if modem
     and type(modem.getNameLocal) == "function"
@@ -59,40 +91,57 @@ if not turtleName then
   return
 end
 
-probe("peripheral.isPresent(local)", function()
+probe("local present", function()
   return peripheral.isPresent(turtleName)
 end)
 
-probe("peripheral.getType(local)", function()
+probe("local type", function()
   return peripheral.getType(turtleName)
 end)
 
-probe("peripheral.getMethods(local)", function()
-  return methodSummary(turtleName)
+probe("local method flags", function()
+  local methods = getMethods(turtleName)
+  return {
+    list = hasMethod(methods, "list"),
+    size = hasMethod(methods, "size"),
+    getItemDetail = hasMethod(methods, "getItemDetail"),
+    pushItems = hasMethod(methods, "pushItems"),
+    pullItems = hasMethod(methods, "pullItems"),
+  }
 end)
 
-probe("peripheral.wrap(local) inventory methods", function()
+probe("wrap method types", function()
   local object = peripheral.wrap(turtleName)
-  return type(object),
-    type(object and object.list),
-    type(object and object.size),
-    type(object and object.getItemDetail),
-    type(object and object.pushItems),
-    type(object and object.pullItems)
+  return {
+    object = type(object),
+    list = type(object and object.list),
+    size = type(object and object.size),
+    getItemDetail = type(object and object.getItemDetail),
+    pushItems = type(object and object.pushItems),
+    pullItems = type(object and object.pullItems),
+  }
 end)
 
-probe("peripheral.call(local, list)", function()
-  return peripheral.call(turtleName, "list")
+probe("call list", function()
+  return compactList(peripheral.call(turtleName, "list"))
 end)
 
-probe("peripheral.call(local, size)", function()
+probe("call size", function()
   return peripheral.call(turtleName, "size")
 end)
 
-probe("peripheral.call(local, getItemDetail, 1)", function()
+probe("call detail 1", function()
   return peripheral.call(turtleName, "getItemDetail", 1)
 end)
 
-probe("turtle.getItemDetail(1)", function()
-  return turtle.getItemDetail(1)
+probe("turtle detail 1", function()
+  local item = turtle.getItemDetail(1)
+  if not item then
+    return nil
+  end
+
+  return {
+    name = item.name,
+    count = item.count,
+  }
 end)
