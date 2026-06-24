@@ -27,6 +27,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   +-- ccwrap.lua
 |   +-- main.lua
 |   +-- inventory_example.lua
+|   +-- craft_2x2_stack.lua
 |   +-- processing_router.lua
 |   +-- ap_inventory_manager_test.lua
 |   +-- tom_gpu_terminal.lua
@@ -74,6 +75,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `report run <command>` captures command output explicitly when debugging.
 - `report_shell enable` can temporarily make simple commands such as `ls` report-only.
 - `inventory_example` demonstrates reading and moving between the bottom and back inventories.
+- `craft_2x2_stack` runs a crafting turtle that turns full 2x2 stacks of `minecraft:nether_brick` into `minecraft:nether_bricks`.
 - `processing_router` runs simple filtered processing jobs: watch an input inventory, push required items to configured machine inventories, and return outputs to storage.
 - `ap_inventory_manager_test` probes and tests Advanced Peripherals Inventory Manager player transfers.
 - `requester_test` probes a Create Redstone Requester and can request sample items to address `out`.
@@ -231,6 +233,22 @@ reboot
 ```
 
 The updater self-updates, so you normally do not need to run `wget` again unless the local `update` file is deleted or broken.
+
+## Nether Brick Crafting Turtle
+
+`craft_2x2_stack` expects a crafting turtle and at least two generic inventory peripherals on the same wired modem network. It only moves `minecraft:nether_brick`, fills turtle slots `1`, `2`, `5`, and `6` to 64 items each, crafts 64 `minecraft:nether_bricks`, and pushes the result to the output inventory only when that output has room for the full stack.
+
+Run it with no arguments to choose input inventories in priority order. Keep choosing inputs until one wired inventory remains; that final unchosen inventory is used as output. To skip prompts, pass every input inventory name as arguments:
+
+```text
+craft_2x2_stack minecraft:chest_12 sophisticatedstorage:barrel_3
+```
+
+Direct install for just this program:
+
+```text
+wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/src/craft_2x2_stack.lua craft_2x2_stack
+```
 
 ## Send Reports From In-Game
 
