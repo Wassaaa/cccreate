@@ -1,43 +1,16 @@
 -- Simple CC:Tweaked updater.
--- Edit these values after you create your GitHub repository.
 local githubUser = "Wassaaa"
 local githubRepo = "cccreate"
 local branch = "main"
-local basePath = "src"
+local srcRoot = "src"
+local baseSource = srcRoot .. "/base"
+local projectsSource = srcRoot .. "/projects"
 local updaterPath = "/update"
 
-local baseUrl = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. githubRepo .. "/" .. branch .. "/" .. basePath .. "/"
-local updaterUrl = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. githubRepo .. "/" .. branch .. "/update.lua"
-
-local files = {
-  "startup.lua",
-  "ccwrap.lua",
-  "main.lua",
-  "inventory_example.lua",
-  "configure_webhook.lua",
-  "network_inventory_probe.lua",
-  "turtle_inventory_probe.lua",
-  "craft_2x2_stack.lua",
-  "processing_router.lua",
-  "ap_inventory_manager_test.lua",
-  "tom_keyboard_probe.lua",
-  "tom_gpu_terminal.lua",
-  "requester_test.lua",
-  "path_check.lua",
-  "reset_project.lua",
-  "report.lua",
-  "report_shell.lua",
-  "wrap_commands.lua",
-  "config/processing_router.example.lua",
-  "config/webhook.example.lua",
-  "lib/diagnostics.lua",
-  "lib/tom_cc_term_font.lua",
-  "lib/tom_term_emu.lua",
-  { path = "lib/tom_term_font.png", binary = true },
-  "lib/inventory_tools.lua",
-  "lib/logger.lua",
-  "lib/reporter.lua",
-}
+local rawRoot = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. githubRepo .. "/" .. branch .. "/"
+local apiRoot = "https://api.github.com/repos/" .. githubUser .. "/" .. githubRepo .. "/contents/"
+local updaterUrl = rawRoot .. "update.lua"
+local unpackArgs = table.unpack or unpack
 
 local staleFiles = {
   "/.wrap_commands_enabled",
@@ -66,6 +39,10 @@ local temporaryAliases = {
 
 local args = { ... }
 local skipSelfUpdate = args[1] == "--no-self-update"
+
+if skipSelfUpdate then
+  table.remove(args, 1)
+end
 
 local function installPath(path)
   return fs.combine("/", path)
@@ -108,8 +85,15 @@ local function writeFile(path, contents, binary)
   handle.close()
 end
 
+local function requestHeaders()
+  return {
+    ["Accept"] = "application/vnd.github+json",
+    ["User-Agent"] = "cccreate-updater",
+  }
+end
+
 local function download(url, binary)
-  local response, errorMessage = http.get(url, nil, binary)
+  local response, errorMessage = http.get(url, requestHeaders(), binary)
   if not response then
     error("Failed to download " .. url .. ": " .. tostring(errorMessage), 0)
   end
@@ -122,6 +106,111 @@ end
 
 local function downloadText(url)
   return download(url, false)
+end
+
+local function contentUrl(path)
+  return apiRoot .. path .. "?ref=" .. branch
+end
+
+local function decodeJson(contents, url)
+  local decoded = textutils.unserializeJSON(contents)
+
+  if type(decoded) ~= "table" then
+    error("GitHub returned invalid JSON for " .. url, 0)
+  end
+
+  return decoded
+end
+
+local function listGitHub(path)
+  local url = contentUrl(path)
+  return decodeJson(downloadText(url), url)
+end
+
+local function isBinary(path)
+  local lower = string.lower(path)
+  return lower:match("%.png$")
+    or lower:match("%.jpg$")
+    or lower:match("%.jpeg$")
+    or lower:match("%.gif$")
+    or lower:match("%.webp$")
+    or lower:match("%.nbt$")
+end
+
+local function relativeInstallPath(sourceRoot, sourcePath)
+  if sourcePath == sourceRoot then
+    return ""
+  end
+
+  return string.sub(sourcePath, string.len(sourceRoot) + 2)
+end
+
+local function collectFiles(sourceRoot, sourcePath, results)
+  results = results or {}
+
+  for _, entry in ipairs(listGitHub(sourcePath)) do
+    if entry.type == "dir" then
+      collectFiles(sourceRoot, entry.path, results)
+    elseif entry.type == "file" then
+      local targetPath = relativeInstallPath(sourceRoot, entry.path)
+      table.insert(results, {
+        sourcePath = entry.path,
+        targetPath = targetPath,
+        url = entry.download_url or (rawRoot .. entry.path),
+        binary = isBinary(entry.path),
+      })
+    end
+  end
+
+  return results
+end
+
+local function availableProjects()
+  local projects = {}
+
+  for _, entry in ipairs(listGitHub(projectsSource)) do
+    if entry.type == "dir" then
+      table.insert(projects, entry.name)
+    end
+  end
+
+  table.sort(projects)
+  return projects
+end
+
+local function hasProject(projects, name)
+  for _, project in ipairs(projects) do
+    if project == name then
+      return true
+    end
+  end
+
+  return false
+end
+
+local function selectedProjects()
+  local selected = {}
+  local listOnly = false
+
+  if #args == 0 then
+    return selected, nil, listOnly
+  end
+
+  local projects = availableProjects()
+
+  for _, arg in ipairs(args) do
+    if arg == "--list" then
+      listOnly = true
+    elseif arg == "all" then
+      selected = projects
+    elseif hasProject(projects, arg) then
+      table.insert(selected, arg)
+    else
+      error("Unknown project: " .. arg .. ". Run update --list.", 0)
+    end
+  end
+
+  return selected, projects, listOnly
 end
 
 local function selfUpdate()
@@ -142,28 +231,8 @@ local function selfUpdate()
   writeFile(updaterPath, latest)
 
   print("Updater changed. Restarting updater...")
-  shell.run(updaterPath, "--no-self-update")
+  shell.run(updaterPath, "--no-self-update", unpackArgs(args))
   return true
-end
-
-local function downloadFile(entry)
-  local path = entry
-  local binary = false
-
-  if type(entry) == "table" then
-    path = entry.path
-    binary = entry.binary
-  end
-
-  local url = baseUrl .. path
-  local targetPath = installPath(path)
-
-  print("Downloading " .. path)
-
-  local contents = download(url, binary)
-  writeFile(targetPath, contents, binary)
-
-  print("Updated " .. path)
 end
 
 local function restoreReportShellAliases()
@@ -203,7 +272,44 @@ local function restoreReportShellAliases()
   fs.delete(wrapperDir)
 end
 
+local function downloadFile(entry)
+  print("Downloading " .. entry.sourcePath .. " -> " .. entry.targetPath)
+
+  local contents = download(entry.url, entry.binary)
+  writeFile(installPath(entry.targetPath), contents, entry.binary)
+
+  print("Updated " .. entry.targetPath)
+end
+
+local function installSource(label, sourceRoot)
+  print("Updating " .. label .. " from " .. sourceRoot)
+
+  local files = collectFiles(sourceRoot, sourceRoot)
+  table.sort(files, function(a, b)
+    return a.targetPath < b.targetPath
+  end)
+
+  for _, file in ipairs(files) do
+    downloadFile(file)
+  end
+end
+
+local function printProjects(projects)
+  print("Available projects:")
+
+  for _, project in ipairs(projects) do
+    print("- " .. project)
+  end
+end
+
 if selfUpdate() then
+  return
+end
+
+local projectsToInstall, projects, listOnly = selectedProjects()
+
+if listOnly then
+  printProjects(projects)
   return
 end
 
@@ -218,8 +324,14 @@ for _, path in ipairs(staleFiles) do
   end
 end
 
-for _, path in ipairs(files) do
-  downloadFile(path)
+installSource("base", baseSource)
+
+if #projectsToInstall == 0 then
+  print("No project selected. Run update --list, update <project>, or update all.")
+else
+  for _, project in ipairs(projectsToInstall) do
+    installSource("project " .. project, projectsSource .. "/" .. project)
+  end
 end
 
 print("Update complete. Run reboot if startup changed.")

@@ -26,6 +26,12 @@ For agent-side key sending, screenshots, mouse clicks, and human-in-the-loop set
 update
 ```
 
+Use `update <project>` when a machine needs a project directory, for example:
+
+```text
+update turtle_crafter
+```
+
 4. In-game computer sends state back:
 
 ```text

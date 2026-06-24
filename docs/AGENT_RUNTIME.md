@@ -88,7 +88,7 @@ Add more report-only wrappers only when a command is read-only and useful for ag
 
 ## Program Reports
 
-Programs should report structured errors through `src/lib/reporter.lua` when failures matter to agent debugging. Do this for long-running automation, peripheral integration, and machine-control code.
+Programs should report structured errors through `src/base/lib/reporter.lua` when failures matter to agent debugging. Do this for long-running automation, peripheral integration, and machine-control code.
 
 Good report contents:
 
@@ -113,6 +113,14 @@ This repo is intended to be deployed through `origin/main`. After making a clean
 Before pushing, inspect the staged diff and status. Do not push secrets, tokens, `.env`, private local reports, unrelated user work, or bulky generated artifacts that are not part of the requested change.
 
 Before suggesting a raw GitHub `wget` command, make sure the referenced file is committed and pushed to the branch named in the URL. A local-only commit is not enough for `raw.githubusercontent.com` downloads.
+
+Updater layout:
+
+- Put shared programs, configs, and libraries in `src/base/`.
+- Put optional project programs in `src/projects/<project>/`.
+- Do not edit `update.lua` just to add files under an existing base/project folder; it discovers files from GitHub.
+- Bare `update` installs only `src/base/`.
+- Use `update <project>` for one project, `update all` for every project, and `update --list` to inspect project names.
 
 ## Webhook Stack
 

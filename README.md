@@ -23,31 +23,45 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 ```text
 .
 +-- src/
-|   +-- startup.lua
-|   +-- ccwrap.lua
-|   +-- main.lua
-|   +-- inventory_example.lua
-|   +-- craft_2x2_stack.lua
-|   +-- processing_router.lua
-|   +-- ap_inventory_manager_test.lua
-|   +-- tom_gpu_terminal.lua
-|   +-- requester_test.lua
-|   +-- report.lua
-|   +-- report_shell.lua
-|   +-- wrap_commands.lua
-|   +-- path_check.lua
-|   +-- reset_project.lua
-|   +-- config/
-|   |   +-- processing_router.example.lua
-|   |   +-- webhook.example.lua
-|   +-- lib/
-|       +-- diagnostics.lua
-|       +-- inventory_tools.lua
-|       +-- logger.lua
-|       +-- reporter.lua
-|       +-- tom_cc_term_font.lua
-|       +-- tom_term_emu.lua
-|       +-- tom_term_font.png
+|   +-- base/
+|   |   +-- startup.lua
+|   |   +-- ccwrap.lua
+|   |   +-- main.lua
+|   |   +-- path_check.lua
+|   |   +-- report.lua
+|   |   +-- report_shell.lua
+|   |   +-- reset_project.lua
+|   |   +-- wrap_commands.lua
+|   |   +-- configure_webhook.lua
+|   |   +-- config/
+|   |   |   +-- webhook.example.lua
+|   |   +-- lib/
+|   |       +-- diagnostics.lua
+|   |       +-- inventory_tools.lua
+|   |       +-- logger.lua
+|   |       +-- reporter.lua
+|   |       +-- tom_cc_term_font.lua
+|   |       +-- tom_term_emu.lua
+|   |       +-- tom_term_font.png
+|   +-- projects/
+|   |   +-- turtle_crafter/
+|   |   |   +-- craft_2x2_stack.lua
+|   |   |   +-- turtle_inventory_probe.lua
+|   |   +-- processing_router/
+|   |   |   +-- processing_router.lua
+|   |   |   +-- config/
+|   |   |       +-- processing_router.example.lua
+|   |   +-- network_probe/
+|   |   |   +-- network_inventory_probe.lua
+|   |   +-- inventory_example/
+|   |   |   +-- inventory_example.lua
+|   |   +-- ap_inventory_manager_test/
+|   |   |   +-- ap_inventory_manager_test.lua
+|   |   +-- requester_test/
+|   |   |   +-- requester_test.lua
+|   |   +-- tom_terminal/
+|   |       +-- tom_gpu_terminal.lua
+|   |       +-- tom_keyboard_probe.lua
 +-- docs/
 |   +-- INGAME_DEBUGGING.md
 +-- tools/
@@ -69,8 +83,9 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 +-- .gitignore
 ```
 
-- `src/` contains files that are installed on the ComputerCraft computer.
-- `update.lua` downloads the latest `src/` files from GitHub.
+- `src/base/` contains shared files that every update installs to the ComputerCraft root.
+- `src/projects/<name>/` contains optional project files. Bare `update` installs only base; `update <name>` installs base plus that project, also to the ComputerCraft root.
+- `update.lua` discovers files from GitHub, so adding a file under `src/base/` or an existing project directory does not require editing the updater.
 - `report` sends in-game diagnostics to the webhook.
 - `report run <command>` captures command output explicitly when debugging.
 - `report_shell enable` can temporarily make simple commands such as `ls` report-only.
@@ -195,7 +210,17 @@ update
 reboot
 ```
 
-The first `wget` installs the updater. After that, running `update` is enough: it checks for a newer updater, replaces itself if needed, restarts once, and then downloads the current project files from `src/`.
+The first `wget` installs the updater. After that, running `update` checks for a newer updater, replaces itself if needed, restarts once, and installs the shared `src/base/` files.
+
+Install project files with:
+
+```text
+update --list
+update turtle_crafter
+update all
+```
+
+`update <project>` installs base plus `src/projects/<project>/`. `update all` installs base plus every project.
 
 Configure the webhook in-game:
 
@@ -251,7 +276,7 @@ craft_2x2_stack 3x3 minecraft:chest_output minecraft:chest_input_1,minecraft:che
 Direct install for just this program:
 
 ```text
-wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/src/craft_2x2_stack.lua craft_2x2_stack
+wget https://raw.githubusercontent.com/Wassaaa/cccreate/main/src/projects/turtle_crafter/craft_2x2_stack.lua craft_2x2_stack
 ```
 
 ## Send Reports From In-Game
