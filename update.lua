@@ -15,6 +15,7 @@ local files = {
   "main.lua",
   "inventory_example.lua",
   "configure_webhook.lua",
+  "network_inventory_probe.lua",
   "turtle_inventory_probe.lua",
   "craft_2x2_stack.lua",
   "processing_router.lua",
