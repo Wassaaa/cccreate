@@ -75,7 +75,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `report run <command>` captures command output explicitly when debugging.
 - `report_shell enable` can temporarily make simple commands such as `ls` report-only.
 - `inventory_example` demonstrates reading and moving between the bottom and back inventories.
-- `craft_2x2_stack` runs a crafting turtle that turns full 2x2 stacks of `minecraft:nether_brick` into `minecraft:nether_bricks`.
+- `craft_2x2_stack` runs a wired crafting turtle that fills 2x2 or 3x3 recipes from one or more input inventories.
 - `processing_router` runs simple filtered processing jobs: watch an input inventory, push required items to configured machine inventories, and return outputs to storage.
 - `ap_inventory_manager_test` probes and tests Advanced Peripherals Inventory Manager player transfers.
 - `requester_test` probes a Create Redstone Requester and can request sample items to address `out`.
@@ -236,12 +236,14 @@ The updater self-updates, so you normally do not need to run `wget` again unless
 
 ## Nether Brick Crafting Turtle
 
-`craft_2x2_stack` expects a crafting turtle and at least two generic inventory peripherals on the same wired modem network. It only moves `minecraft:nether_brick`, fills turtle slots `1`, `2`, `5`, and `6` to 64 items each, crafts 64 `minecraft:nether_bricks`, and pushes the result to the output inventory only when that output has room for the full stack.
+`craft_2x2_stack` expects a crafting turtle and at least two generic inventory peripherals on the same wired modem network. It only moves `minecraft:nether_brick`, fills the selected 2x2 or 3x3 turtle crafting grid to 64 items per slot, crafts a full stack batch, and pushes whatever item was crafted to the selected output inventory.
 
-Run it with no arguments to choose input inventories in priority order. Keep choosing inputs until one wired inventory remains; that final unchosen inventory is used as output. To skip prompts, pass every input inventory name as arguments:
+Run it with no arguments to choose the grid size, input inventories, and output inventory. Inputs are selected in priority order; enter one number/name at a time, comma-separate several entries, or press Enter when done. If only one unselected inventory remains, it is used as output automatically.
+
+To skip prompts, pass the optional grid size, then output inventory, then one or more input inventories. Input arguments may be comma-separated:
 
 ```text
-craft_2x2_stack minecraft:chest_12 sophisticatedstorage:barrel_3
+craft_2x2_stack 3x3 minecraft:chest_output minecraft:chest_input_1,minecraft:chest_input_2
 ```
 
 Direct install for just this program:

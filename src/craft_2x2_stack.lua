@@ -1,22 +1,113 @@
 local INPUT_ITEM = "minecraft:nether_brick"
-local OUTPUT_ITEM = "minecraft:nether_bricks"
 
+local DEFAULT_GRID_SIZE = nil
 local DEFAULT_INPUT_INVENTORIES = nil
+local DEFAULT_OUTPUT_INVENTORY = nil
 local TICK_SECONDS = 0.05
 
 local CRAFT_STACK_SIZE = 64
 local CRAFT_COUNT = 64
-local CRAFT_SLOTS = { 1, 2, 5, 6 }
 local OUTPUT_SLOT = 16
 
+local GRID_SLOTS = {
+  ["2x2"] = { 1, 2, 5, 6 },
+  ["3x3"] = { 1, 2, 3, 5, 6, 7, 9, 10, 11 },
+}
+
 local args = { ... }
+
+local function trim(value)
+  return tostring(value):match("^%s*(.-)%s*$")
+end
+
+local function copyList(values)
+  local result = {}
+
+  for _, value in ipairs(values) do
+    table.insert(result, value)
+  end
+
+  return result
+end
+
+local function appendCsv(result, value)
+  for part in tostring(value):gmatch("[^,]+") do
+    local name = trim(part)
+    if name ~= "" then
+      table.insert(result, name)
+    end
+  end
+end
+
+local function asNameList(value)
+  if not value then
+    return nil
+  end
+
+  if type(value) == "table" then
+    local result = {}
+    for _, entry in ipairs(value) do
+      appendCsv(result, entry)
+    end
+    return result
+  end
+
+  local result = {}
+  appendCsv(result, value)
+  return result
+end
+
+local function joinNames(names)
+  return table.concat(names, ", ")
+end
+
+local function normalizeGridSize(value)
+  if not value then
+    return nil
+  end
+
+  local text = string.lower(trim(value))
+  if text == "2" or text == "2x2" then
+    return "2x2"
+  end
+
+  if text == "3" or text == "3x3" then
+    return "3x3"
+  end
+end
+
+local function parseArgs()
+  local settings = {}
+  local index = 1
+  local gridSize = normalizeGridSize(args[index])
+
+  if gridSize then
+    settings.gridSize = gridSize
+    index = index + 1
+  end
+
+  if args[index] then
+    settings.outputName = args[index]
+    index = index + 1
+  end
+
+  local inputNames = {}
+  while args[index] do
+    appendCsv(inputNames, args[index])
+    index = index + 1
+  end
+
+  if #inputNames > 0 then
+    settings.inputNames = inputNames
+  end
+
+  return settings
+end
 
 local function isInventory(name)
   local object = peripheral.wrap(name)
   return object
     and type(object.list) == "function"
-    and type(object.size) == "function"
-    and type(object.getItemLimit) == "function"
     and type(object.pushItems) == "function"
     and type(object.pullItems) == "function"
 end
@@ -34,20 +125,9 @@ local function inventoryNames()
   return names
 end
 
-local function copyList(values)
-  local result = {}
-
-  for _, value in ipairs(values) do
-    table.insert(result, value)
-  end
-
-  return result
-end
-
-local function removeName(names, selectedName)
-  for index, name in ipairs(names) do
-    if name == selectedName then
-      table.remove(names, index)
+local function containsName(names, target)
+  for _, name in ipairs(names) do
+    if name == target then
       return true
     end
   end
@@ -55,8 +135,48 @@ local function removeName(names, selectedName)
   return false
 end
 
-local function joinNames(names)
-  return table.concat(names, ", ")
+local function remainingNames(names, selectedNames)
+  local remaining = {}
+
+  for _, name in ipairs(names) do
+    if not containsName(selectedNames, name) then
+      table.insert(remaining, name)
+    end
+  end
+
+  return remaining
+end
+
+local function resolveInventoryToken(token, names)
+  local index = tonumber(token)
+  if index and names[index] then
+    return names[index]
+  end
+
+  for _, name in ipairs(names) do
+    if token == name then
+      return name
+    end
+  end
+end
+
+local function parseInventoryChoices(answer, names)
+  local selected = {}
+
+  for part in answer:gmatch("[^,]+") do
+    local token = trim(part)
+    local name = resolveInventoryToken(token, names)
+
+    if not name then
+      return nil, token
+    end
+
+    if not containsName(selected, name) then
+      table.insert(selected, name)
+    end
+  end
+
+  return selected
 end
 
 local function chooseInventory(prompt, names)
@@ -67,84 +187,164 @@ local function chooseInventory(prompt, names)
     end
 
     write("> ")
-    local answer = read()
-    local index = tonumber(answer)
+    local answer = trim(read())
+    local name = resolveInventoryToken(answer, names)
 
-    if index and names[index] then
-      return names[index]
-    end
-
-    for _, name in ipairs(names) do
-      if answer == name then
-        return answer
-      end
+    if name then
+      return name
     end
 
     print("Choose one of the listed inventory names.")
   end
 end
 
-local function configuredInputNames()
-  if #args > 0 then
-    return args
+local function chooseGridSize()
+  local defaultGridSize = "2x2"
+
+  while true do
+    write("Crafting grid 2x2 or 3x3 [" .. defaultGridSize .. "]: ")
+    local answer = trim(read())
+
+    if answer == "" then
+      answer = defaultGridSize
+    end
+
+    local gridSize = normalizeGridSize(answer)
+    if gridSize then
+      return gridSize, copyList(GRID_SLOTS[gridSize])
+    end
+
+    print("Choose 2x2 or 3x3.")
+  end
+end
+
+local function selectCraftGrid(settings)
+  local gridSize = settings.gridSize or normalizeGridSize(DEFAULT_GRID_SIZE)
+
+  if gridSize then
+    return gridSize, copyList(GRID_SLOTS[gridSize])
   end
 
-  return DEFAULT_INPUT_INVENTORIES
+  return chooseGridSize()
 end
 
 local function validateInputNames(inputNames, names)
-  local remaining = copyList(names)
-  local seen = {}
+  local result = {}
 
   for _, inputName in ipairs(inputNames) do
-    if seen[inputName] then
+    if containsName(result, inputName) then
       error("Input inventory listed twice: " .. inputName, 0)
     end
 
-    seen[inputName] = true
-
-    if not removeName(remaining, inputName) then
+    if not containsName(names, inputName) then
       error("Input inventory not found: " .. inputName, 0)
     end
+
+    table.insert(result, inputName)
   end
 
-  if #inputNames == 0 then
+  if #result == 0 then
     error("Choose at least one input inventory", 0)
   end
 
-  if #remaining ~= 1 then
-    error("Select every input inventory so exactly one inventory remains as output", 0)
-  end
-
-  return copyList(inputNames), remaining[1]
+  return result
 end
 
-local function chooseInputNames(names)
-  local remaining = copyList(names)
+local function chooseInputNames(names, outputKnown)
   local inputNames = {}
+  local minimumRemaining = outputKnown and 0 or 1
 
-  while #remaining > 1 do
-    local inputName = chooseInventory("Choose next input. Last remaining inventory becomes output.", remaining)
-    table.insert(inputNames, inputName)
-    removeName(remaining, inputName)
+  while true do
+    local remaining = remainingNames(names, inputNames)
+
+    if #remaining == 0 then
+      if outputKnown and #inputNames > 0 then
+        return inputNames
+      end
+
+      error("Need one inventory left for output; rerun and leave it unselected", 0)
+    end
+
+    if not outputKnown and #inputNames > 0 and #remaining == 1 then
+      print("Output will be: " .. remaining[1])
+      return inputNames
+    end
+
+    print("Inputs: " .. (#inputNames > 0 and joinNames(inputNames) or "(none)"))
+    print("Choose input numbers/names. Commas work. Blank when done.")
+    for index, name in ipairs(remaining) do
+      print(index .. ": " .. name)
+    end
+
+    write("> ")
+    local answer = trim(read())
+
+    if answer == "" then
+      if #inputNames > 0 then
+        return inputNames
+      end
+
+      print("Choose at least one input.")
+    else
+      local selected, invalid = parseInventoryChoices(answer, remaining)
+      if not selected then
+        print("Unknown inventory: " .. invalid)
+      elseif #remaining - #selected < minimumRemaining then
+        print("Leave at least one inventory unselected for output.")
+      else
+        for _, name in ipairs(selected) do
+          table.insert(inputNames, name)
+        end
+      end
+    end
   end
-
-  return inputNames, remaining[1]
 end
 
-local function selectInventories()
+local function selectOutputName(names, inputNames, outputName)
+  local available = remainingNames(names, inputNames)
+
+  if #available == 0 then
+    error("Need one inventory left for output", 0)
+  end
+
+  if outputName then
+    if not containsName(available, outputName) then
+      error("Output inventory not found or already selected as input: " .. outputName, 0)
+    end
+
+    return outputName
+  end
+
+  if #available == 1 then
+    return available[1]
+  end
+
+  return chooseInventory("Choose output inventory.", available)
+end
+
+local function selectInventories(settings)
   local names = inventoryNames()
 
   if #names < 2 then
     error("Need at least two wired inventories: one input and one output", 0)
   end
 
-  local inputNames = configuredInputNames()
-  if inputNames then
-    return validateInputNames(inputNames, names)
+  local outputName = settings.outputName or DEFAULT_OUTPUT_INVENTORY
+  if outputName and not containsName(names, outputName) then
+    error("Output inventory not found: " .. outputName, 0)
   end
 
-  return chooseInputNames(names)
+  local inputNames = settings.inputNames or asNameList(DEFAULT_INPUT_INVENTORIES)
+  if inputNames then
+    inputNames = validateInputNames(inputNames, names)
+  else
+    local choices = outputName and remainingNames(names, { outputName }) or names
+    inputNames = chooseInputNames(choices, outputName ~= nil)
+  end
+
+  outputName = selectOutputName(names, inputNames, outputName)
+
+  return inputNames, outputName
 end
 
 local function findTurtleName()
@@ -162,7 +362,9 @@ local function findTurtleName()
   end
 end
 
-local inputNames, outputName = selectInventories()
+local settings = parseArgs()
+local gridSize, craftSlots = selectCraftGrid(settings)
+local inputNames, outputName = selectInventories(settings)
 local inputs = {}
 
 for _, inputName in ipairs(inputNames) do
@@ -195,7 +397,7 @@ local function countInput()
 end
 
 local function isCraftSlot(slot)
-  for _, craftSlot in ipairs(CRAFT_SLOTS) do
+  for _, craftSlot in ipairs(craftSlots) do
     if slot == craftSlot then
       return true
     end
@@ -220,18 +422,14 @@ local function flushOutput()
     local item = turtle.getItemDetail(slot)
 
     if item then
-      if item.name == OUTPUT_ITEM then
-        if not pullUntilEmpty(output, slot) then
-          return false
-        end
-      elseif item.name == INPUT_ITEM and isCraftSlot(slot) and item.count <= CRAFT_STACK_SIZE then
+      if item.name == INPUT_ITEM and isCraftSlot(slot) and item.count <= CRAFT_STACK_SIZE then
         -- Keep collected input in the turtle until all craft slots are full.
       elseif item.name == INPUT_ITEM then
         if not pullUntilEmpty(firstInput, slot) then
           return false
         end
-      else
-        error("Unexpected item in turtle slot " .. slot .. ": " .. item.name, 0)
+      elseif not pullUntilEmpty(output, slot) then
+        return false
       end
     end
   end
@@ -251,24 +449,6 @@ local function inputNeeded(slot)
   end
 
   return CRAFT_STACK_SIZE - item.count
-end
-
-local function inventorySpaceFor(target, itemName)
-  local space = 0
-  local listed = target.list()
-
-  for slot = 1, target.size() do
-    local item = listed[slot]
-    local limit = target.getItemLimit(slot)
-
-    if not item then
-      space = space + limit
-    elseif item.name == itemName and item.count < limit then
-      space = space + limit - item.count
-    end
-  end
-
-  return space
 end
 
 local function fillCraftSlot(toSlot)
@@ -309,7 +489,7 @@ local function fillCraftSlot(toSlot)
 end
 
 local function fillOneCraftSlot()
-  for _, slot in ipairs(CRAFT_SLOTS) do
+  for _, slot in ipairs(craftSlots) do
     if inputNeeded(slot) > 0 then
       return fillCraftSlot(slot)
     end
@@ -319,7 +499,7 @@ local function fillOneCraftSlot()
 end
 
 local function craftSlotsReady()
-  for _, slot in ipairs(CRAFT_SLOTS) do
+  for _, slot in ipairs(craftSlots) do
     local item = turtle.getItemDetail(slot)
     if not item or item.name ~= INPUT_ITEM or item.count ~= CRAFT_STACK_SIZE then
       return false
@@ -329,10 +509,11 @@ local function craftSlotsReady()
   return true
 end
 
+print("Grid: " .. gridSize)
 print("Inputs: " .. joinNames(inputNames))
 print("Output: " .. outputName)
 print("Turtle: " .. turtleName)
-print("Crafting full stacks of " .. INPUT_ITEM .. " into " .. OUTPUT_ITEM .. ". Hold Ctrl+T to stop.")
+print("Crafting full " .. gridSize .. " stacks of " .. INPUT_ITEM .. ". Hold Ctrl+T to stop.")
 
 while true do
   while not flushOutput() do
@@ -343,20 +524,14 @@ while true do
     fillOneCraftSlot()
   end
 
-  if craftSlotsReady() and inventorySpaceFor(output, OUTPUT_ITEM) >= CRAFT_COUNT then
+  if craftSlotsReady() then
     turtle.select(OUTPUT_SLOT)
     if not turtle.craft(CRAFT_COUNT) then
       flushOutput()
-      error("Craft failed; expected " .. OUTPUT_ITEM, 0)
+      error("Craft failed", 0)
     end
 
-    local crafted = turtle.getItemDetail(OUTPUT_SLOT)
-    if not crafted or crafted.name ~= OUTPUT_ITEM or crafted.count ~= CRAFT_COUNT then
-      flushOutput()
-      error("Crafted unexpected item", 0)
-    end
-
-    while not pullUntilEmpty(output, OUTPUT_SLOT) do
+    while not flushOutput() do
       sleep(TICK_SECONDS)
     end
   end
