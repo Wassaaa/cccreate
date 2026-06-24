@@ -1,10 +1,16 @@
-local function pack(...)
-  return { ... }
+local function show(value)
+  return textutils.serialize(value)
 end
 
-local function sorted(values)
-  table.sort(values)
-  return values
+local function compactItem(item)
+  if type(item) ~= "table" then
+    return item
+  end
+
+  return {
+    name = item.name,
+    count = item.count,
+  }
 end
 
 local function compactList(items)
@@ -29,6 +35,17 @@ local function compactList(items)
   return result
 end
 
+local function run(label, fn)
+  local values = { pcall(fn) }
+  local ok = table.remove(values, 1)
+
+  if ok then
+    print(label .. "=" .. show(values))
+  else
+    print(label .. "=ERROR " .. tostring(values[1]))
+  end
+end
+
 local function hasMethod(methods, target)
   for _, method in ipairs(methods or {}) do
     if method == target then
@@ -39,39 +56,9 @@ local function hasMethod(methods, target)
   return false
 end
 
-local function printResult(label, ok, ...)
-  if ok then
-    print(label .. ": " .. textutils.serialize(pack(...)))
-  else
-    print(label .. " ERROR: " .. tostring((...)))
-  end
-end
-
-local function probe(label, fn)
-  printResult(label, pcall(fn))
-end
-
-local function getMethods(name)
-  local methods = peripheral.getMethods(name) or {}
-  table.sort(methods)
-  return methods
-end
-
-local label = os.getComputerLabel()
-local names = sorted(peripheral.getNames())
 local turtleName = nil
 
-print("Turtle inventory peripheral probe")
-print("Computer ID: " .. os.getComputerID())
-print("Label: " .. tostring(label))
-print("Is turtle: " .. tostring(type(turtle) == "table"))
-print("Peripherals: " .. textutils.serialize(names))
-
-for _, name in ipairs(names) do
-  print(name .. " types: " .. textutils.serialize(pack(peripheral.getType(name))))
-end
-
-for _, name in ipairs(names) do
+for _, name in ipairs(peripheral.getNames()) do
   local modem = peripheral.wrap(name)
   if modem
     and type(modem.getNameLocal) == "function"
@@ -80,27 +67,28 @@ for _, name in ipairs(names) do
     local ok, localName = pcall(modem.getNameLocal)
     if ok and localName then
       turtleName = localName
-      print("Local wired name from " .. name .. ": " .. turtleName)
       break
     end
   end
 end
 
+print("probe=turtle_inventory")
+print("localName=" .. tostring(turtleName))
+
 if not turtleName then
-  print("No local wired turtle name found.")
   return
 end
 
-probe("local present", function()
+run("present", function()
   return peripheral.isPresent(turtleName)
 end)
 
-probe("local type", function()
+run("type", function()
   return peripheral.getType(turtleName)
 end)
 
-probe("local method flags", function()
-  local methods = getMethods(turtleName)
+run("methods", function()
+  local methods = peripheral.getMethods(turtleName) or {}
   return {
     list = hasMethod(methods, "list"),
     size = hasMethod(methods, "size"),
@@ -110,7 +98,7 @@ probe("local method flags", function()
   }
 end)
 
-probe("wrap method types", function()
+run("wrap", function()
   local object = peripheral.wrap(turtleName)
   return {
     object = type(object),
@@ -122,26 +110,18 @@ probe("wrap method types", function()
   }
 end)
 
-probe("call list", function()
+run("callList", function()
   return compactList(peripheral.call(turtleName, "list"))
 end)
 
-probe("call size", function()
+run("callSize", function()
   return peripheral.call(turtleName, "size")
 end)
 
-probe("call detail 1", function()
-  return peripheral.call(turtleName, "getItemDetail", 1)
+run("callDetail1", function()
+  return compactItem(peripheral.call(turtleName, "getItemDetail", 1))
 end)
 
-probe("turtle detail 1", function()
-  local item = turtle.getItemDetail(1)
-  if not item then
-    return nil
-  end
-
-  return {
-    name = item.name,
-    count = item.count,
-  }
+run("turtleDetail1", function()
+  return compactItem(turtle.getItemDetail(1))
 end)
