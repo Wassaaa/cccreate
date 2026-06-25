@@ -19,6 +19,8 @@ local ORDER_METHODS = {
   "getItemDetail",
 }
 
+local MAX_JSON_DEPTH = 12
+
 local function sorted(values)
   local result = {}
 
@@ -61,7 +63,7 @@ local function jsonSafe(value, depth, seen)
     return "<cycle>"
   end
 
-  if depth >= 6 then
+  if depth >= MAX_JSON_DEPTH then
     return "<max-depth>"
   end
 
