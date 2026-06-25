@@ -10,6 +10,7 @@ local FEED_EVENT_TIMEOUT = 3
 local SNIFF_EVENT_TIMEOUT = 10
 local STAGING_WAIT_SECONDS = 5
 local STAGING_POLL_SECONDS = 0.05
+local MAX_REPORT_DEPTH = 16
 
 local GRID_TO_TURTLE_SLOT = {
   1, 2, 3,
@@ -295,12 +296,45 @@ local function inventorySummary(name)
   }
 end
 
+local function jsonSafe(value, depth, seen)
+  depth = depth or 0
+  seen = seen or {}
+
+  local valueType = type(value)
+
+  if valueType == "nil" or valueType == "string" or valueType == "number" or valueType == "boolean" then
+    return value
+  end
+
+  if valueType ~= "table" then
+    return "<" .. valueType .. ">"
+  end
+
+  if seen[value] then
+    return "<cycle>"
+  end
+
+  if depth >= MAX_REPORT_DEPTH then
+    return "<max-depth>"
+  end
+
+  seen[value] = true
+
+  local result = {}
+  for key, item in pairs(value) do
+    result[tostring(key)] = jsonSafe(item, depth + 1, seen)
+  end
+
+  seen[value] = nil
+  return result
+end
+
 local function sendReport(payload)
   payload.kind = "package_crafter"
   payload.computerId = os.getComputerID()
   payload.label = os.getComputerLabel()
   payload.command = command
-  reporter.send(payload)
+  reporter.send(jsonSafe(payload))
 end
 
 local function statusReport()
@@ -415,6 +449,36 @@ local function waitForRequirements(inventory, required)
   return false, "Need " .. lastNeeded .. " x " .. lastName .. ", found " .. lastAvailable
 end
 
+local function itemStackLimit(inventory, itemName)
+  for slot, item in pairs(inventory.list()) do
+    if item.name == itemName then
+      if type(inventory.getItemDetail) == "function" then
+        local detail = inventory.getItemDetail(slot)
+        if detail and type(detail.maxCount) == "number" then
+          return detail.maxCount
+        end
+      end
+
+      return 64
+    end
+  end
+
+  return 64
+end
+
+local function maxBatchForRecipe(inventory, recipe, requested)
+  local batch = math.min(requested, CRAFT_BATCH_LIMIT)
+
+  for recipeSlot = 1, 9 do
+    local itemName = recipe[recipeSlot]
+    if itemName then
+      batch = math.min(batch, itemStackLimit(inventory, itemName))
+    end
+  end
+
+  return math.max(1, batch)
+end
+
 local function pushItemToTurtleSlot(inventory, turtleName, itemName, count, targetSlot)
   local remaining = count
 
@@ -482,33 +546,97 @@ local function pushOutput(output, turtleName)
   end
 end
 
+local function appendAll(target, source)
+  for _, item in ipairs(source) do
+    table.insert(target, item)
+  end
+end
+
+local function pushRemainders(output, turtleName)
+  local movedItems = {}
+
+  for slot = 1, 16 do
+    if slot ~= OUTPUT_SLOT then
+      local item = turtle.getItemDetail(slot)
+
+      if item then
+        local remaining = item.count
+        local movedTotal = 0
+
+        while remaining > 0 do
+          local moved = output.pullItems(turtleName, slot, remaining)
+
+          if not moved or moved <= 0 then
+            error("Output refused remainder " .. item.name .. " x" .. remaining, 0)
+          end
+
+          movedTotal = movedTotal + moved
+          remaining = remaining - moved
+        end
+
+        table.insert(movedItems, {
+          slot = slot,
+          name = item.name,
+          count = movedTotal,
+        })
+      end
+    end
+  end
+
+  return movedItems
+end
+
 local function craftOneRecipe(staging, output, turtleName, craft)
   local remaining = craft.count or 1
   local crafted = 0
   local pushedOutput = 0
+  local remainders = {}
+  local outputPerStep = nil
+  local outputMaxCount = 64
 
   while remaining > 0 do
-    local batch = math.min(remaining, CRAFT_BATCH_LIMIT)
-
     requireCleanTurtle()
 
+    local ready, waitError = waitForRequirements(staging, requiredItems(craft.recipe, 1))
+    if not ready then
+      return crafted, pushedOutput, waitError, remainders
+    end
+
+    local outputSafeLimit = 1
+    if outputPerStep then
+      outputSafeLimit = math.max(1, math.floor(outputMaxCount / outputPerStep))
+    end
+
+    local batch = maxBatchForRecipe(staging, craft.recipe, math.min(remaining, outputSafeLimit))
     local filled, fillError = fillCraftGrid(staging, turtleName, craft.recipe, batch)
     if not filled then
-      return crafted, pushedOutput, fillError
+      return crafted, pushedOutput, fillError, remainders
     end
 
     turtle.select(OUTPUT_SLOT)
 
-    if not turtle.craft(batch) then
-      error("turtle.craft(" .. batch .. ") failed", 0)
+    local craftedOk, craftError = turtle.craft(batch)
+    if not craftedOk then
+      return crafted, pushedOutput, "turtle.craft(" .. batch .. ") failed: " .. tostring(craftError), remainders
+    end
+
+    local outputItem = turtle.getItemDetail(OUTPUT_SLOT, true)
+    if not outputItem then
+      return crafted, pushedOutput, "Craft succeeded but output slot was empty", remainders
+    end
+
+    if not outputPerStep then
+      outputPerStep = math.max(1, math.floor(outputItem.count / batch))
+      outputMaxCount = outputItem.maxCount or outputMaxCount
     end
 
     crafted = crafted + batch
     pushedOutput = pushedOutput + pushOutput(output, turtleName)
+    appendAll(remainders, pushRemainders(output, turtleName))
     remaining = remaining - batch
   end
 
-  return crafted, pushedOutput, nil
+  return crafted, pushedOutput, nil, remainders
 end
 
 local function canCraftFromSummary(summary)
@@ -564,14 +692,15 @@ local function handlePackage(package)
   result.crafts = {}
 
   for _, craft in ipairs(summary.order.crafts) do
-    local crafted, pushedOutput, craftError = craftOneRecipe(staging, output, turtleName, craft)
+    local crafted, pushedOutput, craftError, remainders = craftOneRecipe(staging, output, turtleName, craft)
 
     table.insert(result.crafts, {
       requested = craft.count,
       crafted = crafted,
       pushedOutput = pushedOutput,
       error = craftError,
-      recipe = craft.recipe,
+      remainders = remainders,
+      recipe = copyRecipe(craft.recipe),
     })
 
     if craftError then
