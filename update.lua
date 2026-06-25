@@ -129,12 +129,12 @@ end
 
 local function isBinary(path)
   local lower = string.lower(path)
-  return lower:match("%.png$")
-    or lower:match("%.jpg$")
-    or lower:match("%.jpeg$")
-    or lower:match("%.gif$")
-    or lower:match("%.webp$")
-    or lower:match("%.nbt$")
+  return lower:match("%.png$") ~= nil
+    or lower:match("%.jpg$") ~= nil
+    or lower:match("%.jpeg$") ~= nil
+    or lower:match("%.gif$") ~= nil
+    or lower:match("%.webp$") ~= nil
+    or lower:match("%.nbt$") ~= nil
 end
 
 local function relativeInstallPath(sourceRoot, sourcePath)
