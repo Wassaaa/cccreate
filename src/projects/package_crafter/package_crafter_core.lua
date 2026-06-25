@@ -196,17 +196,8 @@ function M.run(options)
   local reporter = reporting and require("lib.reporter") or nil
   local programName = options.programName or "package_crafter"
   local args = options.args or {}
-  local command = args[1]
-  local firstInventoryArg = 1
-
-  if command == "watch" or command == "once" then
-    firstInventoryArg = 2
-  else
-    command = "watch"
-  end
-
-  local firstInventory = args[firstInventoryArg]
-  local secondInventory = args[firstInventoryArg + 1]
+  local firstInventory = args[1]
+  local secondInventory = args[2]
   local stagingName = secondInventory and firstInventory or DEFAULT_STAGING_INVENTORY
   local outputName = secondInventory or firstInventory or DEFAULT_OUTPUT_INVENTORY
   local pendingCraftsByOrder = {}
@@ -224,7 +215,6 @@ function M.run(options)
     payload.program = programName
     payload.computerId = os.getComputerID()
     payload.label = os.getComputerLabel()
-    payload.command = command
     reporter.send(jsonSafe(payload))
   end
 
@@ -987,36 +977,6 @@ function M.run(options)
     return result
   end
 
-  local function waitOnce()
-    resolveStagingName()
-    resolveOutputName()
-    requireCleanTurtle()
-
-    print("Waiting for package_received from " .. PACKAGER_NAME .. "...")
-
-    local event = { os.pullEvent("package_received") }
-    local record = packageRecordFromEvent(event)
-    local result = handlePackageRecord(record)
-
-    if reporting then
-      sendReport({
-        event = "package_received",
-        received = {
-          source = record.source,
-          packageArgIndex = record.packageArgIndex,
-          sequence = record.sequence,
-        },
-        result = result,
-        turtleInventory = turtleInventory(),
-      })
-    end
-
-    print("Package #" .. record.sequence .. ": " .. result.action)
-    if result.reason then
-      print(result.reason)
-    end
-  end
-
   local function enqueuePackageEvent(event)
     local record = packageRecordFromEvent(event)
     table.insert(packageQueue, record)
@@ -1120,15 +1080,12 @@ function M.run(options)
     error("This program must run on a crafting turtle", 0)
   end
 
-  loadRecipeCache()
-
-  if command == "once" then
-    waitOnce()
-  elseif command == "watch" then
-    watch()
-  else
-    error("Usage: " .. programName .. " [watch|once] [output] or [staging output]", 0)
+  if args[3] then
+    error("Usage: " .. programName .. " [output] or [staging output]", 0)
   end
+
+  loadRecipeCache()
+  watch()
 end
 
 return M
