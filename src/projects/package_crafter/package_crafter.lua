@@ -12,7 +12,7 @@ local STAGING_WAIT_SECONDS = 5
 local STAGING_POLL_SECONDS = 0.05
 local MAX_REPORT_DEPTH = 16
 local RECIPE_CACHE_PATH = "/config/package_crafter_recipes.lua"
-local PROBE_UNKNOWN_RECIPES_WITH_SINGLE_CRAFT = true
+local RECIPE_CACHE_VERSION = 2
 
 local GRID_TO_TURTLE_SLOT = {
   1, 2, 3,
@@ -58,8 +58,11 @@ local function loadRecipeCache()
   local loaded = textutils.unserialize(handle.readAll())
   handle.close()
 
-  if type(loaded) == "table" then
-    recipeMetricsBySignature = loaded
+  if type(loaded) == "table"
+    and loaded.version == RECIPE_CACHE_VERSION
+    and type(loaded.recipes) == "table"
+  then
+    recipeMetricsBySignature = loaded.recipes
   end
 end
 
@@ -71,7 +74,10 @@ local function saveRecipeCache()
 
   local handle = fs.open(RECIPE_CACHE_PATH, "w")
   if handle then
-    handle.write(textutils.serialize(recipeMetricsBySignature))
+    handle.write(textutils.serialize({
+      version = RECIPE_CACHE_VERSION,
+      recipes = recipeMetricsBySignature,
+    }))
     handle.close()
   end
 end
@@ -468,18 +474,6 @@ local function requireSlotsEmpty(slots)
   end
 end
 
-local function countInInventory(inventory, itemName)
-  local total = 0
-
-  for _, item in pairs(inventory.list()) do
-    if item.name == itemName then
-      total = total + item.count
-    end
-  end
-
-  return total
-end
-
 local function requiredItems(recipe, craftCount)
   local required = {}
 
@@ -491,15 +485,6 @@ local function requiredItems(recipe, craftCount)
   end
 
   return required
-end
-
-local function firstMissingRequirement(inventory, required)
-  for itemName, needed in pairs(required) do
-    local available = countInInventory(inventory, itemName)
-    if available < needed then
-      return itemName, needed, available
-    end
-  end
 end
 
 local function countInList(items, itemName)
@@ -676,29 +661,6 @@ local function collectRemainderItems(slots)
   return items
 end
 
-local function cacheRemainderState(signature, metrics, remainderItems)
-  if metrics.hasRemainders ~= nil then
-    return
-  end
-
-  metrics.hasRemainders = #remainderItems > 0
-
-  if metrics.hasRemainders then
-    metrics.remainders = {}
-    for _, item in ipairs(remainderItems) do
-      table.insert(metrics.remainders, {
-        slot = item.slot,
-        name = item.name,
-      })
-    end
-  else
-    metrics.remainders = nil
-  end
-
-  recipeMetricsBySignature[signature] = metrics
-  saveRecipeCache()
-end
-
 local function pushRemainderItems(output, turtleName, remainderItems)
   local movedItems = {}
 
@@ -862,7 +824,7 @@ local function craftOneRecipe(staging, output, turtleName, craft)
   local metrics = recipeMetricsBySignature[signature]
   local controlledSlots = recipeTurtleSlots(craft.recipe)
 
-  if not metrics and PROBE_UNKNOWN_RECIPES_WITH_SINGLE_CRAFT and remaining > 0 then
+  if not metrics and remaining > 0 then
     requireSlotsEmpty(controlledSlots)
 
     local probeMetrics, probeOutput, probeRemainders, probeError =
@@ -877,13 +839,6 @@ local function craftOneRecipe(staging, output, turtleName, craft)
     pushedOutput = pushedOutput + probeOutput
     appendAll(remainders, probeRemainders)
     remaining = remaining - 1
-  end
-
-  if not metrics then
-    metrics = {
-      outputPerStep = 1,
-      outputMaxCount = 64,
-    }
   end
 
   while remaining > 0 do
@@ -930,9 +885,8 @@ local function craftOneRecipe(staging, output, turtleName, craft)
     end
 
     local remainderItems = {}
-    if metrics.hasRemainders ~= false then
+    if metrics.hasRemainders then
       remainderItems = collectRemainderItems(controlledSlots)
-      cacheRemainderState(signature, metrics, remainderItems)
     end
 
     crafted = crafted + batch
@@ -942,13 +896,6 @@ local function craftOneRecipe(staging, output, turtleName, craft)
   end
 
   return crafted, pushedOutput, nil, remainders
-end
-
-local function canCraftFromSummary(summary)
-  return summary.order
-    and summary.order.isFinal == true
-    and summary.order.isFinalLink == true
-    and #summary.order.crafts > 0
 end
 
 local function handlePackage(package)
