@@ -43,6 +43,40 @@ local function keys(value)
   return result
 end
 
+local function jsonSafe(value, depth, seen)
+  depth = depth or 0
+  seen = seen or {}
+
+  local valueType = type(value)
+
+  if valueType == "nil" or valueType == "string" or valueType == "number" or valueType == "boolean" then
+    return value
+  end
+
+  if valueType ~= "table" then
+    return "<" .. valueType .. ">"
+  end
+
+  if seen[value] then
+    return "<cycle>"
+  end
+
+  if depth >= 6 then
+    return "<max-depth>"
+  end
+
+  seen[value] = true
+
+  local result = {}
+  for key, item in pairs(value) do
+    result[tostring(key)] = jsonSafe(item, depth + 1, seen)
+  end
+
+  seen[value] = nil
+
+  return result
+end
+
 local function safeCall(object, method, ...)
   if type(object) ~= "table" or type(object[method]) ~= "function" then
     return {
@@ -345,7 +379,7 @@ for _, name in ipairs(names) do
   table.insert(report.peripherals, inspectPeripheral(name))
 end
 
-reporter.send(report)
+reporter.send(jsonSafe(report))
 
 print("Create package probe complete.")
 print("Peripherals: " .. #report.peripherals)
