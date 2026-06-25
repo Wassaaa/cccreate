@@ -1,6 +1,7 @@
 local FROM_INVENTORIES = { "back" }
 local TO_INVENTORY = "top"
 local INTERVAL_SECONDS = 1
+local SHORT_ITEM_NAMES = true
 
 -- Use this only if locked empty drawers do not show up through getItemDetail.
 local EXTRA_TARGET_SLOTS = {
@@ -54,6 +55,34 @@ local function sourceInventory(name)
   return wrapped
 end
 
+local function itemLabel(itemName)
+  if not SHORT_ITEM_NAMES then
+    return itemName
+  end
+
+  return itemName:match("^[^:]+:(.+)$") or itemName
+end
+
+local function countText(count)
+  return count and tostring(count) or "?"
+end
+
+local function slotCount(inv, slot, expectedName)
+  local item = nil
+
+  if type(inv.getItemDetail) == "function" then
+    item = inv.getItemDetail(slot)
+  else
+    item = inv.list()[slot]
+  end
+
+  if item and item.name == expectedName then
+    return item.count
+  end
+
+  return nil
+end
+
 local function addTarget(targets, itemName, slot)
   if not itemName or not slot then
     return
@@ -94,7 +123,7 @@ local function targetSlots(to)
   return targets
 end
 
-local function moveMatches(fromName, from, targets)
+local function moveMatches(fromName, from, to, targets)
   local movedTotal = 0
 
   for fromSlot, item in pairs(from.list()) do
@@ -108,11 +137,31 @@ local function moveMatches(fromName, from, targets)
           break
         end
 
+        local targetBefore = slotCount(to, toSlot, item.name)
         local moved = from.pushItems(TO_INVENTORY, fromSlot, remaining, toSlot)
         if moved > 0 then
+          local targetAfter = slotCount(to, toSlot, item.name)
           movedTotal = movedTotal + moved
           remaining = remaining - moved
-          print("Moved " .. moved .. " x " .. item.name .. " from " .. fromName .. ":" .. fromSlot .. " to " .. TO_INVENTORY .. ":" .. toSlot)
+          print(
+            itemLabel(item.name)
+              .. " "
+              .. fromName
+              .. ":"
+              .. fromSlot
+              .. " "
+              .. moved
+              .. "/"
+              .. item.count
+              .. " -> "
+              .. TO_INVENTORY
+              .. ":"
+              .. toSlot
+              .. " "
+              .. countText(targetBefore)
+              .. ">"
+              .. countText(targetAfter)
+          )
         end
       end
     end
@@ -165,7 +214,7 @@ while true do
   local movedTotal = 0
 
   for _, source in ipairs(sources) do
-    movedTotal = movedTotal + moveMatches(source.name, source.inventory, targets)
+    movedTotal = movedTotal + moveMatches(source.name, source.inventory, to, targets)
   end
 
   if movedTotal > 0 then
