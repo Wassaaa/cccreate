@@ -7,8 +7,9 @@ local baseSource = srcRoot .. "/base"
 local projectsSource = srcRoot .. "/projects"
 local updaterPath = "/update"
 
-local rawRoot = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. githubRepo .. "/" .. branch .. "/"
 local apiRoot = "https://api.github.com/repos/" .. githubUser .. "/" .. githubRepo .. "/contents/"
+local rawRef = branch
+local rawRoot = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. githubRepo .. "/" .. rawRef .. "/"
 local updaterUrl = rawRoot .. "update.lua"
 local unpackArgs = table.unpack or unpack
 
@@ -112,6 +113,10 @@ local function contentUrl(path)
   return apiRoot .. path .. "?ref=" .. branch
 end
 
+local function refUrl()
+  return "https://api.github.com/repos/" .. githubUser .. "/" .. githubRepo .. "/git/ref/heads/" .. branch
+end
+
 local function decodeJson(contents, url)
   local decoded = textutils.unserializeJSON(contents)
 
@@ -125,6 +130,17 @@ end
 local function listGitHub(path)
   local url = contentUrl(path)
   return decodeJson(downloadText(url), url)
+end
+
+local function resolveRawRef()
+  local url = refUrl()
+  local ref = decodeJson(downloadText(url), url)
+
+  if type(ref.object) == "table" and type(ref.object.sha) == "string" then
+    rawRef = ref.object.sha
+    rawRoot = "https://raw.githubusercontent.com/" .. githubUser .. "/" .. githubRepo .. "/" .. rawRef .. "/"
+    updaterUrl = rawRoot .. "update.lua"
+  end
 end
 
 local function isBinary(path)
@@ -156,7 +172,7 @@ local function collectFiles(sourceRoot, sourcePath, results)
       table.insert(results, {
         sourcePath = entry.path,
         targetPath = targetPath,
-        url = entry.download_url or (rawRoot .. entry.path),
+        url = rawRoot .. entry.path,
         binary = isBinary(entry.path),
       })
     end
@@ -302,6 +318,8 @@ local function printProjects(projects)
   end
 end
 
+resolveRawRef()
+
 if selfUpdate() then
   return
 end
@@ -313,7 +331,7 @@ if listOnly then
   return
 end
 
-print("Updating from " .. githubUser .. "/" .. githubRepo .. " (" .. branch .. ")")
+print("Updating from " .. githubUser .. "/" .. githubRepo .. " (" .. branch .. " " .. string.sub(rawRef, 1, 7) .. ")")
 
 restoreReportShellAliases()
 
