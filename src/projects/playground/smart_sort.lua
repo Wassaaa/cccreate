@@ -8,6 +8,7 @@ local EXTRA_TARGET_SLOTS = {
   -- ["minecraft:iron_ingot"] = { 1 },
 }
 
+local BLOCKED_TARGETS = {}
 local args = { ... }
 
 local function trim(value)
@@ -67,20 +68,62 @@ local function countText(count)
   return count and tostring(count) or "?"
 end
 
-local function slotCount(inv, slot, expectedName)
+local function slotState(inv, slot, expectedName)
   local item = nil
 
   if type(inv.getItemDetail) == "function" then
-    item = inv.getItemDetail(slot)
+    local ok, result = pcall(inv.getItemDetail, slot)
+    if ok then
+      item = result
+    end
   else
     item = inv.list()[slot]
   end
 
   if item and item.name == expectedName then
-    return item.count
+    local limit = nil
+
+    if type(inv.getItemLimit) == "function" then
+      local ok, result = pcall(inv.getItemLimit, slot)
+      if ok and type(result) == "number" then
+        limit = result
+      end
+    end
+
+    return item.count, limit
   end
 
-  return nil
+  return nil, nil
+end
+
+local function targetKey(itemName, slot)
+  return itemName .. "@" .. slot
+end
+
+local function blockTarget(itemName, slot, count, limit, reason, quiet)
+  local key = targetKey(itemName, slot)
+
+  if not quiet and not BLOCKED_TARGETS[key] then
+    print(reason .. " " .. itemLabel(itemName) .. " " .. TO_INVENTORY .. ":" .. slot .. " " .. countText(count) .. "/" .. countText(limit))
+  end
+
+  BLOCKED_TARGETS[key] = {
+    count = count,
+  }
+end
+
+local function targetIsBlocked(itemName, slot, count)
+  local blocked = BLOCKED_TARGETS[targetKey(itemName, slot)]
+  if not blocked then
+    return false
+  end
+
+  if count and blocked.count and count < blocked.count then
+    BLOCKED_TARGETS[targetKey(itemName, slot)] = nil
+    return false
+  end
+
+  return true
 end
 
 local function addTarget(targets, itemName, slot)
@@ -98,25 +141,40 @@ local function addTarget(targets, itemName, slot)
   table.insert(targets[itemName], slot)
 end
 
+local function addOpenTarget(targets, to, itemName, slot)
+  local count, limit = slotState(to, slot, itemName)
+
+  if count and limit and count >= limit then
+    blockTarget(itemName, slot, count, limit, "FULL")
+    return
+  end
+
+  if targetIsBlocked(itemName, slot, count) then
+    return
+  end
+
+  addTarget(targets, itemName, slot)
+end
+
 local function targetSlots(to)
   local targets = {}
 
   for slot, item in pairs(to.list()) do
-    addTarget(targets, item.name, slot)
+    addOpenTarget(targets, to, item.name, slot)
   end
 
   if type(to.size) == "function" and type(to.getItemDetail) == "function" then
     for slot = 1, to.size() do
-      local item = to.getItemDetail(slot)
-      if item then
-        addTarget(targets, item.name, slot)
+      local ok, item = pcall(to.getItemDetail, slot)
+      if ok and item then
+        addOpenTarget(targets, to, item.name, slot)
       end
     end
   end
 
   for itemName, slots in pairs(EXTRA_TARGET_SLOTS) do
     for _, slot in ipairs(slots) do
-      addTarget(targets, itemName, slot)
+      addOpenTarget(targets, to, itemName, slot)
     end
   end
 
@@ -137,31 +195,44 @@ local function moveMatches(fromName, from, to, targets)
           break
         end
 
-        local targetBefore = slotCount(to, toSlot, item.name)
+        local targetBefore, targetLimit = slotState(to, toSlot, item.name)
+
+        if targetBefore and targetLimit and targetBefore >= targetLimit then
+          blockTarget(item.name, toSlot, targetBefore, targetLimit, "FULL")
+          break
+        end
+
         local moved = from.pushItems(TO_INVENTORY, fromSlot, remaining, toSlot)
         if moved > 0 then
-          local targetAfter = slotCount(to, toSlot, item.name)
-          movedTotal = movedTotal + moved
+          local targetAfter = slotState(to, toSlot, item.name)
           remaining = remaining - moved
-          print(
-            itemLabel(item.name)
-              .. " "
-              .. fromName
-              .. ":"
-              .. fromSlot
-              .. " "
-              .. moved
-              .. "/"
-              .. item.count
-              .. " -> "
-              .. TO_INVENTORY
-              .. ":"
-              .. toSlot
-              .. " "
-              .. countText(targetBefore)
-              .. ">"
-              .. countText(targetAfter)
-          )
+
+          local line = itemLabel(item.name)
+            .. " "
+            .. fromName
+            .. ":"
+            .. fromSlot
+            .. " "
+            .. moved
+            .. "/"
+            .. item.count
+            .. " -> "
+            .. TO_INVENTORY
+            .. ":"
+            .. toSlot
+            .. " "
+            .. countText(targetBefore)
+            .. ">"
+            .. countText(targetAfter)
+
+          if targetBefore and targetAfter and targetAfter <= targetBefore then
+            blockTarget(item.name, toSlot, targetAfter, targetLimit, "NO_GAIN", true)
+            print("NO " .. line)
+            break
+          end
+
+          movedTotal = movedTotal + moved
+          print(line)
         end
       end
     end
