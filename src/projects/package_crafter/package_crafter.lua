@@ -12,9 +12,7 @@ local STAGING_WAIT_SECONDS = 5
 local STAGING_POLL_SECONDS = 0.05
 local MAX_REPORT_DEPTH = 16
 local RECIPE_CACHE_PATH = "/config/package_crafter_recipes.lua"
-local PROBE_UNKNOWN_RECIPES_WITH_SINGLE_CRAFT = false
-local UNKNOWN_RECIPE_OUTPUT_PER_STEP = 1
-local UNKNOWN_RECIPE_OUTPUT_MAX_COUNT = 64
+local PROBE_UNKNOWN_RECIPES_WITH_SINGLE_CRAFT = true
 
 local GRID_TO_TURTLE_SLOT = {
   1, 2, 3,
@@ -657,32 +655,202 @@ local function pushOutput(output, turtleName, outputItem)
   return pullSlotFully(output, turtleName, OUTPUT_SLOT, outputItem.name, outputItem.count, "output")
 end
 
+local function collectRemainderItems(slots)
+  local items = {}
+
+  for _, slot in ipairs(slots) do
+    if slot ~= OUTPUT_SLOT then
+      local item = turtle.getItemDetail(slot, true)
+
+      if item then
+        table.insert(items, {
+          slot = slot,
+          name = item.name,
+          count = item.count,
+          nbt = item.nbt,
+        })
+      end
+    end
+  end
+
+  return items
+end
+
+local function cacheRemainderState(signature, metrics, remainderItems)
+  if metrics.hasRemainders ~= nil then
+    return
+  end
+
+  metrics.hasRemainders = #remainderItems > 0
+
+  if metrics.hasRemainders then
+    metrics.remainders = {}
+    for _, item in ipairs(remainderItems) do
+      table.insert(metrics.remainders, {
+        slot = item.slot,
+        name = item.name,
+      })
+    end
+  else
+    metrics.remainders = nil
+  end
+
+  recipeMetricsBySignature[signature] = metrics
+  saveRecipeCache()
+end
+
+local function pushRemainderItems(output, turtleName, remainderItems)
+  local movedItems = {}
+
+  for _, item in ipairs(remainderItems) do
+    local movedTotal = pullSlotFully(output, turtleName, item.slot, item.name, item.count, "remainder")
+
+    table.insert(movedItems, {
+      slot = item.slot,
+      name = item.name,
+      count = movedTotal,
+    })
+  end
+
+  return movedItems
+end
+
 local function appendAll(target, source)
   for _, item in ipairs(source) do
     table.insert(target, item)
   end
 end
 
-local function pushRemainders(output, turtleName, slots)
-  local movedItems = {}
+local function learnRecipeMetrics(staging, output, turtleName, craft, signature, controlledSlots)
+  local ready, itemsOrError = waitForRequirements(staging, requiredItems(craft.recipe, 1))
+  if not ready then
+    return nil, 0, {}, itemsOrError
+  end
 
-  for _, slot in ipairs(slots) do
-    if slot ~= OUTPUT_SLOT then
-      local item = turtle.getItemDetail(slot)
+  local filled, fillError = fillCraftGrid(staging, turtleName, craft.recipe, 1, itemsOrError)
+  if not filled then
+    return nil, 0, {}, fillError
+  end
 
-      if item then
-        local movedTotal = pullSlotFully(output, turtleName, slot, item.name, item.count, "remainder")
+  turtle.select(OUTPUT_SLOT)
 
-        table.insert(movedItems, {
-          slot = slot,
-          name = item.name,
-          count = movedTotal,
-        })
-      end
+  local craftedOk, craftError = turtle.craft(1)
+  if not craftedOk then
+    return nil, 0, {}, "turtle.craft(1) probe failed: " .. tostring(craftError)
+  end
+
+  local outputItem = turtle.getItemDetail(OUTPUT_SLOT, true)
+  if not outputItem then
+    return nil, 0, {}, "Probe craft succeeded but output slot was empty"
+  end
+
+  local remainderItems = collectRemainderItems(controlledSlots)
+  local metrics = {
+    outputPerStep = math.max(1, outputItem.count),
+    outputMaxCount = outputItem.maxCount or 64,
+    hasRemainders = #remainderItems > 0,
+  }
+
+  if metrics.hasRemainders then
+    metrics.remainders = {}
+    for _, item in ipairs(remainderItems) do
+      table.insert(metrics.remainders, {
+        slot = item.slot,
+        name = item.name,
+      })
     end
   end
 
-  return movedItems
+  recipeMetricsBySignature[signature] = metrics
+  saveRecipeCache()
+
+  local pushedOutput = pushOutput(output, turtleName, outputItem)
+  local movedRemainders = pushRemainderItems(output, turtleName, remainderItems)
+
+  return metrics, pushedOutput, movedRemainders
+end
+
+local function canUsePersistentGrid(metrics)
+  return metrics
+    and metrics.outputPerStep == 1
+    and metrics.outputMaxCount == 1
+    and metrics.hasRemainders == false
+end
+
+local function ensurePersistentInput(staging, turtleName, itemName, targetSlot, remainingCrafts, items)
+  local current = turtle.getItemDetail(targetSlot)
+
+  if current then
+    if current.name ~= itemName then
+      return false, "Turtle slot " .. targetSlot .. " has " .. current.name .. ", expected " .. itemName
+    end
+
+    return true
+  end
+
+  local limit = itemStackLimit(staging, itemName, items)
+  local moveCount = math.min(remainingCrafts, limit)
+  local moved = pushItemToTurtleSlot(staging, turtleName, itemName, moveCount, targetSlot, items)
+
+  if moved ~= moveCount then
+    return false, "Moved only " .. moved .. "/" .. moveCount .. " x " .. itemName
+  end
+
+  return true
+end
+
+local function craftWithPersistentGrid(staging, output, turtleName, recipe, remaining, controlledSlots)
+  local crafted = 0
+  local pushedOutput = 0
+  local remainders = {}
+  local ready, itemsOrError = waitForRequirements(staging, requiredItems(recipe, remaining))
+
+  if not ready then
+    return crafted, pushedOutput, itemsOrError, remainders
+  end
+
+  local items = itemsOrError
+
+  while remaining > 0 do
+    if turtle.getItemDetail(OUTPUT_SLOT) then
+      return crafted, pushedOutput, "Output slot is not empty before craft", remainders
+    end
+
+    for recipeSlot = 1, 9 do
+      local itemName = recipe[recipeSlot]
+      if itemName then
+        local turtleSlot = GRID_TO_TURTLE_SLOT[recipeSlot]
+        local ok, fillError = ensurePersistentInput(staging, turtleName, itemName, turtleSlot, remaining, items)
+
+        if not ok then
+          return crafted, pushedOutput, fillError, remainders
+        end
+      end
+    end
+
+    turtle.select(OUTPUT_SLOT)
+
+    local craftedOk, craftError = turtle.craft(1)
+    if not craftedOk then
+      return crafted, pushedOutput, "turtle.craft(1) failed: " .. tostring(craftError), remainders
+    end
+
+    local outputItem = turtle.getItemDetail(OUTPUT_SLOT, true)
+    if not outputItem then
+      return crafted, pushedOutput, "Craft succeeded but output slot was empty", remainders
+    end
+
+    crafted = crafted + 1
+    pushedOutput = pushedOutput + pushOutput(output, turtleName, outputItem)
+    remaining = remaining - 1
+  end
+
+  local unexpectedRemainders = collectRemainderItems(controlledSlots)
+  if #unexpectedRemainders > 0 then
+    return crafted, pushedOutput, "Persistent craft left unexpected items in recipe slots", remainders
+  end
+
+  return crafted, pushedOutput, nil, remainders
 end
 
 local function craftOneRecipe(staging, output, turtleName, craft)
@@ -692,17 +860,48 @@ local function craftOneRecipe(staging, output, turtleName, craft)
   local remainders = {}
   local signature = recipeSignature(craft.recipe)
   local metrics = recipeMetricsBySignature[signature]
-  local outputPerStep = metrics and metrics.outputPerStep or (not PROBE_UNKNOWN_RECIPES_WITH_SINGLE_CRAFT and UNKNOWN_RECIPE_OUTPUT_PER_STEP or nil)
-  local outputMaxCount = metrics and metrics.outputMaxCount or UNKNOWN_RECIPE_OUTPUT_MAX_COUNT
   local controlledSlots = recipeTurtleSlots(craft.recipe)
 
-  while remaining > 0 do
+  if not metrics and PROBE_UNKNOWN_RECIPES_WITH_SINGLE_CRAFT and remaining > 0 then
     requireSlotsEmpty(controlledSlots)
 
-    local outputSafeLimit = 1
-    if outputPerStep then
-      outputSafeLimit = math.max(1, math.floor(outputMaxCount / outputPerStep))
+    local probeMetrics, probeOutput, probeRemainders, probeError =
+      learnRecipeMetrics(staging, output, turtleName, craft, signature, controlledSlots)
+
+    if not probeMetrics then
+      return crafted, pushedOutput, probeError, remainders
     end
+
+    metrics = probeMetrics
+    crafted = crafted + 1
+    pushedOutput = pushedOutput + probeOutput
+    appendAll(remainders, probeRemainders)
+    remaining = remaining - 1
+  end
+
+  if not metrics then
+    metrics = {
+      outputPerStep = 1,
+      outputMaxCount = 64,
+    }
+  end
+
+  while remaining > 0 do
+    if canUsePersistentGrid(metrics) then
+      local gridCrafted, gridOutput, gridError, gridRemainders =
+        craftWithPersistentGrid(staging, output, turtleName, craft.recipe, remaining, controlledSlots)
+
+      crafted = crafted + gridCrafted
+      pushedOutput = pushedOutput + gridOutput
+      appendAll(remainders, gridRemainders)
+      return crafted, pushedOutput, gridError, remainders
+    end
+
+    requireSlotsEmpty(controlledSlots)
+
+    local outputPerStep = metrics.outputPerStep or 1
+    local outputMaxCount = metrics.outputMaxCount or 64
+    local outputSafeLimit = math.max(1, math.floor(outputMaxCount / outputPerStep))
 
     local desired = math.min(remaining, outputSafeLimit)
     local ready, itemsOrError = waitForRequirements(staging, requiredItems(craft.recipe, desired))
@@ -730,20 +929,15 @@ local function craftOneRecipe(staging, output, turtleName, craft)
       return crafted, pushedOutput, "Craft succeeded but output slot was empty", remainders
     end
 
-    if not metrics then
-      outputPerStep = math.max(1, math.floor(outputItem.count / batch))
-      outputMaxCount = outputItem.maxCount or outputMaxCount
-      recipeMetricsBySignature[signature] = {
-        outputPerStep = outputPerStep,
-        outputMaxCount = outputMaxCount,
-      }
-      saveRecipeCache()
-      metrics = recipeMetricsBySignature[signature]
+    local remainderItems = {}
+    if metrics.hasRemainders ~= false then
+      remainderItems = collectRemainderItems(controlledSlots)
+      cacheRemainderState(signature, metrics, remainderItems)
     end
 
     crafted = crafted + batch
     pushedOutput = pushedOutput + pushOutput(output, turtleName, outputItem)
-    appendAll(remainders, pushRemainders(output, turtleName, controlledSlots))
+    appendAll(remainders, pushRemainderItems(output, turtleName, remainderItems))
     remaining = remaining - batch
   end
 
