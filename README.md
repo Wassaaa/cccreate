@@ -51,6 +51,10 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   |   |   +-- processing_router.lua
 |   |   |   +-- config/
 |   |   |       +-- processing_router.example.lua
+|   |   +-- smart_sort/
+|   |   |   +-- smart_sort.lua
+|   |   |   +-- config/
+|   |   |       +-- smart_sort.example.lua
 |   |   +-- network_probe/
 |   |   |   +-- network_inventory_probe.lua
 |   |   +-- inventory_example/
@@ -92,6 +96,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 - `inventory_example` demonstrates reading and moving between the bottom and back inventories.
 - `craft_2x2_stack` runs a wired crafting turtle that fills 2x2 or 3x3 recipes from one or more input inventories.
 - `processing_router` runs simple filtered processing jobs: watch an input inventory, push required items to configured machine inventories, and return outputs to storage.
+- `smart_sort` caches a target inventory slot index and moves matching source stacks into those target slots with low-rescan polling.
 - `ap_inventory_manager_test` probes and tests Advanced Peripherals Inventory Manager player transfers.
 - `requester_test` probes a Create Redstone Requester and can request sample items to address `out`.
 - `tom_gpu_terminal` runs Tom's Peripherals terminal emulator on router-wrapped GPU monitors.
@@ -338,6 +343,18 @@ Each job has an `input`, `output`, and `items` list. An item entry uses `name`, 
 ```
 
 Use `storage` globally or per job to choose where outputs are returned. Locations can be side/peripheral names such as `"back"`, Peripheral Router coordinates such as `{ x = 5, y = 1, z = 2 }`, or already-wrapped router objects from the config file.
+
+Smart sort:
+
+```text
+copy config/smart_sort.example.lua config/smart_sort.lua
+edit config/smart_sort.lua
+smart_sort status
+smart_sort once
+smart_sort watch
+```
+
+`smart_sort` indexes the target inventory at startup and then every `targetRefreshSeconds`; source inventories are listed once per poll pass. Leave `scanTargetDetails = false` for huge inventories unless the target hides useful item identities from `list()`.
 
 Advanced Peripherals Inventory Manager test:
 
