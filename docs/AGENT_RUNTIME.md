@@ -123,6 +123,7 @@ Updater layout:
 - Do not edit `update.lua` just to add files under an existing base/project folder; it discovers files from GitHub.
 - Bare `update` installs only `src/base/`.
 - Use `update <project>` for one project, `update all` for every project, and `update --list` to inspect project names.
+- The base `clean` command deletes every ComputerCraft root entry except `/rom` after a `CLEAN` confirmation. Use `clean --yes` only when an explicit non-interactive wipe is intended.
 
 ## Webhook Stack
 
