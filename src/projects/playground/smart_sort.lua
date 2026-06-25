@@ -1,5 +1,5 @@
-local FROM_INVENTORIES = { "bottom" }
-local TO_INVENTORY = "back"
+local FROM_INVENTORIES = { "back" }
+local TO_INVENTORY = "top"
 local INTERVAL_SECONDS = 1
 
 -- Use this only if locked empty drawers do not show up through getItemDetail.
