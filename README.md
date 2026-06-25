@@ -68,6 +68,7 @@ For the in-game debugging workflow, see [docs/INGAME_DEBUGGING.md](docs/INGAME_D
 |   |       +-- tom_keyboard_probe.lua
 +-- docs/
 |   +-- INGAME_DEBUGGING.md
+|   +-- INVENTORY_MOVEMENT.md
 +-- tools/
 |   +-- read_latest_report.ps1
 |   +-- cc_update_and_report.ps1
@@ -355,6 +356,8 @@ smart_sort watch
 ```
 
 `smart_sort` indexes the target inventory at startup and then every `targetRefreshSeconds`; source inventories are listed once per poll pass. Leave `scanTargetDetails = false` for huge inventories unless the target hides useful item identities from `list()`.
+
+For new inventory movers, follow [docs/INVENTORY_MOVEMENT.md](docs/INVENTORY_MOVEMENT.md): snapshot with `list()`, cache target indexes, try whole-stack transfers, and trust returned moved counts.
 
 Advanced Peripherals Inventory Manager test:
 

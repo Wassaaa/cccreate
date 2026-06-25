@@ -85,7 +85,7 @@ When docs are thin, stale, or inconsistent with the live pack, use `references/l
 
 ## Design Priorities
 
-- Inventory systems: prefer generic inventory peripherals and wired modem networks before turtle slot juggling. Track item names, counts, slot numbers, and NBT hashes when exact identity matters.
+- Inventory systems: prefer generic inventory peripherals and wired modem networks before turtle slot juggling. For high-volume movement, use sparse `list()` snapshots, cached indexes, whole-stack `pushItems`/`pullItems` attempts, and returned moved counts instead of repeated full scans or count-sized transfer loops. Track item names, counts, slot numbers, and NBT hashes when exact identity matters.
 - Advanced Peripherals: treat peripherals and turtle upgrades as optional capability layers. Detect by live type/method list first, then read `references/advanced-peripherals.md` before using Inventory Manager, ME/RS Bridge, Player/Environment/Geo tools, Chat Box, Colony Integrator, or AP Create integrations.
 - Redstone systems: prefer analog output for 0-15 control, `redstone_relay` for remote multi-side control, and Create Redstone Links for in-world wireless routing when direct peripheral control is not available.
 - Create kinetics: use native Create peripherals such as rotational speed controllers, sequenced gearshifts, speedometers, and stressometers when present. Fall back to redstone control only when no direct peripheral exists.

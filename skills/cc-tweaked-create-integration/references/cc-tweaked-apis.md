@@ -61,6 +61,10 @@ Rules:
 - Basic item rows include `name`, `count`, and maybe `nbt`; use `getItemDetail` only when the extra data is needed.
 - `pushItems` and `pullItems` require both inventories to be available as peripherals on the same wired modem network.
 - Add defensive range checks before moving between slots.
+- For high-volume item movement, snapshot with `list()`, build temporary indexes such as item name to slots, and reuse those indexes for a batch or timed refresh window instead of re-scanning large inventories before each move.
+- Prefer whole-stack transfer attempts and use the returned moved count. Avoid one-item loops or repeated count-sized push/pull attempts when one stack attempt gives the same result.
+- Cache zero-move, full, or incompatible target slots until the next target refresh so a tight loop does not keep retrying known bad destinations.
+- Keep full-slot scans with `size()` plus `getItemDetail(slot)` opt-in for inventories that hide useful identities from `list()`.
 
 ## Redstone Control
 
