@@ -21,7 +21,7 @@ local ORDER_METHODS = {
   "getItemDetail",
 }
 
-local MAX_JSON_DEPTH = 12
+local MAX_JSON_DEPTH = 16
 
 local function sorted(values)
   local result = {}
@@ -443,6 +443,50 @@ local function roundtripBottomPackage()
   return result
 end
 
+local function roundtripFrontPackage()
+  local result = {
+    side = "front",
+    turtleSlot = 1,
+  }
+
+  if type(turtle) ~= "table" then
+    result.error = "not a turtle"
+    return result
+  end
+
+  result.sourceBefore = inspectPeripheral(result.side)
+  result.turtleBefore = turtleSlot(result.turtleSlot)
+
+  if result.turtleBefore then
+    result.error = "turtle slot is not empty"
+    return result
+  end
+
+  turtle.select(result.turtleSlot)
+
+  local suckOk, suckResult = pcall(turtle.suck, 1)
+  result.suck = {
+    ok = suckOk,
+    value = suckResult,
+  }
+
+  result.turtleAfterSuck = turtleSlot(result.turtleSlot)
+  result.sourceAfterSuck = inspectPeripheral(result.side)
+
+  if result.turtleAfterSuck then
+    local dropOk, dropResult = pcall(turtle.drop, 1)
+    result.drop = {
+      ok = dropOk,
+      value = dropResult,
+    }
+  end
+
+  result.turtleAfterDrop = turtleSlot(result.turtleSlot)
+  result.sourceAfterDrop = inspectPeripheral(result.side)
+
+  return result
+end
+
 local function capturePackageEvents(seconds)
   local events = {}
   local timer = os.startTimer(seconds or 0.5)
@@ -519,6 +563,8 @@ end
 
 if command == "roundtrip-bottom" then
   report.actions.roundtripBottom = roundtripBottomPackage()
+elseif command == "roundtrip-front" then
+  report.actions.roundtripFront = roundtripFrontPackage()
 elseif command == "make-front" then
   report.actions.makeFront = makeFrontPackage()
 elseif command ~= "status" then
