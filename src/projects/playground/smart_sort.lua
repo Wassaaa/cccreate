@@ -2,6 +2,7 @@ local FROM_INVENTORIES = { "back" }
 local TO_INVENTORY = "top"
 local INTERVAL_SECONDS = 1
 local SHORT_ITEM_NAMES = true
+local ALLOW_VOIDING_FULL_TARGETS = true
 
 -- Use this only if locked empty drawers do not show up through getItemDetail.
 local EXTRA_TARGET_SLOTS = {
@@ -145,8 +146,10 @@ local function addOpenTarget(targets, to, itemName, slot)
   local count, limit = slotState(to, slot, itemName)
 
   if count and limit and count >= limit then
-    blockTarget(itemName, slot, count, limit, "FULL")
-    return
+    if not ALLOW_VOIDING_FULL_TARGETS then
+      blockTarget(itemName, slot, count, limit, "FULL")
+      return
+    end
   end
 
   if targetIsBlocked(itemName, slot, count) then
@@ -198,8 +201,10 @@ local function moveMatches(fromName, from, to, targets)
         local targetBefore, targetLimit = slotState(to, toSlot, item.name)
 
         if targetBefore and targetLimit and targetBefore >= targetLimit then
-          blockTarget(item.name, toSlot, targetBefore, targetLimit, "FULL")
-          break
+          if not ALLOW_VOIDING_FULL_TARGETS then
+            blockTarget(item.name, toSlot, targetBefore, targetLimit, "FULL")
+            break
+          end
         end
 
         local moved = from.pushItems(TO_INVENTORY, fromSlot, remaining, toSlot)
@@ -226,13 +231,18 @@ local function moveMatches(fromName, from, to, targets)
             .. countText(targetAfter)
 
           if targetBefore and targetAfter and targetAfter <= targetBefore then
-            blockTarget(item.name, toSlot, targetAfter, targetLimit, "NO_GAIN", true)
-            print("NO " .. line)
-            break
+            if ALLOW_VOIDING_FULL_TARGETS then
+              movedTotal = movedTotal + moved
+              print("VOID " .. line)
+            else
+              blockTarget(item.name, toSlot, targetAfter, targetLimit, "NO_GAIN", true)
+              print("NO " .. line)
+              break
+            end
+          else
+            movedTotal = movedTotal + moved
+            print(line)
           end
-
-          movedTotal = movedTotal + moved
-          print(line)
         end
       end
     end
