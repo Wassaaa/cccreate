@@ -12,6 +12,9 @@ local STAGING_WAIT_SECONDS = 5
 local STAGING_POLL_SECONDS = 0.05
 local MAX_REPORT_DEPTH = 16
 local RECIPE_CACHE_PATH = "/config/package_crafter_recipes.lua"
+local PROBE_UNKNOWN_RECIPES_WITH_SINGLE_CRAFT = false
+local UNKNOWN_RECIPE_OUTPUT_PER_STEP = 1
+local UNKNOWN_RECIPE_OUTPUT_MAX_COUNT = 64
 
 local GRID_TO_TURTLE_SLOT = {
   1, 2, 3,
@@ -689,8 +692,8 @@ local function craftOneRecipe(staging, output, turtleName, craft)
   local remainders = {}
   local signature = recipeSignature(craft.recipe)
   local metrics = recipeMetricsBySignature[signature]
-  local outputPerStep = metrics and metrics.outputPerStep or nil
-  local outputMaxCount = metrics and metrics.outputMaxCount or 64
+  local outputPerStep = metrics and metrics.outputPerStep or (not PROBE_UNKNOWN_RECIPES_WITH_SINGLE_CRAFT and UNKNOWN_RECIPE_OUTPUT_PER_STEP or nil)
+  local outputMaxCount = metrics and metrics.outputMaxCount or UNKNOWN_RECIPE_OUTPUT_MAX_COUNT
   local controlledSlots = recipeTurtleSlots(craft.recipe)
 
   while remaining > 0 do
@@ -727,7 +730,7 @@ local function craftOneRecipe(staging, output, turtleName, craft)
       return crafted, pushedOutput, "Craft succeeded but output slot was empty", remainders
     end
 
-    if not outputPerStep then
+    if not metrics then
       outputPerStep = math.max(1, math.floor(outputItem.count / batch))
       outputMaxCount = outputItem.maxCount or outputMaxCount
       recipeMetricsBySignature[signature] = {
@@ -735,6 +738,7 @@ local function craftOneRecipe(staging, output, turtleName, craft)
         outputMaxCount = outputMaxCount,
       }
       saveRecipeCache()
+      metrics = recipeMetricsBySignature[signature]
     end
 
     crafted = crafted + batch
