@@ -345,10 +345,9 @@ for _, name in ipairs(names) do
   table.insert(report.peripherals, inspectPeripheral(name))
 end
 
-reporter.saveLocal(report, "create_package_probe_report.txt")
 reporter.send(report)
 
 print("Create package probe complete.")
 print("Peripherals: " .. #report.peripherals)
 print("Turtle item slots: " .. #(report.turtleInventory or {}))
-print("Saved create_package_probe_report.txt")
+print("Sent webhook report.")
