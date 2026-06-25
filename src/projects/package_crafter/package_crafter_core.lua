@@ -88,29 +88,6 @@ local function compactCrafts(crafts)
   return result
 end
 
-local function compactList(items)
-  local result = {}
-
-  if type(items) ~= "table" then
-    return result
-  end
-
-  for slot, item in pairs(items) do
-    table.insert(result, {
-      slot = slot,
-      name = item.name,
-      count = item.count,
-      nbt = item.nbt,
-    })
-  end
-
-  table.sort(result, function(left, right)
-    return left.slot < right.slot
-  end)
-
-  return result
-end
-
 local function isInventory(object)
   return object
     and type(object.list) == "function"
@@ -169,26 +146,6 @@ local function turtleInventory()
   return result
 end
 
-local function inventorySummary(name)
-  local object = peripheral.wrap(name)
-
-  if not object or type(object.list) ~= "function" then
-    return {
-      name = name,
-      present = peripheral.isPresent(name),
-      isInventory = false,
-    }
-  end
-
-  return {
-    name = name,
-    present = true,
-    isInventory = isInventory(object),
-    size = type(object.size) == "function" and object.size() or nil,
-    items = compactList(object.list()),
-  }
-end
-
 function M.run(options)
   options = options or {}
 
@@ -201,6 +158,7 @@ function M.run(options)
   local stagingName = secondInventory and firstInventory or DEFAULT_STAGING_INVENTORY
   local outputName = secondInventory or firstInventory or DEFAULT_OUTPUT_INVENTORY
   local pendingCraftsByOrder = {}
+  local pendingFinalsByOrder = {}
   local stackLimitsByName = {}
   local recipeMetricsBySignature = {}
   local packageQueue = {}
@@ -929,6 +887,12 @@ function M.run(options)
 
     if #order.crafts > 0 and order.id then
       pendingCraftsByOrder[order.id] = order.crafts
+
+      if pendingFinalsByOrder[order.id] then
+        table.insert(packageQueue, 1, pendingFinalsByOrder[order.id])
+        pendingFinalsByOrder[order.id] = nil
+        os.queueEvent("package_crafter_queued")
+      end
     elseif order.id and pendingCraftsByOrder[order.id] then
       order.crafts = pendingCraftsByOrder[order.id]
     end
@@ -939,7 +903,13 @@ function M.run(options)
     end
 
     if #order.crafts == 0 then
-      result.reason = "final package had no craft recipes"
+      if order.id then
+        pendingFinalsByOrder[order.id] = record
+        result.reason = "waiting for recipe package"
+      else
+        result.reason = "final package had no craft recipes"
+      end
+
       return result
     end
 
@@ -977,11 +947,7 @@ function M.run(options)
 
     if order.id then
       pendingCraftsByOrder[order.id] = nil
-    end
-
-    if reporting then
-      result.stagingAfter = inventorySummary(selectedStagingName)
-      result.outputAfter = inventorySummary(selectedOutputName)
+      pendingFinalsByOrder[order.id] = nil
     end
 
     return result

@@ -35,6 +35,8 @@ Use `package_crafter` while tuning because it sends webhook reports after each p
 
 This split is intentional: rapid package events can keep being recorded while the turtle is busy crafting, moving items, or sending webhook reports. Terminal output uses `Package #N: action` and adds `q=M` when more packages are waiting. Report-enabled runs include the received `sequence` and current `queued` count.
 
+Create can deliver the final link for an order before the package link that carries the recipe. When that happens, the turtle holds the final package record in memory and requeues it after the recipe package arrives for the same order ID.
+
 ## Recipe Cache
 
 Crafting is conservative until a recipe is known. `turtle.craft(limit)` reports only success or failure, not the number of items crafted. For each unknown recipe, the turtle crafts one item, reads the output slot, records whether any remainder items were left in the grid, and saves that recipe data to `/config/package_crafter_recipes.lua`.
