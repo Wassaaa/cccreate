@@ -8,6 +8,8 @@ local OUTPUT_SLOT = 16
 local CRAFT_BATCH_LIMIT = 64
 local FEED_EVENT_TIMEOUT = 3
 local SNIFF_EVENT_TIMEOUT = 10
+local STAGING_WAIT_SECONDS = 5
+local STAGING_POLL_SECONDS = 0.05
 
 local GRID_TO_TURTLE_SLOT = {
   1, 2, 3,
@@ -21,6 +23,12 @@ local outputName = args[2] or DEFAULT_OUTPUT_INVENTORY
 local unpackArgs = table.unpack or unpack
 
 local pendingCraftsByOrder = {}
+
+local function isPackageObject(value)
+  return type(value) == "table"
+    and type(value.getOrderData) == "function"
+    and type(value.list) == "function"
+end
 
 local function safeCall(object, method, ...)
   if type(object) ~= "table" or type(object[method]) ~= "function" then
@@ -52,6 +60,82 @@ local function requireInventory(name)
   end
 
   return object
+end
+
+local function inventoryNames()
+  local names = {}
+
+  for _, name in ipairs(peripheral.getNames()) do
+    if name ~= STAGING_INVENTORY and isInventory(peripheral.wrap(name)) then
+      table.insert(names, name)
+    end
+  end
+
+  table.sort(names)
+  return names
+end
+
+local function containsName(names, target)
+  for _, name in ipairs(names) do
+    if name == target then
+      return true
+    end
+  end
+
+  return false
+end
+
+local function resolveOutputName(required)
+  if outputName then
+    if outputName == STAGING_INVENTORY then
+      error("Output inventory cannot be the staging inventory: " .. outputName, 0)
+    end
+
+    if not isInventory(peripheral.wrap(outputName)) then
+      error("Output inventory not found or not movable: " .. tostring(outputName), 0)
+    end
+
+    return outputName
+  end
+
+  local names = inventoryNames()
+
+  if #names == 1 then
+    outputName = names[1]
+    print("Output: " .. outputName)
+    return outputName
+  end
+
+  if not required then
+    return nil
+  end
+
+  if #names == 0 then
+    error("Need an output inventory besides staging " .. STAGING_INVENTORY, 0)
+  end
+
+  print("Choose output inventory:")
+  for index, name in ipairs(names) do
+    print(index .. ": " .. name)
+  end
+
+  while true do
+    write("> ")
+    local answer = read()
+    local index = tonumber(answer)
+
+    if index and names[index] then
+      outputName = names[index]
+      return outputName
+    end
+
+    if containsName(names, answer) then
+      outputName = answer
+      return outputName
+    end
+
+    print("Choose one listed output.")
+  end
 end
 
 local function findTurtleName()
@@ -233,6 +317,7 @@ local function statusReport()
     turtleName = turtleName,
     turtleInventory = turtleInventory(),
     peripherals = sortedPeripheralNames(),
+    outputCandidates = inventoryNames(),
     staging = inventorySummary(STAGING_INVENTORY),
   }
 
@@ -308,6 +393,28 @@ local function firstMissingRequirement(inventory, required)
   end
 end
 
+local function waitForRequirements(inventory, required)
+  local attempts = math.max(1, math.ceil(STAGING_WAIT_SECONDS / STAGING_POLL_SECONDS))
+  local lastName = nil
+  local lastNeeded = nil
+  local lastAvailable = nil
+
+  for _ = 1, attempts do
+    local itemName, needed, available = firstMissingRequirement(inventory, required)
+
+    if not itemName then
+      return true
+    end
+
+    lastName = itemName
+    lastNeeded = needed
+    lastAvailable = available
+    sleep(STAGING_POLL_SECONDS)
+  end
+
+  return false, "Need " .. lastNeeded .. " x " .. lastName .. ", found " .. lastAvailable
+end
+
 local function pushItemToTurtleSlot(inventory, turtleName, itemName, count, targetSlot)
   local remaining = count
 
@@ -337,9 +444,9 @@ local function pushItemToTurtleSlot(inventory, turtleName, itemName, count, targ
 end
 
 local function fillCraftGrid(staging, turtleName, recipe, craftCount)
-  local missingName, needed, available = firstMissingRequirement(staging, requiredItems(recipe, craftCount))
-  if missingName then
-    return false, "Need " .. needed .. " x " .. missingName .. ", found " .. available
+  local ready, waitError = waitForRequirements(staging, requiredItems(recipe, craftCount))
+  if not ready then
+    return false, waitError
   end
 
   for recipeSlot = 1, 9 do
@@ -480,18 +587,30 @@ local function handlePackage(package)
   return result
 end
 
+local eventSummary = nil
+local packageFromEvent = nil
+
 local function waitOnce()
   if type(turtle) ~= "table" then
     error("This program must run on a crafting turtle", 0)
   end
 
+  resolveOutputName(true)
+
   print("Waiting for package_received from " .. PACKAGER_NAME .. "...")
 
-  local _, package = os.pullEvent("package_received")
+  local event = { os.pullEvent("package_received") }
+  local package = packageFromEvent(event)
   local result = handlePackage(package)
 
   sendReport({
     event = "package_received",
+    received = {
+      source = event[2],
+    },
+    events = {
+      eventSummary(event),
+    },
     result = result,
     turtleInventory = turtleInventory(),
   })
@@ -506,7 +625,7 @@ local function eventArgSummary(value)
   local valueType = type(value)
 
   if valueType == "table" then
-    if type(value.getOrderData) == "function" and type(value.list) == "function" then
+    if isPackageObject(value) then
       return {
         kind = "package",
         package = summarizePackage(value),
@@ -532,7 +651,7 @@ local function eventArgSummary(value)
   return "<" .. valueType .. ">"
 end
 
-local function eventSummary(event)
+function eventSummary(event)
   local args = {}
 
   for index = 2, #event do
@@ -545,6 +664,14 @@ local function eventSummary(event)
   }
 end
 
+function packageFromEvent(event)
+  for index = 2, #event do
+    if isPackageObject(event[index]) then
+      return event[index], index
+    end
+  end
+end
+
 local function waitForPackageReceived(timeout)
   local timer = os.startTimer(timeout)
   local events = {}
@@ -554,7 +681,11 @@ local function waitForPackageReceived(timeout)
 
     if event[1] == "package_received" then
       table.insert(events, eventSummary(event))
-      return event[2], events
+      local package, packageArgIndex = packageFromEvent(event)
+      return package, events, {
+        source = event[2],
+        packageArgIndex = packageArgIndex,
+      }
     end
 
     if event[1] == "timer" and event[2] == timer then
@@ -597,7 +728,7 @@ local function feedOnce()
     error("Packager did not accept the package from turtle slot " .. INPUT_PACKAGE_SLOT, 0)
   end
 
-  local package, events = waitForPackageReceived(FEED_EVENT_TIMEOUT)
+  local package, events, received = waitForPackageReceived(FEED_EVENT_TIMEOUT)
   local result = nil
 
   if package then
@@ -608,6 +739,7 @@ local function feedOnce()
     event = package and "package_received" or "timeout",
     fed = true,
     events = events,
+    received = received,
     before = before,
     result = result,
     after = {
@@ -632,7 +764,7 @@ end
 
 local function sniff()
   print("Sniffing events for " .. SNIFF_EVENT_TIMEOUT .. "s...")
-  local package, events = waitForPackageReceived(SNIFF_EVENT_TIMEOUT)
+  local package, events, received = waitForPackageReceived(SNIFF_EVENT_TIMEOUT)
   local result = nil
 
   if package then
@@ -642,6 +774,7 @@ local function sniff()
   sendReport({
     event = package and "package_received" or "timeout",
     events = events,
+    received = received,
     result = result,
     staging = inventorySummary(STAGING_INVENTORY),
     turtleInventory = turtleInventory(),
@@ -657,6 +790,8 @@ local function sniff()
 end
 
 local function watch()
+  resolveOutputName(true)
+
   print("Watching package_received events.")
   print("Packager: " .. PACKAGER_NAME)
   print("Staging: " .. STAGING_INVENTORY)
