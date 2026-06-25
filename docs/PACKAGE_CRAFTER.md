@@ -11,7 +11,9 @@
 
 The turtle does not try to break, throw, attack, or manually open packages. Create's Packager unpacks packages into the staging barrel; the turtle only reads package order data, pulls loose ingredients from staging, crafts, and pushes the crafted output.
 
-Crafting is intentionally conservative. `turtle.craft(limit)` reports only success or failure, not the number of items crafted. The script crafts one step first to learn the output stack size, then batches only when the selected output slot and every recipe input slot can safely hold the batch. Leftover container items, such as empty buckets, are pushed to the output inventory after each batch.
+Crafting is intentionally conservative. `turtle.craft(limit)` reports only success or failure, not the number of items crafted. For a recipe the turtle has not seen before, the script crafts one step first to learn the output count and stack size, then caches that recipe in `/config/package_crafter_recipes.lua`. Known recipes batch immediately when the selected output slot and every recipe input slot can safely hold the batch. Leftover container items, such as empty buckets, are pushed to the output inventory after each batch.
+
+Item movement uses wired inventory `pushItems` and `pullItems`. During each batch, the staging inventory is snapshotted once and the script updates that snapshot from movement return counts instead of re-listing the staging inventory between every slot move.
 
 ## Commands
 

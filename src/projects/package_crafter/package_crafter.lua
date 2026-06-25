@@ -11,6 +11,7 @@ local SNIFF_EVENT_TIMEOUT = 10
 local STAGING_WAIT_SECONDS = 5
 local STAGING_POLL_SECONDS = 0.05
 local MAX_REPORT_DEPTH = 16
+local RECIPE_CACHE_PATH = "/config/package_crafter_recipes.lua"
 
 local GRID_TO_TURTLE_SLOT = {
   1, 2, 3,
@@ -24,12 +25,57 @@ local outputName = args[2] or DEFAULT_OUTPUT_INVENTORY
 local unpackArgs = table.unpack or unpack
 
 local pendingCraftsByOrder = {}
+local stackLimitsByName = {}
+local recipeMetricsBySignature = {}
 
 local function isPackageObject(value)
   return type(value) == "table"
     and type(value.getOrderData) == "function"
     and type(value.list) == "function"
 end
+
+local function recipeSignature(recipe)
+  local parts = {}
+
+  for index = 1, 9 do
+    parts[index] = recipe and recipe[index] or "-"
+  end
+
+  return table.concat(parts, "|")
+end
+
+local function loadRecipeCache()
+  if not fs.exists(RECIPE_CACHE_PATH) then
+    return
+  end
+
+  local handle = fs.open(RECIPE_CACHE_PATH, "r")
+  if not handle then
+    return
+  end
+
+  local loaded = textutils.unserialize(handle.readAll())
+  handle.close()
+
+  if type(loaded) == "table" then
+    recipeMetricsBySignature = loaded
+  end
+end
+
+local function saveRecipeCache()
+  local folder = fs.getDir(RECIPE_CACHE_PATH)
+  if folder ~= "" and not fs.exists(folder) then
+    fs.makeDir(folder)
+  end
+
+  local handle = fs.open(RECIPE_CACHE_PATH, "w")
+  if handle then
+    handle.write(textutils.serialize(recipeMetricsBySignature))
+    handle.close()
+  end
+end
+
+loadRecipeCache()
 
 local function safeCall(object, method, ...)
   if type(object) ~= "table" or type(object[method]) ~= "function" then
@@ -393,6 +439,34 @@ local function requireCleanTurtle()
   end
 end
 
+local function recipeTurtleSlots(recipe)
+  local slots = { OUTPUT_SLOT }
+  local seen = {
+    [OUTPUT_SLOT] = true,
+  }
+
+  for recipeSlot = 1, 9 do
+    if recipe[recipeSlot] then
+      local turtleSlot = GRID_TO_TURTLE_SLOT[recipeSlot]
+      if not seen[turtleSlot] then
+        seen[turtleSlot] = true
+        table.insert(slots, turtleSlot)
+      end
+    end
+  end
+
+  return slots
+end
+
+local function requireSlotsEmpty(slots)
+  for _, slot in ipairs(slots) do
+    local item = turtle.getItemDetail(slot)
+    if item then
+      error("Turtle slot " .. slot .. " is not empty: " .. item.name .. " x" .. item.count, 0)
+    end
+  end
+end
+
 local function countInInventory(inventory, itemName)
   local total = 0
 
@@ -427,6 +501,27 @@ local function firstMissingRequirement(inventory, required)
   end
 end
 
+local function countInList(items, itemName)
+  local total = 0
+
+  for _, item in pairs(items) do
+    if item.name == itemName then
+      total = total + item.count
+    end
+  end
+
+  return total
+end
+
+local function firstMissingRequirementInList(items, required)
+  for itemName, needed in pairs(required) do
+    local available = countInList(items, itemName)
+    if available < needed then
+      return itemName, needed, available
+    end
+  end
+end
+
 local function waitForRequirements(inventory, required)
   local attempts = math.max(1, math.ceil(STAGING_WAIT_SECONDS / STAGING_POLL_SECONDS))
   local lastName = nil
@@ -434,10 +529,11 @@ local function waitForRequirements(inventory, required)
   local lastAvailable = nil
 
   for _ = 1, attempts do
-    local itemName, needed, available = firstMissingRequirement(inventory, required)
+    local items = inventory.list()
+    local itemName, needed, available = firstMissingRequirementInList(items, required)
 
     if not itemName then
-      return true
+      return true, items
     end
 
     lastName = itemName
@@ -449,16 +545,24 @@ local function waitForRequirements(inventory, required)
   return false, "Need " .. lastNeeded .. " x " .. lastName .. ", found " .. lastAvailable
 end
 
-local function itemStackLimit(inventory, itemName)
-  for slot, item in pairs(inventory.list()) do
+local function itemStackLimit(inventory, itemName, items)
+  if stackLimitsByName[itemName] then
+    return stackLimitsByName[itemName]
+  end
+
+  items = items or inventory.list()
+
+  for slot, item in pairs(items) do
     if item.name == itemName then
       if type(inventory.getItemDetail) == "function" then
         local detail = inventory.getItemDetail(slot)
         if detail and type(detail.maxCount) == "number" then
+          stackLimitsByName[itemName] = detail.maxCount
           return detail.maxCount
         end
       end
 
+      stackLimitsByName[itemName] = 64
       return 64
     end
   end
@@ -466,29 +570,34 @@ local function itemStackLimit(inventory, itemName)
   return 64
 end
 
-local function maxBatchForRecipe(inventory, recipe, requested)
+local function maxBatchForRecipe(inventory, recipe, requested, items)
   local batch = math.min(requested, CRAFT_BATCH_LIMIT)
 
   for recipeSlot = 1, 9 do
     local itemName = recipe[recipeSlot]
     if itemName then
-      batch = math.min(batch, itemStackLimit(inventory, itemName))
+      batch = math.min(batch, itemStackLimit(inventory, itemName, items))
     end
   end
 
   return math.max(1, batch)
 end
 
-local function pushItemToTurtleSlot(inventory, turtleName, itemName, count, targetSlot)
+local function pushItemToTurtleSlot(inventory, turtleName, itemName, count, targetSlot, items)
   local remaining = count
 
   while remaining > 0 do
     local movedThisPass = false
 
-    for slot, item in pairs(inventory.list()) do
+    for slot, item in pairs(items) do
       if item.name == itemName then
         local moved = inventory.pushItems(turtleName, slot, remaining, targetSlot)
         if moved and moved > 0 then
+          item.count = item.count - moved
+          if item.count <= 0 then
+            items[slot] = nil
+          end
+
           remaining = remaining - moved
           movedThisPass = true
 
@@ -507,17 +616,12 @@ local function pushItemToTurtleSlot(inventory, turtleName, itemName, count, targ
   return count
 end
 
-local function fillCraftGrid(staging, turtleName, recipe, craftCount)
-  local ready, waitError = waitForRequirements(staging, requiredItems(recipe, craftCount))
-  if not ready then
-    return false, waitError
-  end
-
+local function fillCraftGrid(staging, turtleName, recipe, craftCount, items)
   for recipeSlot = 1, 9 do
     local itemName = recipe[recipeSlot]
     if itemName then
       local turtleSlot = GRID_TO_TURTLE_SLOT[recipeSlot]
-      local moved = pushItemToTurtleSlot(staging, turtleName, itemName, craftCount, turtleSlot)
+      local moved = pushItemToTurtleSlot(staging, turtleName, itemName, craftCount, turtleSlot, items)
 
       if moved ~= craftCount then
         return false, "Moved only " .. moved .. "/" .. craftCount .. " x " .. itemName
@@ -528,22 +632,26 @@ local function fillCraftGrid(staging, turtleName, recipe, craftCount)
   return true
 end
 
-local function pushOutput(output, turtleName)
-  local totalMoved = 0
+local function pullSlotFully(output, turtleName, slot, itemName, count, label)
+  local remaining = count
+  local movedTotal = 0
 
-  while true do
-    local item = turtle.getItemDetail(OUTPUT_SLOT)
-    if not item then
-      return totalMoved
-    end
+  while remaining > 0 do
+    local moved = output.pullItems(turtleName, slot, remaining)
 
-    local moved = output.pullItems(turtleName, OUTPUT_SLOT, item.count)
     if not moved or moved <= 0 then
-      error("Output refused " .. item.name .. " x" .. item.count, 0)
+      error("Output refused " .. label .. " " .. itemName .. " x" .. remaining, 0)
     end
 
-    totalMoved = totalMoved + moved
+    movedTotal = movedTotal + moved
+    remaining = remaining - moved
   end
+
+  return movedTotal
+end
+
+local function pushOutput(output, turtleName, outputItem)
+  return pullSlotFully(output, turtleName, OUTPUT_SLOT, outputItem.name, outputItem.count, "output")
 end
 
 local function appendAll(target, source)
@@ -552,27 +660,15 @@ local function appendAll(target, source)
   end
 end
 
-local function pushRemainders(output, turtleName)
+local function pushRemainders(output, turtleName, slots)
   local movedItems = {}
 
-  for slot = 1, 16 do
+  for _, slot in ipairs(slots) do
     if slot ~= OUTPUT_SLOT then
       local item = turtle.getItemDetail(slot)
 
       if item then
-        local remaining = item.count
-        local movedTotal = 0
-
-        while remaining > 0 do
-          local moved = output.pullItems(turtleName, slot, remaining)
-
-          if not moved or moved <= 0 then
-            error("Output refused remainder " .. item.name .. " x" .. remaining, 0)
-          end
-
-          movedTotal = movedTotal + moved
-          remaining = remaining - moved
-        end
+        local movedTotal = pullSlotFully(output, turtleName, slot, item.name, item.count, "remainder")
 
         table.insert(movedItems, {
           slot = slot,
@@ -591,24 +687,30 @@ local function craftOneRecipe(staging, output, turtleName, craft)
   local crafted = 0
   local pushedOutput = 0
   local remainders = {}
-  local outputPerStep = nil
-  local outputMaxCount = 64
+  local signature = recipeSignature(craft.recipe)
+  local metrics = recipeMetricsBySignature[signature]
+  local outputPerStep = metrics and metrics.outputPerStep or nil
+  local outputMaxCount = metrics and metrics.outputMaxCount or 64
+  local controlledSlots = recipeTurtleSlots(craft.recipe)
 
   while remaining > 0 do
-    requireCleanTurtle()
-
-    local ready, waitError = waitForRequirements(staging, requiredItems(craft.recipe, 1))
-    if not ready then
-      return crafted, pushedOutput, waitError, remainders
-    end
+    requireSlotsEmpty(controlledSlots)
 
     local outputSafeLimit = 1
     if outputPerStep then
       outputSafeLimit = math.max(1, math.floor(outputMaxCount / outputPerStep))
     end
 
-    local batch = maxBatchForRecipe(staging, craft.recipe, math.min(remaining, outputSafeLimit))
-    local filled, fillError = fillCraftGrid(staging, turtleName, craft.recipe, batch)
+    local desired = math.min(remaining, outputSafeLimit)
+    local ready, itemsOrError = waitForRequirements(staging, requiredItems(craft.recipe, desired))
+    if not ready then
+      return crafted, pushedOutput, itemsOrError, remainders
+    end
+
+    local items = itemsOrError
+
+    local batch = maxBatchForRecipe(staging, craft.recipe, desired, items)
+    local filled, fillError = fillCraftGrid(staging, turtleName, craft.recipe, batch, items)
     if not filled then
       return crafted, pushedOutput, fillError, remainders
     end
@@ -628,11 +730,16 @@ local function craftOneRecipe(staging, output, turtleName, craft)
     if not outputPerStep then
       outputPerStep = math.max(1, math.floor(outputItem.count / batch))
       outputMaxCount = outputItem.maxCount or outputMaxCount
+      recipeMetricsBySignature[signature] = {
+        outputPerStep = outputPerStep,
+        outputMaxCount = outputMaxCount,
+      }
+      saveRecipeCache()
     end
 
     crafted = crafted + batch
-    pushedOutput = pushedOutput + pushOutput(output, turtleName)
-    appendAll(remainders, pushRemainders(output, turtleName))
+    pushedOutput = pushedOutput + pushOutput(output, turtleName, outputItem)
+    appendAll(remainders, pushRemainders(output, turtleName, controlledSlots))
     remaining = remaining - batch
   end
 
@@ -725,6 +832,7 @@ local function waitOnce()
   end
 
   resolveOutputName(true)
+  requireCleanTurtle()
 
   print("Waiting for package_received from " .. PACKAGER_NAME .. "...")
 
