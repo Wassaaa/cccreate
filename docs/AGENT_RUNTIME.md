@@ -105,8 +105,10 @@ Avoid relying on terminal text for program errors when the program can call the 
 Use signed-off commits for repo changes:
 
 ```powershell
-git commit -s -m "Describe the change"
+git commit -s --no-gpg-sign -m "Describe the change"
 ```
+
+Use `-s` for the `Signed-off-by` trailer, but do not use GPG/SSH commit signing from the agent runtime. The local signing agent may not be available to Codex, and deployment should not be blocked on 1Password signing.
 
 This repo is intended to be deployed through `origin/main`. After making a clean signed-off commit for a requested change, run `git push origin main` automatically unless the user explicitly asks not to.
 
