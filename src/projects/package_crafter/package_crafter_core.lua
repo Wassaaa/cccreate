@@ -212,6 +212,8 @@ function M.run(options)
   local pendingCraftsByOrder = {}
   local stackLimitsByName = {}
   local recipeMetricsBySignature = {}
+  local packageQueue = {}
+  local nextPackageSequence = 0
 
   local function sendReport(payload)
     if not reporting then
@@ -437,6 +439,21 @@ function M.run(options)
         return event[index], index
       end
     end
+  end
+
+  local function packageRecordFromEvent(event)
+    local package, packageArgIndex = packageFromEvent(event)
+    local order, orderError = readOrder(package)
+
+    nextPackageSequence = nextPackageSequence + 1
+
+    return {
+      sequence = nextPackageSequence,
+      source = event[2],
+      packageArgIndex = packageArgIndex,
+      order = order,
+      orderError = orderError,
+    }
   end
 
   local function requireCleanTurtle()
@@ -897,15 +914,16 @@ function M.run(options)
     return crafted, pushedOutput, nil, remainders
   end
 
-  local function handlePackage(package)
-    local order, orderError = readOrder(package)
+  local function handlePackageRecord(record)
+    local order = record.order
     local result = {
       action = "ignored",
       order = order,
+      sequence = record.sequence,
     }
 
     if not order then
-      result.reason = orderError
+      result.reason = record.orderError
       return result
     end
 
@@ -977,30 +995,117 @@ function M.run(options)
     print("Waiting for package_received from " .. PACKAGER_NAME .. "...")
 
     local event = { os.pullEvent("package_received") }
-    local package, packageArgIndex = packageFromEvent(event)
-    local result = handlePackage(package)
+    local record = packageRecordFromEvent(event)
+    local result = handlePackageRecord(record)
 
     if reporting then
       sendReport({
         event = "package_received",
         received = {
-          source = event[2],
-          packageArgIndex = packageArgIndex,
+          source = record.source,
+          packageArgIndex = record.packageArgIndex,
+          sequence = record.sequence,
         },
         result = result,
         turtleInventory = turtleInventory(),
       })
     end
 
-    print("Package handled: " .. result.action)
+    print("Package #" .. record.sequence .. ": " .. result.action)
     if result.reason then
       print(result.reason)
+    end
+  end
+
+  local function enqueuePackageEvent(event)
+    local record = packageRecordFromEvent(event)
+    table.insert(packageQueue, record)
+    os.queueEvent("package_crafter_queued")
+  end
+
+  local function listenForPackages()
+    while true do
+      local event = { os.pullEvent() }
+
+      if event[1] == "package_received" then
+        enqueuePackageEvent(event)
+      end
+    end
+  end
+
+  local function nextQueuedPackage()
+    while #packageQueue == 0 do
+      os.pullEvent("package_crafter_queued")
+    end
+
+    return table.remove(packageQueue, 1)
+  end
+
+  local function reportResult(record, result)
+    if not reporting then
+      return
+    end
+
+    sendReport({
+      event = "package_received",
+      received = {
+        source = record.source,
+        packageArgIndex = record.packageArgIndex,
+        sequence = record.sequence,
+        queued = #packageQueue,
+      },
+      result = result,
+      turtleInventory = turtleInventory(),
+    })
+  end
+
+  local function printQueuedResult(record, result)
+    local queueText = ""
+
+    if #packageQueue > 0 then
+      queueText = " q=" .. #packageQueue
+    end
+
+    print("Package #" .. record.sequence .. ": " .. result.action .. queueText)
+    if result.reason then
+      print(result.reason)
+    end
+  end
+
+  local function processQueuedPackages()
+    while true do
+      local record = nextQueuedPackage()
+      local ok, resultOrError = pcall(function()
+        requireCleanTurtle()
+        return handlePackageRecord(record)
+      end)
+
+      if not ok then
+        if reporting then
+          sendReport({
+            error = tostring(resultOrError),
+            received = {
+              source = record.source,
+              packageArgIndex = record.packageArgIndex,
+              sequence = record.sequence,
+              queued = #packageQueue,
+            },
+            turtleInventory = turtleInventory(),
+          })
+        end
+
+        error(resultOrError, 0)
+      end
+
+      reportResult(record, resultOrError)
+      printQueuedResult(record, resultOrError)
     end
   end
 
   local function watch()
     resolveStagingName()
     resolveOutputName()
+    requireCleanTurtle()
 
     print("Watching package_received events.")
     print("Packager: " .. PACKAGER_NAME)
@@ -1008,19 +1113,7 @@ function M.run(options)
     print("Output: " .. tostring(outputName))
     print("Hold Ctrl+T to stop.")
 
-    while true do
-      local ok, err = pcall(waitOnce)
-      if not ok then
-        if reporting then
-          sendReport({
-            error = tostring(err),
-            turtleInventory = turtleInventory(),
-          })
-        end
-
-        error(err, 0)
-      end
-    end
+    parallel.waitForAny(listenForPackages, processQueuedPackages)
   end
 
   if type(turtle) ~= "table" then

@@ -29,6 +29,12 @@ package_crafter_prod [watch|once] [staging_inventory] [output_inventory]
 
 Use `package_crafter` while tuning because it sends webhook reports after each package and on errors. Use `package_crafter_prod` for the final always-on runtime.
 
+## Event Handling
+
+`watch` runs as two coroutines. One coroutine only listens for `package_received`, snapshots the package order data, gives it a sequence number, and appends it to an in-memory queue. The worker coroutine processes that queue one package at a time and does the slower inventory movement and `turtle.craft()` calls.
+
+This split is intentional: rapid package events can keep being recorded while the turtle is busy crafting, moving items, or sending webhook reports. Terminal output uses `Package #N: action` and adds `q=M` when more packages are waiting. Report-enabled runs include the received `sequence` and current `queued` count.
+
 ## Recipe Cache
 
 Crafting is conservative until a recipe is known. `turtle.craft(limit)` reports only success or failure, not the number of items crafted. For each unknown recipe, the turtle crafts one item, reads the output slot, records whether any remainder items were left in the grid, and saves that recipe data to `/config/package_crafter_recipes.lua`.
