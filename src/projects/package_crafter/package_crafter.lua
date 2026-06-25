@@ -7,6 +7,7 @@ local INPUT_PACKAGE_SLOT = 1
 local OUTPUT_SLOT = 16
 local CRAFT_BATCH_LIMIT = 64
 local FEED_EVENT_TIMEOUT = 3
+local SNIFF_EVENT_TIMEOUT = 10
 
 local GRID_TO_TURTLE_SLOT = {
   1, 2, 3,
@@ -501,19 +502,66 @@ local function waitOnce()
   end
 end
 
+local function eventArgSummary(value)
+  local valueType = type(value)
+
+  if valueType == "table" then
+    if type(value.getOrderData) == "function" and type(value.list) == "function" then
+      return {
+        kind = "package",
+        package = summarizePackage(value),
+      }
+    end
+
+    local keys = {}
+    for key, item in pairs(value) do
+      table.insert(keys, tostring(key) .. ":" .. type(item))
+    end
+    table.sort(keys)
+
+    return {
+      kind = "table",
+      keys = keys,
+    }
+  end
+
+  if valueType == "nil" or valueType == "string" or valueType == "number" or valueType == "boolean" then
+    return value
+  end
+
+  return "<" .. valueType .. ">"
+end
+
+local function eventSummary(event)
+  local args = {}
+
+  for index = 2, #event do
+    table.insert(args, eventArgSummary(event[index]))
+  end
+
+  return {
+    name = event[1],
+    args = args,
+  }
+end
+
 local function waitForPackageReceived(timeout)
   local timer = os.startTimer(timeout)
+  local events = {}
 
   while true do
     local event = { os.pullEvent() }
 
     if event[1] == "package_received" then
-      return event[2]
+      table.insert(events, eventSummary(event))
+      return event[2], events
     end
 
     if event[1] == "timer" and event[2] == timer then
-      return nil
+      return nil, events
     end
+
+    table.insert(events, eventSummary(event))
   end
 end
 
@@ -549,7 +597,7 @@ local function feedOnce()
     error("Packager did not accept the package from turtle slot " .. INPUT_PACKAGE_SLOT, 0)
   end
 
-  local package = waitForPackageReceived(FEED_EVENT_TIMEOUT)
+  local package, events = waitForPackageReceived(FEED_EVENT_TIMEOUT)
   local result = nil
 
   if package then
@@ -559,6 +607,7 @@ local function feedOnce()
   sendReport({
     event = package and "package_received" or "timeout",
     fed = true,
+    events = events,
     before = before,
     result = result,
     after = {
@@ -578,6 +627,32 @@ local function feedOnce()
     end
   else
     print("Fed package; no package_received event within " .. FEED_EVENT_TIMEOUT .. "s")
+  end
+end
+
+local function sniff()
+  print("Sniffing events for " .. SNIFF_EVENT_TIMEOUT .. "s...")
+  local package, events = waitForPackageReceived(SNIFF_EVENT_TIMEOUT)
+  local result = nil
+
+  if package then
+    result = handlePackage(package)
+  end
+
+  sendReport({
+    event = package and "package_received" or "timeout",
+    events = events,
+    result = result,
+    staging = inventorySummary(STAGING_INVENTORY),
+    turtleInventory = turtleInventory(),
+  })
+
+  print("Sniffed " .. #events .. " event(s).")
+  if result then
+    print("Package handled: " .. result.action)
+    if result.reason then
+      print(result.reason)
+    end
   end
 end
 
@@ -606,8 +681,10 @@ elseif command == "once" then
   waitOnce()
 elseif command == "feed-once" then
   feedOnce()
+elseif command == "sniff" then
+  sniff()
 elseif command == "watch" then
   watch()
 else
-  error("Usage: package_crafter status|once|feed-once|watch [output_inventory]", 0)
+  error("Usage: package_crafter status|once|feed-once|sniff|watch [output_inventory]", 0)
 end
