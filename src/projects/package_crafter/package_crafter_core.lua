@@ -163,6 +163,9 @@ function M.run(options)
   local recipeMetricsBySignature = {}
   local packageQueue = {}
   local nextPackageSequence = 0
+  local turtleNameCache = nil
+  local stagingInventory = nil
+  local outputInventory = nil
 
   local function sendReport(payload)
     if not reporting then
@@ -234,6 +237,10 @@ function M.run(options)
   end
 
   local function findTurtleName()
+    if turtleNameCache then
+      return turtleNameCache
+    end
+
     for _, name in ipairs(peripheral.getNames()) do
       local modem = peripheral.wrap(name)
       if modem
@@ -242,6 +249,7 @@ function M.run(options)
       then
         local localName = modem.getNameLocal()
         if localName then
+          turtleNameCache = localName
           return localName
         end
       end
@@ -369,6 +377,21 @@ function M.run(options)
 
     outputName = chooseInventory("output", names)
     return outputName
+  end
+
+  local function resolvedInventories()
+    local selectedStagingName = resolveStagingName()
+    local selectedOutputName = resolveOutputName()
+
+    if not stagingInventory then
+      stagingInventory = requireInventory(selectedStagingName)
+    end
+
+    if not outputInventory then
+      outputInventory = requireInventory(selectedOutputName)
+    end
+
+    return stagingInventory, outputInventory
   end
 
   local function readOrder(package)
@@ -669,8 +692,6 @@ function M.run(options)
       return nil, 0, {}, fillError
     end
 
-    turtle.select(OUTPUT_SLOT)
-
     local craftedOk, craftError = turtle.craft(1)
     if not craftedOk then
       return nil, 0, {}, "turtle.craft(1) probe failed: " .. tostring(craftError)
@@ -765,8 +786,6 @@ function M.run(options)
         end
       end
 
-      turtle.select(OUTPUT_SLOT)
-
       local craftedOk, craftError = turtle.craft(1)
       if not craftedOk then
         return crafted, pushedOutput, "turtle.craft(1) failed: " .. tostring(craftError), remainders
@@ -846,8 +865,6 @@ function M.run(options)
         return crafted, pushedOutput, fillError, remainders
       end
 
-      turtle.select(OUTPUT_SLOT)
-
       local craftedOk, craftError = turtle.craft(batch)
       if not craftedOk then
         return crafted, pushedOutput, "turtle.craft(" .. batch .. ") failed: " .. tostring(craftError), remainders
@@ -876,6 +893,8 @@ function M.run(options)
     local order = record.order
     local result = {
       action = "ignored",
+      combined = record.combinedRecords,
+      combinedCount = record.combinedCount,
       order = order,
       sequence = record.sequence,
     }
@@ -913,10 +932,9 @@ function M.run(options)
       return result
     end
 
-    local selectedStagingName = resolveStagingName()
-    local selectedOutputName = resolveOutputName()
-    local staging = requireInventory(selectedStagingName)
-    local output = requireInventory(selectedOutputName)
+    requireCleanTurtle()
+
+    local staging, output = resolvedInventories()
     local turtleName = findTurtleName()
 
     if not turtleName then
@@ -950,6 +968,15 @@ function M.run(options)
       pendingFinalsByOrder[order.id] = nil
     end
 
+    if record.combinedRecords then
+      for _, combined in ipairs(record.combinedRecords) do
+        if combined.orderId then
+          pendingCraftsByOrder[combined.orderId] = nil
+          pendingFinalsByOrder[combined.orderId] = nil
+        end
+      end
+    end
+
     return result
   end
 
@@ -977,12 +1004,71 @@ function M.run(options)
     return table.remove(packageQueue, 1)
   end
 
+  local function singleReadyCraft(record)
+    local order = record.order
+
+    if not order then
+      return nil
+    end
+
+    if #order.crafts == 0 and order.id and pendingCraftsByOrder[order.id] then
+      order.crafts = pendingCraftsByOrder[order.id]
+    end
+
+    if not order.isFinal or not order.isFinalLink or #order.crafts ~= 1 then
+      return nil
+    end
+
+    return order.crafts[1]
+  end
+
+  local function combineQueuedCrafts(record)
+    local craft = singleReadyCraft(record)
+
+    if not craft then
+      return
+    end
+
+    local signature = recipeSignature(craft.recipe)
+    local combinedRecords = {}
+    local combinedCount = craft.count or 1
+    local index = 1
+
+    while index <= #packageQueue do
+      local queuedRecord = packageQueue[index]
+      local queuedCraft = singleReadyCraft(queuedRecord)
+
+      if queuedCraft and recipeSignature(queuedCraft.recipe) == signature then
+        local count = queuedCraft.count or 1
+        combinedCount = combinedCount + count
+
+        table.insert(combinedRecords, {
+          count = count,
+          orderId = queuedRecord.order and queuedRecord.order.id or nil,
+          sequence = queuedRecord.sequence,
+        })
+
+        table.remove(packageQueue, index)
+      else
+        index = index + 1
+      end
+    end
+
+    if #combinedRecords == 0 then
+      return
+    end
+
+    craft.count = combinedCount
+    record.combinedCount = combinedCount
+    record.combinedRecords = combinedRecords
+  end
+
   local function reportResult(record, result)
     if not reporting then
       return
     end
 
-    sendReport({
+    local payload = {
       event = "package_received",
       received = {
         source = record.source,
@@ -991,15 +1077,24 @@ function M.run(options)
         queued = #packageQueue,
       },
       result = result,
-      turtleInventory = turtleInventory(),
-    })
+    }
+
+    if result.action == "partial" then
+      payload.turtleInventory = turtleInventory()
+    end
+
+    sendReport(payload)
   end
 
   local function printQueuedResult(record, result)
     local queueText = ""
 
+    if result.combined then
+      queueText = queueText .. " +" .. #result.combined
+    end
+
     if #packageQueue > 0 then
-      queueText = " q=" .. #packageQueue
+      queueText = queueText .. " q=" .. #packageQueue
     end
 
     print("Package #" .. record.sequence .. ": " .. result.action .. queueText)
@@ -1012,7 +1107,7 @@ function M.run(options)
     while true do
       local record = nextQueuedPackage()
       local ok, resultOrError = pcall(function()
-        requireCleanTurtle()
+        combineQueuedCrafts(record)
         return handlePackageRecord(record)
       end)
 
@@ -1042,6 +1137,7 @@ function M.run(options)
     resolveStagingName()
     resolveOutputName()
     requireCleanTurtle()
+    turtle.select(OUTPUT_SLOT)
 
     print("Watching package_received events.")
     print("Packager: " .. PACKAGER_NAME)

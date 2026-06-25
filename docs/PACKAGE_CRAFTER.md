@@ -37,6 +37,8 @@ This split is intentional: rapid package events can keep being recorded while th
 
 Create can deliver the final link for an order before the package link that carries the recipe. When that happens, the turtle holds the final package record in memory and requeues it after the recipe package arrives for the same order ID.
 
+Before crafting a ready final package, the worker scans the already-queued records and combines matching single-recipe final packages with the exact same recipe layout. It does not delay to wait for future packages. Combined terminal output shows `+N`, where `N` is the number of additional package records merged into that craft job.
+
 ## Recipe Cache
 
 Crafting is conservative until a recipe is known. `turtle.craft(limit)` reports only success or failure, not the number of items crafted. For each unknown recipe, the turtle crafts one item, reads the output slot, records whether any remainder items were left in the grid, and saves that recipe data to `/config/package_crafter_recipes.lua`.
