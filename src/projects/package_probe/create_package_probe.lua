@@ -1,4 +1,6 @@
 local reporter = require("lib.reporter")
+local args = { ... }
+local command = args[1] or "status"
 
 local PACKAGE_METHODS = {
   "isEditable",
@@ -365,6 +367,82 @@ local function turtleInventory()
   return result
 end
 
+local function turtleSlot(slot)
+  local ok, item = pcall(turtle.getItemDetail, slot, true)
+  if not ok or not item then
+    return nil
+  end
+
+  local entry = compactItem(item)
+
+  if type(item.package) == "table" then
+    entry.package = summarizePackage(item.package)
+  end
+
+  return entry
+end
+
+local function inventorySlot(name, slot)
+  local object = peripheral.wrap(name)
+  if not object or type(object.getItemDetail) ~= "function" then
+    return {
+      ok = false,
+      error = "missing inventory detail method",
+    }
+  end
+
+  local call = safeCall(object, "getItemDetail", slot)
+  if call.ok then
+    call.values[1] = compactItem(call.values[1])
+  end
+
+  return call
+end
+
+local function roundtripBottomPackage()
+  local result = {
+    side = "bottom",
+    sourceSlot = 1,
+    turtleSlot = 1,
+  }
+
+  if type(turtle) ~= "table" then
+    result.error = "not a turtle"
+    return result
+  end
+
+  result.sourceBefore = inventorySlot(result.side, result.sourceSlot)
+  result.turtleBefore = turtleSlot(result.turtleSlot)
+
+  if result.turtleBefore then
+    result.error = "turtle slot is not empty"
+    return result
+  end
+
+  turtle.select(result.turtleSlot)
+
+  local suckOk, suckResult = pcall(turtle.suckDown, 1)
+  result.suckDown = {
+    ok = suckOk,
+    value = suckResult,
+  }
+
+  result.turtleAfterSuck = turtleSlot(result.turtleSlot)
+
+  if result.turtleAfterSuck then
+    local dropOk, dropResult = pcall(turtle.dropDown, 1)
+    result.dropDown = {
+      ok = dropOk,
+      value = dropResult,
+    }
+  end
+
+  result.turtleAfterDrop = turtleSlot(result.turtleSlot)
+  result.sourceAfter = inventorySlot(result.side, result.sourceSlot)
+
+  return result
+end
+
 local names = peripheral.getNames()
 table.sort(names)
 
@@ -373,17 +451,26 @@ local report = {
   computerId = os.getComputerID(),
   label = os.getComputerLabel(),
   isTurtle = type(turtle) == "table",
+  command = command,
   turtleInventory = turtleInventory(),
   peripherals = {},
+  actions = {},
 }
 
 for _, name in ipairs(names) do
   table.insert(report.peripherals, inspectPeripheral(name))
 end
 
+if command == "roundtrip-bottom" then
+  report.actions.roundtripBottom = roundtripBottomPackage()
+elseif command ~= "status" then
+  report.warning = "unknown command: " .. tostring(command)
+end
+
 reporter.send(jsonSafe(report))
 
 print("Create package probe complete.")
+print("Mode: " .. command)
 print("Peripherals: " .. #report.peripherals)
 print("Turtle item slots: " .. #(report.turtleInventory or {}))
 print("Sent webhook report.")
