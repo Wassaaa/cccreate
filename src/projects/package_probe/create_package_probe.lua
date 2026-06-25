@@ -443,6 +443,62 @@ local function roundtripBottomPackage()
   return result
 end
 
+local function capturePackageEvents(seconds)
+  local events = {}
+  local timer = os.startTimer(seconds or 0.5)
+
+  while true do
+    local event = { os.pullEvent() }
+
+    if event[1] == "timer" and event[2] == timer then
+      break
+    end
+
+    if event[1] == "package_created"
+        or event[1] == "package_repackaged"
+        or event[1] == "package_received" then
+      local entry = {
+        name = event[1],
+      }
+
+      if type(event[2]) == "table" then
+        entry.package = summarizePackage(event[2])
+      else
+        entry.value = event[2]
+      end
+
+      if event[3] ~= nil then
+        entry.count = event[3]
+      end
+
+      table.insert(events, entry)
+    end
+  end
+
+  return events
+end
+
+local function makeFrontPackage()
+  local object = peripheral.wrap("front")
+  local result = {
+    side = "front",
+    before = inspectPeripheral("front"),
+    turtleBefore = turtleInventory(),
+  }
+
+  if not object or type(object.makePackage) ~= "function" then
+    result.error = "front is missing makePackage"
+    return result
+  end
+
+  result.makePackage = safeCall(object, "makePackage")
+  result.events = capturePackageEvents(0.75)
+  result.after = inspectPeripheral("front")
+  result.turtleAfter = turtleInventory()
+
+  return result
+end
+
 local names = peripheral.getNames()
 table.sort(names)
 
@@ -463,6 +519,8 @@ end
 
 if command == "roundtrip-bottom" then
   report.actions.roundtripBottom = roundtripBottomPackage()
+elseif command == "make-front" then
+  report.actions.makeFront = makeFrontPackage()
 elseif command ~= "status" then
   report.warning = "unknown command: " .. tostring(command)
 end
