@@ -27,7 +27,7 @@ package_crafter_prod [staging_inventory] [output_inventory]
 
 The program always watches for package events. With one inventory argument, the argument is treated as output and staging is picked or prompted. With two inventory arguments, the first is staging and the second is output. If names are omitted, the turtle picks from connected inventories when only one valid choice exists; otherwise it prompts.
 
-Use `package_crafter` while tuning because it sends webhook reports after each package and on errors. Use `package_crafter_prod` for the final always-on runtime.
+Use `package_crafter` while tuning because it sends webhook reports after each package and on errors. Webhook failures print a warning but do not stop the crafter. Use `package_crafter_prod` for the final always-on runtime.
 
 ## Event Handling
 

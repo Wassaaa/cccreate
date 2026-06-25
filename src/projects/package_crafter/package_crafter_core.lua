@@ -215,7 +215,17 @@ function M.run(options)
     payload.program = programName
     payload.computerId = os.getComputerID()
     payload.label = os.getComputerLabel()
-    reporter.send(jsonSafe(payload))
+
+    local ok, sentOrError = pcall(function()
+      return reporter.send(jsonSafe(payload))
+    end)
+
+    if not ok then
+      print("Report failed: " .. tostring(sentOrError))
+      return false
+    end
+
+    return sentOrError == true
   end
 
   local function loadRecipeCache()
