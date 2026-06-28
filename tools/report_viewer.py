@@ -446,6 +446,34 @@ HTML = r"""<!doctype html>
       overflow-wrap: anywhere;
     }
 
+    .copy-btn {
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 4px 7px;
+      background: #fbfcf8;
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .copy-btn:hover {
+      background: #e6eee3;
+    }
+
+    .copy-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .copy-status {
+      min-height: 20px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
     .mono {
       font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
     }
@@ -625,7 +653,10 @@ HTML = r"""<!doctype html>
       }
 
       if (state.activeTab === "overview") els.view.innerHTML = renderOverview(report);
-      if (state.activeTab === "map") els.view.innerHTML = renderRouterMap(report);
+      if (state.activeTab === "map") {
+        els.view.innerHTML = renderRouterMap(report);
+        bindCopyActions();
+      }
       if (state.activeTab === "output") els.view.innerHTML = renderOutput(report);
       if (state.activeTab === "peripherals") els.view.innerHTML = renderPeripherals(report);
       if (state.activeTab === "inventory") els.view.innerHTML = renderInventory(report);
@@ -815,6 +846,121 @@ HTML = r"""<!doctype html>
         .join(", ");
     }
 
+    function luaString(value) {
+      return JSON.stringify(String(value ?? ""));
+    }
+
+    function encodeCopy(value) {
+      return encodeURIComponent(String(value ?? ""));
+    }
+
+    function decodeCopy(value) {
+      try {
+        return decodeURIComponent(value || "");
+      } catch {
+        return value || "";
+      }
+    }
+
+    function routerLua(report) {
+      if (report.router && !String(report.router).startsWith("(")) {
+        return `assert(peripheral.wrap(${luaString(report.router)}) or peripheral.find("peripheral_router"))`;
+      }
+
+      return 'assert(peripheral.find("peripheral_router"))';
+    }
+
+    function wrapSnippet(report, entry) {
+      const variable = entry.inventory ? "inv" : entry.kind === "fluid" ? "tank" : "p";
+      const lines = [
+        `router = ${routerLua(report)}`,
+        `${variable} = assert(router.wrap(${Number(entry.x)}, ${Number(entry.y)}, ${Number(entry.z)}))`
+      ];
+
+      if (entry.inventory) {
+        lines.push(`print(textutils.serialize(${variable}.list()))`);
+      } else if (entry.kind === "fluid") {
+        lines.push(`print(textutils.serialize(${variable}.tanks()))`);
+      } else {
+        lines.push(`print(textutils.serialize({${asArray(entry.methods).map((method) => luaString(method)).join(", ")}}))`);
+      }
+
+      return lines.join("\n");
+    }
+
+    function stackCommand(entry, mode) {
+      const base = `router_inventory_scanner ${mode} --to ${Number(entry.x)} ${Number(entry.y)} ${Number(entry.z)}`;
+      return base;
+    }
+
+    function fluidStackCommand(entry, mode) {
+      return `${stackCommand(entry, mode)} --fluids --no-items`;
+    }
+
+    function entryHasMethod(entry, method) {
+      return asArray(entry.methods).includes(method);
+    }
+
+    function entryHasFluid(entry) {
+      return entry.kind === "fluid" ||
+        entryHasMethod(entry, "tanks") ||
+        entryHasMethod(entry, "pushFluid") ||
+        entryHasMethod(entry, "pullFluid");
+    }
+
+    function stackButtons(entry) {
+      const buttons = [copyButton("Wrap", wrapSnippet(state.latest, entry))];
+
+      if (entry.inventory) {
+        buttons.push(copyButton("Preview", stackCommand(entry, "stack-preview")));
+        buttons.push(copyButton("Stack", stackCommand(entry, "stack")));
+      }
+
+      if (entryHasFluid(entry)) {
+        buttons.push(copyButton("Fluid Preview", fluidStackCommand(entry, "stack-preview")));
+        buttons.push(copyButton("Fluid Stack", fluidStackCommand(entry, "stack")));
+      }
+
+      return buttons.join("");
+    }
+
+    async function copyText(text, label) {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const area = document.createElement("textarea");
+          area.value = text;
+          area.style.position = "fixed";
+          area.style.left = "-9999px";
+          document.body.appendChild(area);
+          area.focus();
+          area.select();
+          document.execCommand("copy");
+          area.remove();
+        }
+
+        const status = document.getElementById("copyStatus");
+        if (status) status.textContent = `Copied ${label || "command"}`;
+      } catch (error) {
+        const status = document.getElementById("copyStatus");
+        if (status) status.textContent = `Copy failed: ${error.message}`;
+      }
+    }
+
+    function copyButton(label, text) {
+      return `<button class="copy-btn" data-copy="${escapeHtml(encodeCopy(text))}" data-copy-label="${escapeHtml(label)}">${escapeHtml(label)}</button>`;
+    }
+
+    function bindCopyActions() {
+      for (const node of els.view.querySelectorAll("[data-copy]")) {
+        node.addEventListener("click", (event) => {
+          event.stopPropagation();
+          copyText(decodeCopy(node.dataset.copy), node.dataset.copyLabel || "command");
+        });
+      }
+    }
+
     function mapCell(entry, x, y, z) {
       if (!entry) {
         return `<div class="map-cell empty"><span class="map-coord">${x},${y},${z}</span></div>`;
@@ -827,7 +973,7 @@ HTML = r"""<!doctype html>
       const title = `${entry.label || ""} ${entry.displayName || ""} ${items}`.trim();
 
       return `
-        <div class="map-cell ${escapeHtml(mapEntryClass(entry))}" title="${escapeHtml(title)}">
+        <div class="map-cell ${escapeHtml(mapEntryClass(entry))}" title="${escapeHtml(title)}" data-copy="${escapeHtml(encodeCopy(wrapSnippet(state.latest, entry)))}" data-copy-label="${escapeHtml(entry.label || "wrap snippet")}">
           <span class="map-coord">${escapeHtml(entry.label || `${x},${y},${z}`)}</span>
           <span class="map-name">${escapeHtml(entry.displayName || (entry.inventory ? "inventory" : entry.kind || "wrappable"))}</span>
           <span class="map-detail">${escapeHtml(detail)}</span>
@@ -867,7 +1013,7 @@ HTML = r"""<!doctype html>
 
       return `
         <table>
-          <thead><tr><th>Coord</th><th>Name</th><th>Kind</th><th>Slots</th><th>Items</th><th>Methods</th></tr></thead>
+          <thead><tr><th>Coord</th><th>Name</th><th>Kind</th><th>Slots</th><th>Items</th><th>Methods</th><th>Copy</th></tr></thead>
           <tbody>
             ${entries.map((entry) => `
               <tr>
@@ -877,6 +1023,11 @@ HTML = r"""<!doctype html>
                 <td>${entry.inventory ? `${escapeHtml(entry.usedSlots ?? 0)} / ${escapeHtml(entry.size ?? "")}` : ""}</td>
                 <td>${escapeHtml(topItems(entry) || entry.totalItems || "")}</td>
                 <td>${escapeHtml(entry.methodCount ?? "")}</td>
+                <td>
+                  <div class="copy-actions">
+                    ${stackButtons(entry)}
+                  </div>
+                </td>
               </tr>
             `).join("")}
           </tbody>
@@ -916,6 +1067,7 @@ HTML = r"""<!doctype html>
         <section class="block">
           <h2>Router Map</h2>
           ${metrics}
+          <div id="copyStatus" class="copy-status">Click a mapped cell to copy a Lua wrap snippet.</div>
           ${layers.map((y) => routerMapLayer(y, bounds, byCoord)).join("")}
         </section>
         <section class="block">
