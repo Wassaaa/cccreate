@@ -9,13 +9,6 @@ local ROLE_ORDER = {
   "rear_right",
 }
 
-local ROLE_LABELS = {
-  front_left = "FL",
-  front_right = "FR",
-  rear_left = "RL",
-  rear_right = "RR",
-}
-
 local function copyPlain(value, depth)
   if type(value) ~= "table" then
     return value
@@ -70,102 +63,26 @@ local function displayConfig(config, options)
 
   return {
     enabled = enabled,
-    includeRole = display.includeRole == true,
-    decimals = tonumber(display.decimals) or 1,
     updateEveryFrames = math.max(1, tonumber(display.updateEveryFrames) or 1),
-    textColor = display.textColor,
   }
 end
 
-local function formatSignal(signal, decimals)
+local function formatSignal(signal)
   local number = tonumber(signal) or 0
-  decimals = tonumber(decimals) or 1
 
-  if decimals <= 0 then
-    return tostring(math.floor(number + 0.5))
-  end
-
-  local multiplier = 10 ^ decimals
-  local rounded = math.floor(number * multiplier + 0.5) / multiplier
-  local format = "%." .. tostring(decimals) .. "f"
-
-  return string.format(format, rounded)
+  return tostring(math.floor(number + 0.5))
 end
 
-local function signalText(role, signal, settings)
-  local text = formatSignal(signal, settings.decimals)
-
-  if settings.includeRole then
-    return (ROLE_LABELS[role] or role) .. " " .. text
-  end
-
-  return text
-end
-
-local function setTextColor(object, color)
-  if color == nil then
-    return nil
-  end
-
-  if type(object.setTextColor) == "function" then
-    return call(object, "setTextColor", color)
-  elseif type(object.setTextColour) == "function" then
-    return call(object, "setTextColour", color)
+local function writeText(object, text)
+  if type(object.setText) == "function" then
+    return {
+      setText = call(object, "setText", text),
+    }
   end
 
   return {
     ok = false,
-    error = "missing text color method",
-  }
-end
-
-local function writeNixieLike(object, text, signal, settings)
-  local results = {}
-
-  local colorResult = setTextColor(object, settings.textColor)
-  if colorResult then
-    results.setTextColor = colorResult
-  end
-
-  if type(object.setText) == "function" then
-    results.setText = call(object, "setText", text)
-    return results
-  end
-
-  return nil
-end
-
-local function writeTerminalLike(object, text)
-  if type(object.write) ~= "function" then
-    return nil
-  end
-
-  local results = {}
-
-  if type(object.clear) == "function" then
-    results.clear = call(object, "clear")
-  end
-
-  if type(object.setCursorPos) == "function" then
-    results.setCursorPos = call(object, "setCursorPos", 1, 1)
-  end
-
-  results.write = call(object, "write", text)
-
-  if type(object.update) == "function" then
-    results.update = call(object, "update")
-  end
-
-  return results
-end
-
-local function writeSignalFallback(object, signal)
-  if type(object.setSignal) ~= "function" then
-    return nil
-  end
-
-  return {
-    setSignal = call(object, "setSignal", math.max(0, math.min(15, math.floor((tonumber(signal) or 0) + 0.5)))),
+    error = "missing setText",
   }
 end
 
@@ -270,27 +187,34 @@ function displays.updateSignals(context, signals, frameIndex, force)
     return report
   end
 
+  local tasks = {}
+
   for _, role in ipairs(ROLE_ORDER) do
     local device = context.devices[role]
     local signal = signals and signals[role]
 
     if device and signal ~= nil then
-      local text = signalText(role, signal, context.settings)
-      local writeResults = writeNixieLike(device.object, text, signal, context.settings)
-        or writeTerminalLike(device.object, text)
-        or writeSignalFallback(device.object, signal)
+      local roleName = role
+      local displayDevice = device
+      local displaySignal = signal
+      local text = formatSignal(signal)
+      local textValue = text
 
       report.roles[role] = {
         coord = copyPlain(device.coord),
-        signal = signal,
+        signal = displaySignal,
         text = text,
-        results = writeResults or {
-          ok = false,
-          error = "no supported display write method",
-        },
       }
       report.updated = true
+
+      table.insert(tasks, function()
+        report.roles[roleName].results = writeText(displayDevice.object, textValue)
+      end)
     end
+  end
+
+  if #tasks > 0 then
+    parallel.waitForAll(unpack(tasks))
   end
 
   return report

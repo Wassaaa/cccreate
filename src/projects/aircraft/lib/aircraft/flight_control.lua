@@ -15,6 +15,14 @@ local function now()
   return os.date("%Y-%m-%d %H:%M:%S")
 end
 
+local function clockSeconds()
+  if os.epoch then
+    return os.epoch("utc") / 1000
+  end
+
+  return os.clock()
+end
+
 local function copyPlain(value, depth)
   if type(value) ~= "table" then
     return value
@@ -43,6 +51,10 @@ local function clamp(value, minValue, maxValue)
   end
 
   return value
+end
+
+local function quantizeSignal(value, maxSignal)
+  return clamp(math.floor((tonumber(value) or 0) + 0.5), 0, maxSignal)
 end
 
 local function atan2(y, x)
@@ -212,7 +224,7 @@ local function findGimbal(scan, router)
   for side, hint in pairs(hints) do
     if not hint.ambiguous and hint.coord then
       local object = wrapCoord(router, hint.coord, "gimbal " .. tostring(side))
-      if type(object.getAngles) == "function" and type(object.getAngularRates) == "function" then
+      if type(object.getGravity) == "function" and type(object.getAngularRates) == "function" then
         return {
           side = side,
           coord = copyPlain(hint.coord),
@@ -278,23 +290,20 @@ local function baseReport(kind, config, scan, routerName)
 end
 
 local function readGimbal(gimbal)
-  local angles, angleError = callGetter(gimbal.object, "getAngles")
   local rates, rateError = callGetter(gimbal.object, "getAngularRates")
   local gravity, gravityError = callGetter(gimbal.object, "getGravity")
-
-  if angleError then
-    error("gimbal getAngles failed: " .. tostring(angleError), 0)
-  end
 
   if rateError then
     error("gimbal getAngularRates failed: " .. tostring(rateError), 0)
   end
 
+  if gravityError then
+    error("gimbal getGravity failed: " .. tostring(gravityError), 0)
+  end
+
   return {
-    angles = angles,
     angularRates = rates,
     gravity = gravity,
-    gravityError = gravityError,
   }
 end
 
@@ -329,14 +338,13 @@ local function stabilizeConfig(config, options)
     seconds = tonumber(options.seconds) or tonumber(defaults.seconds) or 1,
     interval = tonumber(options.interval) or tonumber(defaults.interval) or 0.1,
     basePower = tonumber(options.basePower) or tonumber(defaults.basePower) or 0,
-    sensorMode = options.sensorMode or defaults.sensorMode or "gravity",
     maxSignal = tonumber(config.absoluteSignalMax) or 15,
     brakeSignal = tonumber(config.brakeSignal) or tonumber(config.absoluteSignalMax) or 15,
-    axis1Kp = tonumber(options.axis1Kp) or tonumber(options.kp) or tonumber(defaults.axis1Kp) or 0.08,
-    axis2Kp = tonumber(options.axis2Kp) or tonumber(options.kp) or tonumber(defaults.axis2Kp) or 0.08,
-    axis1Kd = tonumber(options.axis1Kd) or tonumber(options.kd) or tonumber(defaults.axis1Kd) or 0.08,
-    axis2Kd = tonumber(options.axis2Kd) or tonumber(options.kd) or tonumber(defaults.axis2Kd) or 0.08,
-    axis1Sign = tonumber(options.axis1Sign) or tonumber(defaults.axis1Sign) or 1,
+    axis1Kp = tonumber(options.axis1Kp) or tonumber(options.kp) or tonumber(defaults.axis1Kp) or 1,
+    axis2Kp = tonumber(options.axis2Kp) or tonumber(options.kp) or tonumber(defaults.axis2Kp) or 1,
+    axis1Kd = tonumber(options.axis1Kd) or tonumber(options.kd) or tonumber(defaults.axis1Kd) or 0.03,
+    axis2Kd = tonumber(options.axis2Kd) or tonumber(options.kd) or tonumber(defaults.axis2Kd) or 0.05,
+    axis1Sign = tonumber(options.axis1Sign) or tonumber(defaults.axis1Sign) or -1,
     axis2Sign = tonumber(options.axis2Sign) or tonumber(defaults.axis2Sign) or 1,
     maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 0.75,
     maxAttitudeDelta = tonumber(options.maxAttitudeDelta) or tonumber(defaults.maxAttitudeDelta)
@@ -347,23 +355,12 @@ local function stabilizeConfig(config, options)
 end
 
 local function mixerSignals(settings, state, level)
-  local angle1 = numberAt(state.angles, 1)
-  local angle2 = numberAt(state.angles, 2)
   local rawRate1 = numberAt(state.angularRates, 1)
   local rawRate2 = numberAt(state.angularRates, 2)
-  local neutral1 = numberAt(level.angles, 1)
-  local neutral2 = numberAt(level.angles, 2)
-  local rawError1 = angle1 - neutral1
-  local rawError2 = angle2 - neutral2
-  local currentTilt = nil
-  local neutralTilt = nil
-
-  if settings.sensorMode == "gravity" then
-    currentTilt = gravityTilt(state.gravity)
-    neutralTilt = gravityTilt(level.gravity)
-    rawError1 = currentTilt.axis1 - neutralTilt.axis1
-    rawError2 = currentTilt.axis2 - neutralTilt.axis2
-  end
+  local currentTilt = gravityTilt(state.gravity)
+  local neutralTilt = gravityTilt(level.gravity)
+  local rawError1 = currentTilt.axis1 - neutralTilt.axis1
+  local rawError2 = currentTilt.axis2 - neutralTilt.axis2
 
   local error1 = wrapRadians(rawError1) * settings.axis1Sign
   local error2 = wrapRadians(rawError2) * settings.axis2Sign
@@ -383,19 +380,18 @@ local function mixerSignals(settings, state, level)
 
   for role, value in pairs(power) do
     local clampedPower = clamp(value, 0, settings.maxSignal)
-    signals[role] = clamp(settings.brakeSignal - clampedPower, 0, settings.maxSignal)
+    signals[role] = quantizeSignal(settings.brakeSignal - clampedPower, settings.maxSignal)
   end
 
   return {
-    angle1 = angle1,
-    angle2 = angle2,
+    angle1 = currentTilt.axis1,
+    angle2 = currentTilt.axis2,
     rate1 = rate1,
     rate2 = rate2,
     rawRate1 = rawRate1,
     rawRate2 = rawRate2,
-    neutral1 = neutral1,
-    neutral2 = neutral2,
-    sensorMode = settings.sensorMode,
+    neutral1 = neutralTilt.axis1,
+    neutral2 = neutralTilt.axis2,
     currentTilt = currentTilt,
     neutralTilt = neutralTilt,
     rawError1 = rawError1,
@@ -414,20 +410,32 @@ end
 
 local function applySignals(devices, signals)
   local results = {}
+  local tasks = {}
 
   for _, role in ipairs(ROLE_ORDER) do
-    results[role] = callSetter(devices[role].object, "setSignal", signals[role])
+    local roleName = role
+    table.insert(tasks, function()
+      results[roleName] = callSetter(devices[roleName].object, "setSignal", signals[roleName])
+    end)
   end
+
+  parallel.waitForAll(unpack(tasks))
 
   return results
 end
 
 local function brakeDevices(devices, signal)
   local results = {}
+  local tasks = {}
 
   for _, role in ipairs(ROLE_ORDER) do
-    results[role] = callSetter(devices[role].object, "setSignal", signal)
+    local roleName = role
+    table.insert(tasks, function()
+      results[roleName] = callSetter(devices[roleName].object, "setSignal", signal)
+    end)
   end
+
+  parallel.waitForAll(unpack(tasks))
 
   return results
 end
@@ -444,15 +452,15 @@ function flightControl.levelSet(config)
   }
   report.state = state
   report.level = {
-    angles = copyPlain(state.angles),
     gravity = copyPlain(state.gravity),
     gravityTilt = gravityTilt(state.gravity),
+    mode = "sampled_gravity",
     createdAt = report.createdAt,
   }
 
   local path = saveAndSend(config, report)
   print("Aircraft level report: " .. path)
-  print("level angles=" .. textutils.serialize(report.level.angles))
+  print("level gravity=" .. textutils.serialize(report.level.gravity))
 
   return report
 end
@@ -467,7 +475,6 @@ function flightControl.levelZero(config)
     label = os.getComputerLabel(),
     dryRun = config.dryRun ~= false,
     level = {
-      angles = { 0, 0, 0 },
       gravity = copyPlain(gravity),
       gravityTilt = gravityTilt(gravity),
       mode = "world_zero",
@@ -483,7 +490,7 @@ function flightControl.levelZero(config)
 end
 
 function flightControl.stabilize(config, options)
-  if type(config.level) ~= "table" or type(config.level.angles) ~= "table" then
+  if type(config.level) ~= "table" or type(config.level.gravity) ~= "table" then
     error("No saved level. Run aircraft level-zero for world-level or level-set while the craft is level.", 0)
   end
 
@@ -491,9 +498,6 @@ function flightControl.stabilize(config, options)
   local gimbal = findGimbal(scan, router)
   local devices = wrapScalarDevices(scan, router)
   local settings = stabilizeConfig(config, options)
-  if settings.sensorMode == "gravity" and type(config.level.gravity) ~= "table" then
-    error("Saved level has no gravity reading. Run aircraft level-set again with the updated controller.", 0)
-  end
 
   local active = options.apply == true and config.dryRun == false
   local report = baseReport("aircraft_stabilize", config, scan, routerName)
@@ -512,6 +516,10 @@ function flightControl.stabilize(config, options)
     coord = gimbal.coord,
   }
   report.frames = {}
+  report.timing = {
+    requestedSeconds = settings.seconds,
+    interval = settings.interval,
+  }
 
   local displayContext = displays.collect(config, router, scan, options)
   report.displays = displays.describe(displayContext)
@@ -521,13 +529,16 @@ function flightControl.stabilize(config, options)
   end
 
   local function runLoop()
-    local frames = active and math.max(1, math.floor(settings.seconds / settings.interval)) or 1
+    local startTime = clockSeconds()
+    local deadline = startTime + settings.seconds
+    local frameIndex = 1
 
-    for frameIndex = 1, frames do
+    while true do
       local state = readGimbal(gimbal)
       local mixed = mixerSignals(settings, state, config.level)
       local frame = {
         index = frameIndex,
+        elapsed = clockSeconds() - startTime,
         state = state,
         mixed = mixed,
       }
@@ -552,10 +563,20 @@ function flightControl.stabilize(config, options)
         break
       end
 
-      if active and frameIndex < frames then
-        sleep(settings.interval)
+      if not active then
+        break
       end
+
+      local remaining = deadline - clockSeconds()
+      if remaining <= 0 then
+        break
+      end
+
+      sleep(math.min(settings.interval, remaining))
+      frameIndex = frameIndex + 1
     end
+
+    report.timing.elapsed = clockSeconds() - startTime
   end
 
   local ok, result = pcall(runLoop)

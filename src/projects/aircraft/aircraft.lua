@@ -32,22 +32,18 @@ local DEFAULT_CONFIG = {
     interval = 0.1,
     seconds = 1,
     basePower = 0,
-    sensorMode = "gravity",
-    axis1Kp = 0.08,
-    axis2Kp = 0.08,
-    axis1Kd = 0.08,
-    axis2Kd = 0.08,
-    axis1Sign = 1,
+    axis1Kp = 1,
+    axis2Kp = 1,
+    axis1Kd = 0.03,
+    axis2Kd = 0.05,
+    axis1Sign = -1,
     axis2Sign = 1,
     maxCorrection = 0.75,
     brakeOnExit = true,
   },
   display = {
     enabled = true,
-    includeRole = false,
-    decimals = 1,
     updateEveryFrames = 1,
-    textColor = nil,
   },
   sendWebhook = true,
 }
@@ -62,14 +58,12 @@ local function usage()
   print("aircraft config stabilize-signs <-1|1> <-1|1>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
-  print("aircraft config stabilize-mode <gravity|angles>")
   print("aircraft config display <true|false>")
   print("aircraft brake [role|all] [--apply]")
   print("aircraft level-set")
   print("aircraft level-zero")
   print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n] [--no-display]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
-  print("aircraft zero [role|all] [--apply --force-release]")
   print("aircraft help")
   print("")
   print("Options:")
@@ -81,7 +75,7 @@ local function usage()
   print("  --out <path>       default /aircraft_scan.txt")
   print("  --no-webhook       save local report only")
   print("")
-  print("signal/zero are dry-run unless --apply is used and config dryRun=false.")
+  print("signal/brake are dry-run unless --apply is used and config dryRun=false.")
 end
 
 local function copyTable(value)
@@ -189,14 +183,6 @@ local function parseNumber(value, label)
   end
 
   return number
-end
-
-local function parseSensorMode(value)
-  if value == "gravity" or value == "angles" then
-    return value
-  end
-
-  error("sensor mode must be gravity or angles", 0)
 end
 
 local function parseOptions(config)
@@ -365,7 +351,6 @@ local function printConfig(config, source)
   print("  absoluteSignalMax=" .. tostring(config.absoluteSignalMax))
   print("  brakeSignal=" .. tostring(config.brakeSignal))
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
-  print("  stabilize.sensorMode=" .. tostring(config.stabilize.sensorMode))
   print("  stabilize.axis1Sign=" .. tostring(config.stabilize.axis1Sign))
   print("  stabilize.axis2Sign=" .. tostring(config.stabilize.axis2Sign))
   print("  stabilize.axis1Kp=" .. tostring(config.stabilize.axis1Kp))
@@ -374,13 +359,11 @@ local function printConfig(config, source)
   print("  stabilize.axis2Kd=" .. tostring(config.stabilize.axis2Kd))
   print("  stabilize.maxCorrection=" .. tostring(config.stabilize.maxCorrection))
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
-  print("  display.includeRole=" .. tostring(config.display and config.display.includeRole))
-  print("  display.decimals=" .. tostring(config.display and config.display.decimals))
   print("  display.updateEveryFrames=" .. tostring(config.display and config.display.updateEveryFrames))
-  if config.level and config.level.angles then
-    print("  level.angles=" .. textutils.serialize(config.level.angles))
+  if config.level and config.level.gravity then
+    print("  level.gravity=" .. textutils.serialize(config.level.gravity))
   else
-    print("  level.angles=nil")
+    print("  level.gravity=nil")
   end
 end
 
@@ -459,12 +442,6 @@ local function runConfig()
     print("  maxCorrection=" .. tostring(config.stabilize.maxCorrection))
     print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
     return
-  elseif subcommand == "stabilize-mode" then
-    config.stabilize.sensorMode = parseSensorMode(args[3])
-    saveConfig(config)
-    print("Saved stabilize sensor mode to " .. CONFIG_PATH)
-    print("  sensorMode=" .. tostring(config.stabilize.sensorMode))
-    return
   elseif subcommand == "display" then
     config.display = config.display or {}
     config.display.enabled = parseBoolean(args[3])
@@ -498,9 +475,6 @@ local function parseCommandOptions(startIndex)
         error("--base-power needs a number", 0)
       end
       i = i + 2
-    elseif arg == "--sensor-mode" then
-      options.sensorMode = parseSensorMode(args[i + 1])
-      i = i + 2
     elseif arg == "--no-display" then
       options.display = false
       i = i + 1
@@ -513,9 +487,6 @@ local function parseCommandOptions(startIndex)
         error("--after-signal needs a number", 0)
       end
       i = i + 2
-    elseif arg == "--force-release" then
-      options.forceRelease = true
-      i = i + 1
     elseif arg == "--interval" then
       options.interval = tonumber(args[i + 1])
       if not options.interval then
@@ -641,22 +612,6 @@ local function runStabilize()
   flightControl.stabilize(config, options)
 end
 
-local function runZero()
-  local config = loadConfig()
-  local role = args[2] or "all"
-  local optionStart = 3
-
-  if string.sub(role, 1, 2) == "--" then
-    role = "all"
-    optionStart = 2
-  end
-
-  local options = parseCommandOptions(optionStart)
-  options.role = role
-
-  actuatorTest.zero(config, options)
-end
-
 if command == "help" or command == "--help" or command == "-h" then
   usage()
 elseif command == "scan" then
@@ -706,12 +661,6 @@ elseif command == "stabilize" then
   if not ok then
     print("aircraft stabilize failed: " .. tostring(result))
     error("aircraft stabilize failed", 0)
-  end
-elseif command == "zero" then
-  local ok, result = pcall(runZero)
-  if not ok then
-    print("aircraft zero failed: " .. tostring(result))
-    error("aircraft zero failed", 0)
   end
 else
   usage()

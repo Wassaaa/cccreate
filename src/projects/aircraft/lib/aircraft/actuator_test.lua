@@ -107,6 +107,10 @@ local function clamp(value, minValue, maxValue)
   return value
 end
 
+local function quantizeSignal(value, maxSignal)
+  return clamp(math.floor((tonumber(value) or 0) + 0.5), 0, maxSignal)
+end
+
 local function selectedRoles(requestedRole)
   if requestedRole == "all" then
     return ROLE_ORDER
@@ -307,8 +311,8 @@ function actuatorTest.signal(config, options)
   end
 
   local roles = selectedRoles(options.role)
-  local clampedSignal = clamp(requestedSignal, 0, maxSignal)
-  local restoreSignal = clamp(tonumber(options.afterSignal) or tonumber(config.brakeSignal) or maxSignal, 0, maxSignal)
+  local clampedSignal = quantizeSignal(requestedSignal, maxSignal)
+  local restoreSignal = quantizeSignal(tonumber(options.afterSignal) or tonumber(config.brakeSignal) or maxSignal, maxSignal)
   local report = makeBaseReport("aircraft_signal_test", config, scan, routerName)
   report.request = {
     role = options.role,
@@ -328,6 +332,7 @@ function actuatorTest.signal(config, options)
   report.displays = displays.describe(displayContext)
 
   local devices = collectScalarDevices(router, scan, roles, report)
+  local setTasks = {}
 
   for _, device in ipairs(devices) do
     local action = {
@@ -340,7 +345,11 @@ function actuatorTest.signal(config, options)
     }
 
     if active then
-      action.setResult = callSetter(device, "setSignal", clampedSignal)
+      local actionRef = action
+      local deviceRef = device
+      table.insert(setTasks, function()
+        actionRef.setResult = callSetter(deviceRef, "setSignal", clampedSignal)
+      end)
     else
       action.dryRun = true
     end
@@ -349,6 +358,10 @@ function actuatorTest.signal(config, options)
   end
 
   if active then
+    if #setTasks > 0 then
+      parallel.waitForAll(unpack(setTasks))
+    end
+
     report.displayDuring = displays.updateSignals(displayContext, actionSignals(report.actions, clampedSignal), nil, true)
 
     local seconds = tonumber(options.seconds) or 0.5
@@ -367,11 +380,24 @@ function actuatorTest.signal(config, options)
       sleep(remaining)
     end
 
+    local restoreTasks = {}
     for index, device in ipairs(devices) do
       local action = report.actions[index]
       action.restoreMethod = "setSignal"
       action.restoreSignal = restoreSignal
-      action.restoreResult = callSetter(device, "setSignal", restoreSignal)
+      local actionRef = action
+      local deviceRef = device
+      table.insert(restoreTasks, function()
+        actionRef.restoreResult = callSetter(deviceRef, "setSignal", restoreSignal)
+      end)
+    end
+
+    if #restoreTasks > 0 then
+      parallel.waitForAll(unpack(restoreTasks))
+    end
+
+    for index, device in ipairs(devices) do
+      local action = report.actions[index]
       action.after = readScalarState(device)
     end
 
@@ -410,6 +436,7 @@ function actuatorTest.brake(config, options)
   report.displays = displays.describe(displayContext)
 
   local devices = collectScalarDevices(router, scan, roles, report)
+  local setTasks = {}
 
   for _, device in ipairs(devices) do
     local action = {
@@ -421,8 +448,11 @@ function actuatorTest.brake(config, options)
     }
 
     if active then
-      action.setResult = callSetter(device, "setSignal", signal)
-      action.after = readScalarState(device)
+      local actionRef = action
+      local deviceRef = device
+      table.insert(setTasks, function()
+        actionRef.setResult = callSetter(deviceRef, "setSignal", signal)
+      end)
     else
       action.dryRun = true
     end
@@ -431,65 +461,19 @@ function actuatorTest.brake(config, options)
   end
 
   if active then
+    if #setTasks > 0 then
+      parallel.waitForAll(unpack(setTasks))
+    end
+
+    for index, device in ipairs(devices) do
+      report.actions[index].after = readScalarState(device)
+    end
+
     report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, signal), nil, true)
   end
 
   local path = saveAndSend(config, report)
   print("Aircraft brake report: " .. path)
-  print("applied=" .. tostring(report.applied) .. " actions=" .. tostring(#report.actions))
-  if report.blockedReason then
-    print("blocked: " .. report.blockedReason)
-  end
-
-  return report
-end
-
-function actuatorTest.zero(config, options)
-  local scan, router, routerName = loadContext(config)
-  local roles = selectedRoles(options.role or "all")
-  local report = makeBaseReport("aircraft_zero_test", config, scan, routerName)
-  report.request = {
-    role = options.role or "all",
-    apply = options.apply == true,
-    forceRelease = options.forceRelease == true,
-  }
-
-  local active = options.apply == true and config.dryRun == false and options.forceRelease == true
-  report.applied = active
-  if options.apply == true and options.forceRelease ~= true then
-    report.blockedReason = "releaseSignal can remove braking signal; use brake --apply or add --force-release"
-  elseif options.apply == true and not active then
-    report.blockedReason = "config.dryRun is true"
-  end
-  local displayContext = displays.collect(config, router, scan, options)
-  report.displays = displays.describe(displayContext)
-
-  local devices = collectScalarDevices(router, scan, roles, report)
-
-  for _, device in ipairs(devices) do
-    local action = {
-      role = device.role,
-      coord = device.coord,
-      method = "releaseSignal",
-      before = readScalarState(device),
-    }
-
-    if active then
-      action.releaseResult = callSetter(device, "releaseSignal")
-      action.after = readScalarState(device)
-    else
-      action.dryRun = true
-    end
-
-    table.insert(report.actions, action)
-  end
-
-  if active then
-    report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, nil), nil, true)
-  end
-
-  local path = saveAndSend(config, report)
-  print("Aircraft zero test report: " .. path)
   print("applied=" .. tostring(report.applied) .. " actions=" .. tostring(#report.actions))
   if report.blockedReason then
     print("blocked: " .. report.blockedReason)
