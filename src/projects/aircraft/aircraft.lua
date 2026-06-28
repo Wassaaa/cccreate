@@ -31,6 +31,9 @@ local DEFAULT_CONFIG = {
 local function usage()
   print("aircraft scan [options]")
   print("aircraft status")
+  print("aircraft config show")
+  print("aircraft config axes <frontAxis> <leftAxis>")
+  print("aircraft config dry-run <true|false>")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n]")
   print("aircraft zero [role|all] [--apply]")
   print("aircraft help")
@@ -98,6 +101,23 @@ local function loadConfig()
   end
 
   return config, "built-in defaults"
+end
+
+local function saveConfig(config)
+  local directory = fs.getDir(CONFIG_PATH)
+  if directory ~= "" and not fs.exists(directory) then
+    fs.makeDir(directory)
+  end
+
+  local handle = fs.open(CONFIG_PATH, "w")
+  if not handle then
+    error("Could not write " .. CONFIG_PATH, 0)
+  end
+
+  handle.write("return ")
+  handle.write(textutils.serialize(config))
+  handle.write("\n")
+  handle.close()
 end
 
 local function parseInteger(value, label)
@@ -260,6 +280,58 @@ local function runStatus()
   status.run(config)
 end
 
+local function parseBoolean(value)
+  if value == "true" or value == "yes" or value == "1" then
+    return true
+  elseif value == "false" or value == "no" or value == "0" then
+    return false
+  end
+
+  error("boolean value must be true or false", 0)
+end
+
+local function printConfig(config, source)
+  print("aircraft config from " .. tostring(source))
+  print("  frontAxis=" .. tostring(config.frontAxis))
+  print("  leftAxis=" .. tostring(config.leftAxis))
+  print("  dryRun=" .. tostring(config.dryRun))
+  print("  absoluteSignalMax=" .. tostring(config.absoluteSignalMax))
+  print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
+end
+
+local function runConfig()
+  local config, source = loadConfig()
+  local subcommand = args[2] or "show"
+
+  if subcommand == "show" then
+    printConfig(config, source)
+    return
+  elseif subcommand == "axes" then
+    local front = coords.parseAxis(args[3])
+    local left = coords.parseAxis(args[4])
+
+    if not front or not left then
+      error("Usage: aircraft config axes <frontAxis> <leftAxis>, example: aircraft config axes +Z +X", 0)
+    end
+
+    config.frontAxis = coords.axisLabel(front)
+    config.leftAxis = coords.axisLabel(left)
+    saveConfig(config)
+    print("Saved aircraft axes to " .. CONFIG_PATH)
+    print("  frontAxis=" .. tostring(config.frontAxis))
+    print("  leftAxis=" .. tostring(config.leftAxis))
+    print("Next: run aircraft scan to refresh role mappings.")
+    return
+  elseif subcommand == "dry-run" then
+    config.dryRun = parseBoolean(args[3])
+    saveConfig(config)
+    print("Saved dryRun=" .. tostring(config.dryRun) .. " to " .. CONFIG_PATH)
+    return
+  end
+
+  error("Unknown aircraft config command: " .. tostring(subcommand), 0)
+end
+
 local function parseCommandOptions(startIndex)
   local options = {}
   local i = startIndex
@@ -329,6 +401,12 @@ elseif command == "status" then
   if not ok then
     print("aircraft status failed: " .. tostring(result))
     error("aircraft status failed", 0)
+  end
+elseif command == "config" then
+  local ok, result = pcall(runConfig)
+  if not ok then
+    print("aircraft config failed: " .. tostring(result))
+    error("aircraft config failed", 0)
   end
 elseif command == "signal" then
   local ok, result = pcall(runSignal)

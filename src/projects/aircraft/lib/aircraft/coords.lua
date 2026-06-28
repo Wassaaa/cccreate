@@ -143,6 +143,39 @@ function coords.axisLabel(value)
   return coords.label(value)
 end
 
+function coords.parseAxis(value)
+  if coords.isCardinal(value) then
+    return {
+      x = value.x,
+      y = value.y,
+      z = value.z,
+    }
+  end
+
+  if type(value) ~= "string" then
+    return nil
+  end
+
+  local normalized = string.upper(value)
+  normalized = string.gsub(normalized, "%s+", "")
+
+  if normalized == "X" or normalized == "+X" then
+    return { x = 1, y = 0, z = 0 }
+  elseif normalized == "-X" then
+    return { x = -1, y = 0, z = 0 }
+  elseif normalized == "Y" or normalized == "+Y" then
+    return { x = 0, y = 1, z = 0 }
+  elseif normalized == "-Y" then
+    return { x = 0, y = -1, z = 0 }
+  elseif normalized == "Z" or normalized == "+Z" then
+    return { x = 0, y = 0, z = 1 }
+  elseif normalized == "-Z" then
+    return { x = 0, y = 0, z = -1 }
+  end
+
+  return nil
+end
+
 function coords.iterate(bounds, visit)
   for y = bounds.yMin, bounds.yMax do
     for z = bounds.zMin, bounds.zMax do

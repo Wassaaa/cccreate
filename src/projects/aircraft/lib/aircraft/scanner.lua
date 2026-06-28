@@ -379,8 +379,33 @@ local function setAxisIfMissing(orientation, field, value, source)
   orientation.sources[field] = source
 end
 
-local function inferAxes(report)
+local function setAxisOverride(orientation, field, value, source)
+  local axis = coords.parseAxis(value)
+  if not axis then
+    return false
+  end
+
+  orientation[field] = axis
+  orientation.sources[field] = source
+  return true
+end
+
+local function applyAxisOverrides(report, config)
   local orientation = report.orientation
+
+  if setAxisOverride(orientation, "frontVector", config.frontAxis, "config.frontAxis") then
+    orientation.configuredFrontAxis = config.frontAxis
+  end
+
+  if setAxisOverride(orientation, "leftVector", config.leftAxis, "config.leftAxis") then
+    orientation.configuredLeftAxis = config.leftAxis
+  end
+end
+
+local function inferAxes(report, config)
+  local orientation = report.orientation
+
+  applyAxisOverrides(report, config)
 
   if report.router and SIDE_AXIS[report.router.name] then
     local routerVector = SIDE_AXIS[report.router.name]
@@ -520,7 +545,7 @@ local function inferOrientation(report)
   report.orientation.computerCoordError = computerCoordError
 
   report.orientation.sideHints = inferDirectSideHints(report)
-  inferAxes(report)
+  inferAxes(report, report.config or {})
   inferRoles(report)
 end
 

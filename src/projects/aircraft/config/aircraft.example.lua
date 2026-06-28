@@ -9,7 +9,9 @@ return {
     errorLimit = 12,
   },
 
-  -- Leave unset until the first scan shows the real relative coordinates.
+  -- Leave unset for automatic side-based orientation, or set explicit aircraft
+  -- axes with labels such as "+Z" and "+X". For the first test craft, the
+  -- computer back side is aircraft front, so frontAxis="+Z", leftAxis="+X".
   frontAxis = nil,
   leftAxis = nil,
 
