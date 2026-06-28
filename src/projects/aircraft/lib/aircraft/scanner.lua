@@ -193,12 +193,48 @@ local function routerMethods(routerName, router)
   return methods
 end
 
-local function includeError(report, entry, limit)
+local function includeError(report, entry, limit, field)
+  field = field or "errors"
   report.summary.errors = report.summary.errors + 1
 
-  if #report.errors < limit then
-    table.insert(report.errors, entry)
+  if #report[field] < limit then
+    table.insert(report[field], entry)
   end
+end
+
+local function routerHasPresenceCheck(router)
+  return router and type(router.isPresent) == "function"
+end
+
+local function shouldWrapCoordinate(router, report, x, y, z, errorLimit)
+  if not routerHasPresenceCheck(router) then
+    return true
+  end
+
+  report.summary.presenceChecks = report.summary.presenceChecks + 1
+
+  local ok, presentOrError = pcall(router.isPresent, x, y, z)
+  if not ok then
+    report.summary.presenceErrors = report.summary.presenceErrors + 1
+    includeError(report, {
+      phase = "presence",
+      coord = {
+        x = x,
+        y = y,
+        z = z,
+        key = coords.key(x, y, z),
+      },
+      error = tostring(presentOrError),
+    }, errorLimit, "presenceErrors")
+    return true
+  end
+
+  if not presentOrError then
+    report.summary.presenceMisses = report.summary.presenceMisses + 1
+    return false
+  end
+
+  return true
 end
 
 local function makeEntry(object, x, y, z, config)
@@ -240,13 +276,21 @@ function scanner.scan(config)
     router = {
       name = routerName,
       methods = router and routerMethods(routerName, router) or {},
+      presenceMethod = routerHasPresenceCheck(router) and "isPresent" or nil,
     },
     directPeripherals = directPeripherals(),
     peripherals = {},
     errors = {},
+    presenceErrors = {},
     summary = {
+      scanned = 0,
       found = 0,
       errors = 0,
+      presenceChecks = 0,
+      presenceMisses = 0,
+      presenceErrors = 0,
+      wrapAttempts = 0,
+      wrapErrors = 0,
       categories = {},
     },
   }
@@ -263,10 +307,19 @@ function scanner.scan(config)
   local errorLimit = tonumber(config.scan.errorLimit) or 12
 
   coords.iterate(bounds, function(x, y, z)
+    report.summary.scanned = report.summary.scanned + 1
+
+    if not shouldWrapCoordinate(router, report, x, y, z, errorLimit) then
+      return
+    end
+
+    report.summary.wrapAttempts = report.summary.wrapAttempts + 1
     local ok, objectOrError = pcall(router.wrap, x, y, z)
 
     if not ok then
+      report.summary.wrapErrors = report.summary.wrapErrors + 1
       includeError(report, {
+        phase = "wrap",
         coord = {
           x = x,
           y = y,

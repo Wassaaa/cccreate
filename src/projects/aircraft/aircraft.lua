@@ -155,13 +155,34 @@ local function printSummary(report, path)
     print("Scan error: " .. tostring(report.error))
   end
   print("Router: " .. tostring(report.router and report.router.name))
+  print("Router presence method: " .. tostring(report.router and report.router.presenceMethod))
   print("Bounds: " .. coords.boundsLabel(report.scanBounds))
+  print("Scanned positions: " .. tostring(report.summary.scanned or 0))
+  print("Presence checks: " .. tostring(report.summary.presenceChecks or 0))
+  print("Presence misses: " .. tostring(report.summary.presenceMisses or 0))
+  print("Presence errors: " .. tostring(report.summary.presenceErrors or 0))
+  print("Wrap attempts: " .. tostring(report.summary.wrapAttempts or 0))
+  print("Wrap errors: " .. tostring(report.summary.wrapErrors or report.summary.errors or 0))
   print("Found peripherals: " .. tostring(report.summary.found))
-  print("Wrap errors: " .. tostring(report.summary.errors))
   print("Candidates:")
 
   for _, category in ipairs(reporting.CATEGORY_ORDER) do
     print("  " .. category .. ": " .. tostring(report.summary.categories[category] or 0))
+  end
+
+  if #report.peripherals > 0 then
+    print("Candidate coordinates:")
+
+    for _, entry in ipairs(report.peripherals) do
+      print(
+        "  "
+          .. coords.label(entry.coord)
+          .. " "
+          .. table.concat(entry.categories, ",")
+          .. " methods="
+          .. tostring(entry.methodCount)
+      )
+    end
   end
 
   print("Report: " .. path)
