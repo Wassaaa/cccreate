@@ -1,4 +1,5 @@
 local coords = require("lib.aircraft.coords")
+local actuatorTest = require("lib.aircraft.actuator_test")
 local scanner = require("lib.aircraft.scanner")
 local reporting = require("lib.aircraft.reporting")
 local status = require("lib.aircraft.status")
@@ -23,12 +24,15 @@ local DEFAULT_CONFIG = {
   statusReadLimit = 8,
   reportPath = "/aircraft_scan.txt",
   statusReportPath = "/aircraft_status.txt",
+  actuatorReportPath = "/aircraft_actuator_test.txt",
   sendWebhook = true,
 }
 
 local function usage()
   print("aircraft scan [options]")
   print("aircraft status")
+  print("aircraft signal <role|all> <0-15> [--apply] [--seconds n]")
+  print("aircraft zero [role|all] [--apply]")
   print("aircraft help")
   print("")
   print("Options:")
@@ -40,7 +44,7 @@ local function usage()
   print("  --out <path>       default /aircraft_scan.txt")
   print("  --no-webhook       save local report only")
   print("")
-  print("V1 is scan-only. It never calls set* methods or redstone outputs.")
+  print("signal/zero are dry-run unless --apply is used and config dryRun=false.")
 end
 
 local function copyTable(value)
@@ -256,6 +260,62 @@ local function runStatus()
   status.run(config)
 end
 
+local function parseCommandOptions(startIndex)
+  local options = {}
+  local i = startIndex
+
+  while i <= #args do
+    local arg = args[i]
+
+    if arg == "--apply" then
+      options.apply = true
+      i = i + 1
+    elseif arg == "--seconds" then
+      options.seconds = tonumber(args[i + 1])
+      if not options.seconds then
+        error("--seconds needs a number", 0)
+      end
+      i = i + 2
+    else
+      error("Unknown aircraft option: " .. tostring(arg), 0)
+    end
+  end
+
+  return options
+end
+
+local function runSignal()
+  local config = loadConfig()
+  local role = args[2]
+  local signal = tonumber(args[3])
+
+  if not role or not signal then
+    error("Usage: aircraft signal <role|all> <0-15> [--apply] [--seconds n]", 0)
+  end
+
+  local options = parseCommandOptions(4)
+  options.role = role
+  options.signal = signal
+
+  actuatorTest.signal(config, options)
+end
+
+local function runZero()
+  local config = loadConfig()
+  local role = args[2] or "all"
+  local optionStart = 3
+
+  if string.sub(role, 1, 2) == "--" then
+    role = "all"
+    optionStart = 2
+  end
+
+  local options = parseCommandOptions(optionStart)
+  options.role = role
+
+  actuatorTest.zero(config, options)
+end
+
 if command == "help" or command == "--help" or command == "-h" then
   usage()
 elseif command == "scan" then
@@ -269,6 +329,18 @@ elseif command == "status" then
   if not ok then
     print("aircraft status failed: " .. tostring(result))
     error("aircraft status failed", 0)
+  end
+elseif command == "signal" then
+  local ok, result = pcall(runSignal)
+  if not ok then
+    print("aircraft signal failed: " .. tostring(result))
+    error("aircraft signal failed", 0)
+  end
+elseif command == "zero" then
+  local ok, result = pcall(runZero)
+  if not ok then
+    print("aircraft zero failed: " .. tostring(result))
+    error("aircraft zero failed", 0)
   end
 else
   usage()

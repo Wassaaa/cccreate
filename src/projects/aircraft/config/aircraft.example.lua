@@ -21,5 +21,6 @@ return {
 
   reportPath = "/aircraft_scan.txt",
   statusReportPath = "/aircraft_status.txt",
+  actuatorReportPath = "/aircraft_actuator_test.txt",
   sendWebhook = true,
 }
