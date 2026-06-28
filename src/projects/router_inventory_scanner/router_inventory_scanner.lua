@@ -8,8 +8,9 @@ local MAX_RADIUS = 16
 local args = { ... }
 
 local function usage()
-  print("router_inventory_scanner [scan|report] [radius]")
+  print("router_inventory_scanner [scan|report|map] [radius]")
   print("router_inventory_scanner scan --radius 8")
+  print("router_inventory_scanner map --radius 8")
   print("router_inventory_scanner scan --radius 8 --height 3")
   print("router_inventory_scanner scan --cube-radius 4")
   print("router_inventory_scanner scan --x-radius 8 --y-radius 1 --z-radius 8")
@@ -72,7 +73,7 @@ local function parseArgs(rawArgs)
   }
 
   local index = 1
-  if rawArgs[index] == "scan" or rawArgs[index] == "report" then
+  if rawArgs[index] == "scan" or rawArgs[index] == "report" or rawArgs[index] == "map" then
     config.command = rawArgs[index]
     index = index + 1
   elseif rawArgs[index] == "help" or rawArgs[index] == "--help" or rawArgs[index] == "-h" then
@@ -130,6 +131,13 @@ local function parseArgs(rawArgs)
   config.width = config.xRadius * 2 + 1
   config.height = config.yRadius * 2 + 1
   config.depth = config.zRadius * 2 + 1
+
+  if config.command == "map" then
+    config.includeAll = true
+    if config.sampleLimit == DEFAULT_SAMPLE_LIMIT then
+      config.sampleLimit = 0
+    end
+  end
 
   return config
 end
@@ -312,6 +320,79 @@ local function inspectInventory(object, flags, sampleLimit)
   return entry
 end
 
+local function readOptionalNames(object, methods)
+  local names = {}
+  local candidates = { "getLabel", "getName", "getID", "getId", "getTitle" }
+
+  for _, methodName in ipairs(candidates) do
+    if contains(methods, methodName) and type(object[methodName]) == "function" then
+      local ok, results = safeObjectCall(object, methodName)
+      if ok and results[1] ~= nil then
+        names[methodName] = tostring(results[1])
+      end
+    end
+  end
+
+  return names
+end
+
+local function classifyEntry(entry)
+  if entry.inventory then
+    return "inventory"
+  end
+
+  if contains(entry.methods, "write") and contains(entry.methods, "setCursorPos") then
+    return "terminal"
+  end
+
+  if contains(entry.methods, "getNamesRemote") or contains(entry.methods, "isWireless") then
+    return "modem"
+  end
+
+  if contains(entry.methods, "getInput") and contains(entry.methods, "setOutput") then
+    return "redstone"
+  end
+
+  if contains(entry.methods, "getEnergy") or contains(entry.methods, "getEnergyStored") then
+    return "energy"
+  end
+
+  if contains(entry.methods, "tanks") or contains(entry.methods, "pushFluid") or contains(entry.methods, "pullFluid") then
+    return "fluid"
+  end
+
+  return "wrappable"
+end
+
+local function firstName(names)
+  if type(names) ~= "table" then
+    return nil
+  end
+
+  return names.getLabel or names.getName or names.getTitle or names.getID or names.getId
+end
+
+local function displayName(entry)
+  local explicitName = firstName(entry.names)
+  if explicitName and explicitName ~= "" then
+    return explicitName
+  end
+
+  if entry.inventory then
+    if entry.itemTotals and entry.itemTotals[1] then
+      return "inventory: " .. tostring(entry.itemTotals[1].name)
+    end
+
+    return "empty inventory"
+  end
+
+  if entry.kind == "wrappable" then
+    return "wrappable: " .. tostring(entry.methodCount or #entry.methods) .. " methods"
+  end
+
+  return entry.kind
+end
+
 local function typeText(types)
   if type(types) ~= "table" or #types == 0 then
     return ""
@@ -407,6 +488,10 @@ local function inspectOffset(router, x, y, z, config)
     end
   end
 
+  entry.names = readOptionalNames(object, entry.methods)
+  entry.kind = classifyEntry(entry)
+  entry.displayName = displayName(entry)
+
   return entry
 end
 
@@ -454,7 +539,7 @@ local function scan(config)
   end
 
   return {
-    kind = "router_inventory_scan",
+    kind = config.command == "map" and "router_base_map" or "router_inventory_scan",
     computerId = os.getComputerID(),
     label = os.getComputerLabel(),
     router = routerName,
@@ -499,6 +584,9 @@ end
 
 local function printResultEntry(entry, sampleLimit)
   print(entry.label)
+  if entry.displayName then
+    print("  name: " .. tostring(entry.displayName))
+  end
 
   if not entry.ok then
     print("  error: " .. tostring(entry.error))
@@ -506,6 +594,7 @@ local function printResultEntry(entry, sampleLimit)
   end
 
   if not entry.inventory then
+    print("  kind: " .. tostring(entry.kind or "wrappable"))
     print("  not inventory; methods: " .. tostring(entry.methodCount or #entry.methods))
     return
   end
@@ -529,7 +618,11 @@ local function printResultEntry(entry, sampleLimit)
 end
 
 local function printReport(report)
-  print("Router inventory scan")
+  if report.kind == "router_base_map" then
+    print("Router base map")
+  else
+    print("Router inventory scan")
+  end
   print("Router: " .. tostring(report.router))
   print("Area: " .. report.width .. "x" .. report.height .. "x" .. report.depth)
   print("Radii: x=" .. report.xRadius .. " y=" .. report.yRadius .. " z=" .. report.zRadius)
@@ -565,9 +658,10 @@ local ok, result = pcall(function()
 
   local report = scan(config)
   printReport(report)
-  reporter.saveLocal(report, "router_inventory_scan_report.txt")
+  local reportPath = report.kind == "router_base_map" and "router_base_map_report.txt" or "router_inventory_scan_report.txt"
+  reporter.saveLocal(report, reportPath)
 
-  if config.command == "report" then
+  if config.command == "report" or config.command == "map" then
     reporter.send(report)
   end
 

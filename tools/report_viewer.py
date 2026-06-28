@@ -340,6 +340,112 @@ HTML = r"""<!doctype html>
       font-weight: 650;
     }
 
+    .map-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .map-layer {
+      margin-bottom: 18px;
+    }
+
+    .map-layer h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    .map-scroll {
+      max-width: 100%;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel);
+      padding: 8px;
+    }
+
+    .router-map {
+      display: grid;
+      gap: 4px;
+      width: max-content;
+      min-width: 100%;
+    }
+
+    .map-axis,
+    .map-cell {
+      min-height: 54px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 6px;
+      overflow: hidden;
+    }
+
+    .map-axis {
+      min-height: 28px;
+      background: #eef3eb;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .map-cell {
+      background: #f8faf6;
+      font-size: 12px;
+    }
+
+    .map-cell.empty {
+      background: #f2f4ef;
+      border-style: dashed;
+      color: #9aa493;
+    }
+
+    .map-cell.inventory {
+      background: #e5f1e7;
+      border-color: #acc9b0;
+    }
+
+    .map-cell.wrappable,
+    .map-cell.terminal,
+    .map-cell.modem,
+    .map-cell.redstone,
+    .map-cell.energy,
+    .map-cell.fluid {
+      background: #e7eef7;
+      border-color: #b6c7dc;
+    }
+
+    .map-cell.error {
+      background: #f9e7e3;
+      border-color: #d0aaa1;
+    }
+
+    .map-coord {
+      display: block;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 11px;
+      margin-bottom: 3px;
+    }
+
+    .map-name {
+      display: block;
+      font-weight: 700;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .map-detail {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
     .mono {
       font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
     }
@@ -392,7 +498,7 @@ HTML = r"""<!doctype html>
       fileFilter: ""
     };
 
-    const tabs = ["overview", "output", "peripherals", "inventory", "files", "raw"];
+    const tabs = ["overview", "map", "output", "peripherals", "inventory", "files", "raw"];
 
     const els = {
       dot: document.getElementById("pollDot"),
@@ -519,6 +625,7 @@ HTML = r"""<!doctype html>
       }
 
       if (state.activeTab === "overview") els.view.innerHTML = renderOverview(report);
+      if (state.activeTab === "map") els.view.innerHTML = renderRouterMap(report);
       if (state.activeTab === "output") els.view.innerHTML = renderOutput(report);
       if (state.activeTab === "peripherals") els.view.innerHTML = renderPeripherals(report);
       if (state.activeTab === "inventory") els.view.innerHTML = renderInventory(report);
@@ -539,6 +646,7 @@ HTML = r"""<!doctype html>
     function tabLabel(tab) {
       return {
         overview: "Overview",
+        map: "Map",
         output: "Output",
         peripherals: "Peripherals",
         inventory: "Inventory",
@@ -652,6 +760,169 @@ HTML = r"""<!doctype html>
         blocks.push(`<section class="block"><h2>Args</h2><pre>${escapeHtml(JSON.stringify(report.args, null, 2))}</pre></section>`);
       }
       return blocks.join("");
+    }
+
+    function hasRouterCoordinates(report) {
+      return asArray(report.results).some((entry) =>
+        Number.isFinite(Number(entry.x)) &&
+        Number.isFinite(Number(entry.y)) &&
+        Number.isFinite(Number(entry.z))
+      );
+    }
+
+    function range(start, end) {
+      const values = [];
+      for (let value = start; value <= end; value += 1) values.push(value);
+      return values;
+    }
+
+    function routerBounds(report, entries) {
+      if (Number.isFinite(Number(report.xRadius)) && Number.isFinite(Number(report.yRadius)) && Number.isFinite(Number(report.zRadius))) {
+        const xr = Number(report.xRadius);
+        const yr = Number(report.yRadius);
+        const zr = Number(report.zRadius);
+        return {
+          xs: range(-xr, xr),
+          ys: range(-yr, yr),
+          zs: range(-zr, zr)
+        };
+      }
+
+      const xs = entries.map((entry) => Number(entry.x));
+      const ys = entries.map((entry) => Number(entry.y));
+      const zs = entries.map((entry) => Number(entry.z));
+      return {
+        xs: range(Math.min(...xs), Math.max(...xs)),
+        ys: range(Math.min(...ys), Math.max(...ys)),
+        zs: range(Math.min(...zs), Math.max(...zs))
+      };
+    }
+
+    function entryKey(x, y, z) {
+      return `${x},${y},${z}`;
+    }
+
+    function mapEntryClass(entry) {
+      if (!entry) return "empty";
+      if (entry.ok === false) return "error";
+      return entry.kind || (entry.inventory ? "inventory" : "wrappable");
+    }
+
+    function topItems(entry) {
+      return asArray(entry.itemTotals)
+        .slice(0, 2)
+        .map((item) => `${item.name} x${item.count}`)
+        .join(", ");
+    }
+
+    function mapCell(entry, x, y, z) {
+      if (!entry) {
+        return `<div class="map-cell empty"><span class="map-coord">${x},${y},${z}</span></div>`;
+      }
+
+      const detail = entry.inventory
+        ? `${entry.usedSlots ?? 0}/${entry.size ?? "?"} slots${entry.totalItems === undefined ? "" : `, ${entry.totalItems} items`}`
+        : `${entry.kind || "wrappable"}${entry.methodCount === undefined ? "" : `, ${entry.methodCount} methods`}`;
+      const items = topItems(entry);
+      const title = `${entry.label || ""} ${entry.displayName || ""} ${items}`.trim();
+
+      return `
+        <div class="map-cell ${escapeHtml(mapEntryClass(entry))}" title="${escapeHtml(title)}">
+          <span class="map-coord">${escapeHtml(entry.label || `${x},${y},${z}`)}</span>
+          <span class="map-name">${escapeHtml(entry.displayName || (entry.inventory ? "inventory" : entry.kind || "wrappable"))}</span>
+          <span class="map-detail">${escapeHtml(detail)}</span>
+          ${items ? `<span class="map-detail">${escapeHtml(items)}</span>` : ""}
+        </div>
+      `;
+    }
+
+    function routerMapLayer(y, bounds, byCoord) {
+      const columns = Math.max(1, Math.min(99, bounds.xs.length));
+      const cells = [
+        '<div class="map-axis">z\\x</div>',
+        ...bounds.xs.map((x) => `<div class="map-axis">x ${escapeHtml(x)}</div>`)
+      ];
+
+      for (const z of bounds.zs) {
+        cells.push(`<div class="map-axis">z ${escapeHtml(z)}</div>`);
+        for (const x of bounds.xs) {
+          cells.push(mapCell(byCoord[entryKey(x, y, z)], x, y, z));
+        }
+      }
+
+      return `
+        <div class="map-layer">
+          <h3>Y ${escapeHtml(y)}</h3>
+          <div class="map-scroll">
+            <div class="router-map" style="grid-template-columns: 44px repeat(${columns}, minmax(72px, 96px));">
+              ${cells.join("")}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function routerMapTable(entries) {
+      if (entries.length === 0) return '<div class="empty">No mapped entries.</div>';
+
+      return `
+        <table>
+          <thead><tr><th>Coord</th><th>Name</th><th>Kind</th><th>Slots</th><th>Items</th><th>Methods</th></tr></thead>
+          <tbody>
+            ${entries.map((entry) => `
+              <tr>
+                <td>${escapeHtml(entry.label || `${entry.x},${entry.y},${entry.z}`)}</td>
+                <td>${escapeHtml(entry.displayName || "")}</td>
+                <td>${escapeHtml(entry.kind || (entry.inventory ? "inventory" : ""))}</td>
+                <td>${entry.inventory ? `${escapeHtml(entry.usedSlots ?? 0)} / ${escapeHtml(entry.size ?? "")}` : ""}</td>
+                <td>${escapeHtml(topItems(entry) || entry.totalItems || "")}</td>
+                <td>${escapeHtml(entry.methodCount ?? "")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderRouterMap(report) {
+      const entries = asArray(report.results).filter((entry) =>
+        Number.isFinite(Number(entry.x)) &&
+        Number.isFinite(Number(entry.y)) &&
+        Number.isFinite(Number(entry.z))
+      );
+
+      if (!hasRouterCoordinates(report)) {
+        return '<div class="empty">This report does not contain router-relative coordinates. Run <span class="mono">router_inventory_scanner map --radius 8</span>.</div>';
+      }
+
+      const bounds = routerBounds(report, entries);
+      const byCoord = {};
+      for (const entry of entries) {
+        byCoord[entryKey(Number(entry.x), Number(entry.y), Number(entry.z))] = entry;
+      }
+
+      const layers = [...bounds.ys].sort((left, right) => right - left);
+      const metrics = `
+        <div class="map-controls">
+          <span class="pill">${escapeHtml(report.width || bounds.xs.length)}x${escapeHtml(report.height || bounds.ys.length)}x${escapeHtml(report.depth || bounds.zs.length)}</span>
+          <span class="pill">${escapeHtml(report.inspected ?? "")} checked</span>
+          <span class="pill">${escapeHtml(report.wrappable ?? entries.length)} wrappable</span>
+          <span class="pill">${escapeHtml(report.inventories ?? "")} inventories</span>
+          <span class="pill">router ${escapeHtml(report.router || "n/a")}</span>
+        </div>
+      `;
+
+      return `
+        <section class="block">
+          <h2>Router Map</h2>
+          ${metrics}
+          ${layers.map((y) => routerMapLayer(y, bounds, byCoord)).join("")}
+        </section>
+        <section class="block">
+          <h2>Mapped Entries</h2>
+          ${routerMapTable(entries)}
+        </section>
+      `;
     }
 
     function renderFiles(report) {
