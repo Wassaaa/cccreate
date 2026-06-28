@@ -4,6 +4,7 @@ local DEFAULT_RADIUS = 8
 local DEFAULT_Y_RADIUS = 1
 local DEFAULT_SAMPLE_LIMIT = 0
 local MAX_RADIUS = 16
+local MAX_AXIS_LENGTH = MAX_RADIUS * 2 + 1
 local DEFAULT_MAP_REPORT_PATH = "router_base_map_report.txt"
 local DEFAULT_STACK_REPORT_PATH = "router_stack_report.txt"
 
@@ -15,6 +16,8 @@ local function usage()
   print("router_inventory_scanner map --radius 8 --height 3")
   print("router_inventory_scanner map --x-radius 8 --y-radius 1 --z-radius 8")
   print("router_inventory_scanner map --cube-radius 4")
+  print("router_inventory_scanner map --corner -8 -1 -8 --size 17 3 17")
+  print("router_inventory_scanner map --from -8 -1 -8 --to 8 1 8")
   print("router_inventory_scanner map --out base_map.txt")
   print("router_inventory_scanner stack-preview --to <x> <y> <z> [--out path]")
   print("router_inventory_scanner stack --to <x> <y> <z> [--fluids] [--out path]")
@@ -53,6 +56,23 @@ local function parseInteger(value, label)
   return number
 end
 
+local function parseNonZeroInteger(value, label)
+  local number = parseInteger(value, label)
+  if number == 0 then
+    error(label .. " must not be zero", 0)
+  end
+
+  return number
+end
+
+local function parseCoord(x, y, z, label)
+  return {
+    x = parseInteger(x, label .. " x"),
+    y = parseInteger(y, label .. " y"),
+    z = parseInteger(z, label .. " z"),
+  }
+end
+
 local function setHorizontalRadius(config, value)
   config.radius = value
   config.xRadius = value
@@ -76,15 +96,79 @@ local function radiusFromHeight(value)
 end
 
 local function setDestination(config, x, y, z)
-  config.destination = {
-    x = parseInteger(x, "destination x"),
-    y = parseInteger(y, "destination y"),
-    z = parseInteger(z, "destination z"),
-  }
+  config.destination = parseCoord(x, y, z, "destination")
 end
 
 local function isStackCommand(command)
   return command == "stack" or command == "stack-preview"
+end
+
+local function spanEnd(startValue, size)
+  if size > 0 then
+    return startValue + size - 1
+  end
+
+  return startValue + size + 1
+end
+
+local function setBoundsFromCorners(config, first, second, mode)
+  config.xMin = math.min(first.x, second.x)
+  config.xMax = math.max(first.x, second.x)
+  config.yMin = math.min(first.y, second.y)
+  config.yMax = math.max(first.y, second.y)
+  config.zMin = math.min(first.z, second.z)
+  config.zMax = math.max(first.z, second.z)
+  config.areaMode = mode
+end
+
+local function setBoundsFromCornerSize(config, corner, size)
+  setBoundsFromCorners(config, corner, {
+    x = spanEnd(corner.x, size.width),
+    y = spanEnd(corner.y, size.height),
+    z = spanEnd(corner.z, size.depth),
+  }, "box")
+
+  config.corner = corner
+  config.boxSize = size
+end
+
+local function setBoundsFromRadii(config)
+  config.xMin = -config.xRadius
+  config.xMax = config.xRadius
+  config.yMin = -config.yRadius
+  config.yMax = config.yRadius
+  config.zMin = -config.zRadius
+  config.zMax = config.zRadius
+  config.areaMode = "radius"
+end
+
+local function resolveMapBounds(config)
+  local usesCorners = config.fromCoord ~= nil or config.toCoord ~= nil
+  local usesCornerSize = config.cornerCoord ~= nil or config.boxSize ~= nil
+
+  if usesCorners and usesCornerSize then
+    error("Use either --from/--to or --corner/--size, not both", 0)
+  end
+
+  if usesCorners then
+    if not config.fromCoord or not config.toCoord then
+      error("Both --from and --to are required for corner mapping", 0)
+    end
+
+    setBoundsFromCorners(config, config.fromCoord, config.toCoord, "corners")
+  elseif usesCornerSize then
+    if not config.cornerCoord or not config.boxSize then
+      error("Both --corner and --size are required for sized mapping", 0)
+    end
+
+    setBoundsFromCornerSize(config, config.cornerCoord, config.boxSize)
+  else
+    setBoundsFromRadii(config)
+  end
+
+  config.width = config.xMax - config.xMin + 1
+  config.height = config.yMax - config.yMin + 1
+  config.depth = config.zMax - config.zMin + 1
 end
 
 local function parseArgs(rawArgs)
@@ -98,6 +182,10 @@ local function parseArgs(rawArgs)
     includeOrigin = false,
     reportPath = nil,
     outputPath = nil,
+    fromCoord = nil,
+    toCoord = nil,
+    cornerCoord = nil,
+    boxSize = nil,
     dryRun = false,
     includeItems = true,
     includeFluids = false,
@@ -147,8 +235,33 @@ local function parseArgs(rawArgs)
       config.includeOrigin = true
       index = index + 1
     elseif arg == "--to" then
-      setDestination(config, rawArgs[index + 1], rawArgs[index + 2], rawArgs[index + 3])
+      if isStackCommand(config.command) then
+        setDestination(config, rawArgs[index + 1], rawArgs[index + 2], rawArgs[index + 3])
+      else
+        config.toCoord = parseCoord(rawArgs[index + 1], rawArgs[index + 2], rawArgs[index + 3], "to")
+      end
       index = index + 4
+    elseif arg == "--from" then
+      config.fromCoord = parseCoord(rawArgs[index + 1], rawArgs[index + 2], rawArgs[index + 3], "from")
+      index = index + 4
+    elseif arg == "--corner" then
+      config.cornerCoord = parseCoord(rawArgs[index + 1], rawArgs[index + 2], rawArgs[index + 3], "corner")
+      index = index + 4
+    elseif arg == "--size" then
+      config.boxSize = {
+        width = parseNonZeroInteger(rawArgs[index + 1], "width"),
+        height = parseNonZeroInteger(rawArgs[index + 2], "height"),
+        depth = parseNonZeroInteger(rawArgs[index + 3], "depth"),
+      }
+      index = index + 4
+    elseif arg == "--box" then
+      config.cornerCoord = parseCoord(rawArgs[index + 1], rawArgs[index + 2], rawArgs[index + 3], "corner")
+      config.boxSize = {
+        width = parseNonZeroInteger(rawArgs[index + 4], "width"),
+        height = parseNonZeroInteger(rawArgs[index + 5], "height"),
+        depth = parseNonZeroInteger(rawArgs[index + 6], "depth"),
+      }
+      index = index + 7
     elseif arg == "--from-report" then
       config.reportPath = rawArgs[index + 1]
       if not config.reportPath or config.reportPath == "" then
@@ -187,15 +300,11 @@ local function parseArgs(rawArgs)
     end
   end
 
-  if config.xRadius > MAX_RADIUS or config.yRadius > MAX_RADIUS or config.zRadius > MAX_RADIUS then
-    error("axis radii must be " .. MAX_RADIUS .. " or less", 0)
-  end
-
-  config.width = config.xRadius * 2 + 1
-  config.height = config.yRadius * 2 + 1
-  config.depth = config.zRadius * 2 + 1
-
   if isStackCommand(config.command) then
+    if config.fromCoord or config.toCoord or config.cornerCoord or config.boxSize then
+      error("map area options cannot be used with stack", 0)
+    end
+
     if not config.destination then
       error("stack requires --to <x> <y> <z>", 0)
     end
@@ -203,6 +312,14 @@ local function parseArgs(rawArgs)
     if not config.includeItems and not config.includeFluids then
       error("stack needs --items and/or --fluids", 0)
     end
+
+    return config
+  end
+
+  resolveMapBounds(config)
+
+  if config.width > MAX_AXIS_LENGTH or config.height > MAX_AXIS_LENGTH or config.depth > MAX_AXIS_LENGTH then
+    error("map axis lengths must be " .. MAX_AXIS_LENGTH .. " or less", 0)
   end
 
   return config
@@ -576,9 +693,9 @@ local function buildMap(config)
   local totalItems = 0
   local errors = 0
 
-  for y = -config.yRadius, config.yRadius do
-    for x = -config.xRadius, config.xRadius do
-      for z = -config.zRadius, config.zRadius do
+  for y = config.yMin, config.yMax do
+    for x = config.xMin, config.xMax do
+      for z = config.zMin, config.zMax do
         if config.includeOrigin or x ~= 0 or y ~= 0 or z ~= 0 then
           inspected = inspected + 1
           local entry = inspectOffset(router, x, y, z, config)
@@ -614,9 +731,18 @@ local function buildMap(config)
     xRadius = config.xRadius,
     yRadius = config.yRadius,
     zRadius = config.zRadius,
+    xMin = config.xMin,
+    xMax = config.xMax,
+    yMin = config.yMin,
+    yMax = config.yMax,
+    zMin = config.zMin,
+    zMax = config.zMax,
     width = config.width,
     height = config.height,
     depth = config.depth,
+    areaMode = config.areaMode,
+    corner = config.corner,
+    boxSize = config.boxSize,
     sampleLimit = config.sampleLimit,
     includeOrigin = config.includeOrigin,
     inspected = inspected,
@@ -1131,7 +1257,26 @@ local function printReport(report)
   print("Router base map")
   print("Router: " .. tostring(report.router))
   print("Area: " .. report.width .. "x" .. report.height .. "x" .. report.depth)
-  print("Radii: x=" .. report.xRadius .. " y=" .. report.yRadius .. " z=" .. report.zRadius)
+
+  if report.areaMode == "radius" then
+    print("Radii: x=" .. report.xRadius .. " y=" .. report.yRadius .. " z=" .. report.zRadius)
+  else
+    print(
+      "Bounds: x="
+        .. report.xMin
+        .. ".."
+        .. report.xMax
+        .. " y="
+        .. report.yMin
+        .. ".."
+        .. report.yMax
+        .. " z="
+        .. report.zMin
+        .. ".."
+        .. report.zMax
+    )
+  end
+
   print("Offsets checked: " .. report.inspected)
   print("Wrappable: " .. report.wrappable)
   print("Inventories: " .. report.inventories)

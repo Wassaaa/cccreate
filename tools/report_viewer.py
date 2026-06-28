@@ -1125,6 +1125,21 @@ HTML = r"""<!doctype html>
     }
 
     function routerBounds(report, entries) {
+      if (
+        Number.isFinite(Number(report.xMin)) &&
+        Number.isFinite(Number(report.xMax)) &&
+        Number.isFinite(Number(report.yMin)) &&
+        Number.isFinite(Number(report.yMax)) &&
+        Number.isFinite(Number(report.zMin)) &&
+        Number.isFinite(Number(report.zMax))
+      ) {
+        return {
+          xs: range(Number(report.xMin), Number(report.xMax)),
+          ys: range(Number(report.yMin), Number(report.yMax)),
+          zs: range(Number(report.zMin), Number(report.zMax))
+        };
+      }
+
       if (Number.isFinite(Number(report.xRadius)) && Number.isFinite(Number(report.yRadius)) && Number.isFinite(Number(report.zRadius))) {
         const xr = Number(report.xRadius);
         const yr = Number(report.yRadius);
