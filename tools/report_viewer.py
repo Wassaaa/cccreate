@@ -474,6 +474,19 @@ HTML = r"""<!doctype html>
       margin-bottom: 8px;
     }
 
+    .status-line {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .warn-text {
+      color: var(--warn);
+      font-weight: 650;
+    }
+
     .mono {
       font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
     }
@@ -526,7 +539,7 @@ HTML = r"""<!doctype html>
       fileFilter: ""
     };
 
-    const tabs = ["overview", "map", "output", "peripherals", "inventory", "files", "raw"];
+    const stackTabs = ["overview", "moves", "raw"];
 
     const els = {
       dot: document.getElementById("pollDot"),
@@ -640,7 +653,10 @@ HTML = r"""<!doctype html>
       }
 
       els.summary.innerHTML = renderSummary(report);
-      els.tabs.innerHTML = tabs.map((tab) => {
+      const reportTabs = tabsForReport(report);
+      if (!reportTabs.includes(state.activeTab)) state.activeTab = reportTabs[0] || "overview";
+
+      els.tabs.innerHTML = reportTabs.map((tab) => {
         const active = tab === state.activeTab ? " active" : "";
         return `<button class="tab${active}" data-tab="${tab}">${escapeHtml(tabLabel(tab))}</button>`;
       }).join("");
@@ -653,6 +669,7 @@ HTML = r"""<!doctype html>
       }
 
       if (state.activeTab === "overview") els.view.innerHTML = renderOverview(report);
+      if (state.activeTab === "moves") els.view.innerHTML = renderStackMoves(report);
       if (state.activeTab === "map") {
         els.view.innerHTML = renderRouterMap(report);
         bindCopyActions();
@@ -674,9 +691,35 @@ HTML = r"""<!doctype html>
       if (state.activeTab === "raw") els.view.innerHTML = renderRaw(report);
     }
 
+    function hasObjectValues(value) {
+      return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length > 0;
+    }
+
+    function hasOutputContent(report) {
+      return Boolean(report?.output || report?.error);
+    }
+
+    function hasInventoryContent(report) {
+      return asArray(report?.inventory).length > 0 || hasObjectValues(report?.args);
+    }
+
+    function tabsForReport(report) {
+      if (report?.kind === "router_stack") return stackTabs;
+
+      const reportTabs = ["overview"];
+      if (hasRouterCoordinates(report)) reportTabs.push("map");
+      if (hasOutputContent(report)) reportTabs.push("output");
+      if (asArray(report?.peripherals).length > 0) reportTabs.push("peripherals");
+      if (hasInventoryContent(report)) reportTabs.push("inventory");
+      if (asArray(report?.files).length > 0) reportTabs.push("files");
+      reportTabs.push("raw");
+      return reportTabs;
+    }
+
     function tabLabel(tab) {
       return {
         overview: "Overview",
+        moves: "Moves",
         map: "Map",
         output: "Output",
         peripherals: "Peripherals",
@@ -687,6 +730,26 @@ HTML = r"""<!doctype html>
     }
 
     function renderSummary(report) {
+      if (report.kind === "router_stack") {
+        const stats = report.stats || {};
+        const moveVerb = report.dryRun ? "Would Move" : "Moved";
+        const fluidLabel = report.dryRun ? "Would Move Fluid" : "Moved Fluid";
+        const values = [
+          ["Mode", report.dryRun ? "Preview" : "Move"],
+          ["Destination", report.destination?.label || "n/a"],
+          [moveVerb, stats.movedItems ?? 0],
+          [fluidLabel, stats.movedFluid ?? 0],
+          ["Errors", asArray(stats.errors).length]
+        ];
+
+        return values.map(([label, value]) => `
+          <div class="metric">
+            <span class="label">${escapeHtml(label)}</span>
+            <span class="value">${escapeHtml(value)}</span>
+          </div>
+        `).join("");
+      }
+
       const values = [
         ["Kind", report.kind || "unknown"],
         ["Result", report.ok === undefined ? "n/a" : report.ok ? "ok" : "failed"],
@@ -704,6 +767,8 @@ HTML = r"""<!doctype html>
     }
 
     function renderOverview(report) {
+      if (report.kind === "router_stack") return renderStackOverview(report);
+
       const blocks = [];
 
       if (report.error) {
@@ -727,8 +792,259 @@ HTML = r"""<!doctype html>
         blocks.push(`<section class="block"><h2>Command Output</h2><pre>${escapeHtml(report.output)}</pre></section>`);
       }
 
-      blocks.push(`<div class="grid-2"><section class="block"><h2>Peripherals</h2>${peripheralTable(report)}</section><section class="block"><h2>Inventory</h2>${inventoryTable(report.inventory)}</section></div>`);
+      const overviewCards = [];
+      if (asArray(report.peripherals).length > 0) {
+        overviewCards.push(`<section class="block"><h2>Peripherals</h2>${peripheralTable(report)}</section>`);
+      }
+
+      if (hasInventoryContent(report)) {
+        overviewCards.push(`<section class="block"><h2>Inventory</h2>${inventoryTable(report.inventory)}</section>`);
+      }
+
+      if (overviewCards.length === 1) {
+        blocks.push(overviewCards[0]);
+      } else if (overviewCards.length > 1) {
+        blocks.push(`<div class="grid-2">${overviewCards.join("")}</div>`);
+      }
+
       return blocks.join("");
+    }
+
+    function renderStackOverview(report) {
+      const stats = report.stats || {};
+      const mode = report.dryRun ? "Preview" : "Move";
+      const errors = asArray(stats.errors);
+      const blocks = [`
+        <section class="block">
+          <h2>Stack Report</h2>
+          <dl class="kv">
+            <dt>Mode</dt><dd>${escapeHtml(mode)}</dd>
+            <dt>Router</dt><dd>${escapeHtml(report.router || "n/a")}</dd>
+            <dt>Destination</dt><dd>${escapeHtml(report.destination?.label || "n/a")}</dd>
+            <dt>Source report</dt><dd>${escapeHtml(report.sourceReport || "n/a")}</dd>
+            <dt>Items enabled</dt><dd>${escapeHtml(report.includeItems === false ? "no" : "yes")}</dd>
+            <dt>Fluids enabled</dt><dd>${escapeHtml(report.includeFluids ? "yes" : "no")}</dd>
+          </dl>
+        </section>
+        <section class="block">
+          <h2>Movement Stats</h2>
+          <dl class="kv">
+            <dt>Sources</dt><dd>${escapeHtml(stats.sources ?? 0)}</dd>
+            <dt>Item sources</dt><dd>${escapeHtml(stats.itemSources ?? 0)}</dd>
+            <dt>Fluid sources</dt><dd>${escapeHtml(stats.fluidSources ?? 0)}</dd>
+            <dt>Item snapshots</dt><dd>${escapeHtml(stats.itemSnapshots ?? 0)}</dd>
+            <dt>Fluid snapshots</dt><dd>${escapeHtml(stats.fluidSnapshots ?? 0)}</dd>
+            <dt>Item attempts</dt><dd>${escapeHtml(stats.itemAttempts ?? 0)}</dd>
+            <dt>Fluid attempts</dt><dd>${escapeHtml(stats.fluidAttempts ?? 0)}</dd>
+            <dt>Zero moves</dt><dd>${escapeHtml(stats.zeroMoves ?? 0)}</dd>
+          </dl>
+        </section>
+      `];
+
+      if (errors.length) {
+        blocks.push(`
+          <section class="block">
+            <h2>Errors</h2>
+            <table>
+              <thead><tr><th>Error</th></tr></thead>
+              <tbody>${errors.map((error) => `<tr><td class="bad-text">${escapeHtml(error)}</td></tr>`).join("")}</tbody>
+            </table>
+          </section>
+        `);
+      }
+
+      return blocks.join("");
+    }
+
+    function numberValue(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : 0;
+    }
+
+    function moveLabel(move) {
+      if (move.mode === "fluids") return move.fluid || "(unknown fluid)";
+      return move.item || "(unknown item)";
+    }
+
+    function moveQuantity(move) {
+      return move.mode === "fluids" ? numberValue(move.amount) : numberValue(move.count);
+    }
+
+    function modeText(move) {
+      return move.mode === "fluids" ? "Fluid" : "Item";
+    }
+
+    function groupedMoveTotals(moves, mode) {
+      const grouped = {};
+
+      for (const move of moves.filter((entry) => entry.mode === mode)) {
+        const label = moveLabel(move);
+        if (!grouped[label]) {
+          grouped[label] = {
+            label,
+            total: 0,
+            moves: 0,
+            sources: new Set()
+          };
+        }
+
+        grouped[label].total += moveQuantity(move);
+        grouped[label].moves += 1;
+        grouped[label].sources.add(move.source || "unknown");
+      }
+
+      return Object.values(grouped)
+        .map((entry) => ({ ...entry, sources: entry.sources.size }))
+        .sort((left, right) => {
+          if (right.total === left.total) return left.label.localeCompare(right.label);
+          return right.total - left.total;
+        });
+    }
+
+    function sourceMoveTotals(moves) {
+      const grouped = {};
+
+      for (const move of moves) {
+        const source = move.source || "unknown";
+        if (!grouped[source]) {
+          grouped[source] = {
+            source,
+            items: 0,
+            fluids: 0,
+            moves: 0
+          };
+        }
+
+        grouped[source].moves += 1;
+        if (move.mode === "fluids") {
+          grouped[source].fluids += moveQuantity(move);
+        } else {
+          grouped[source].items += moveQuantity(move);
+        }
+      }
+
+      return Object.values(grouped).sort((left, right) => left.source.localeCompare(right.source));
+    }
+
+    function totalsTable(rows, kind) {
+      if (rows.length === 0) return '<div class="empty">No moves recorded for this type.</div>';
+
+      const label = kind === "fluids" ? "Fluid" : "Item";
+      const unit = kind === "fluids" ? "Amount" : "Count";
+      return `
+        <table>
+          <thead><tr><th>${label}</th><th>${unit}</th><th>Sources</th><th>Moves</th></tr></thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.label)}</td>
+                <td>${escapeHtml(row.total)}</td>
+                <td>${escapeHtml(row.sources)}</td>
+                <td>${escapeHtml(row.moves)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function sourceTotalsTable(rows) {
+      if (rows.length === 0) return '<div class="empty">No source moves recorded.</div>';
+
+      return `
+        <table>
+          <thead><tr><th>Source</th><th>Items</th><th>Fluid</th><th>Moves</th></tr></thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.source)}</td>
+                <td>${escapeHtml(row.items)}</td>
+                <td>${escapeHtml(row.fluids)}</td>
+                <td>${escapeHtml(row.moves)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function detailMovesTable(moves, dryRun) {
+      if (moves.length === 0) return '<div class="empty">No individual moves were recorded.</div>';
+
+      const ordered = [...moves].sort((left, right) => {
+        const sourceOrder = String(left.source || "").localeCompare(String(right.source || ""));
+        if (sourceOrder !== 0) return sourceOrder;
+        return String(moveLabel(left)).localeCompare(String(moveLabel(right)));
+      });
+
+      return `
+        <table>
+          <thead><tr><th>Source</th><th>Type</th><th>Name</th><th>Slot</th><th>Amount</th><th>Method</th></tr></thead>
+          <tbody>
+            ${ordered.map((move) => `
+              <tr>
+                <td>${escapeHtml(move.source || "unknown")}</td>
+                <td>${escapeHtml(modeText(move))}</td>
+                <td>${escapeHtml(moveLabel(move))}</td>
+                <td>${escapeHtml(move.slot ?? "")}</td>
+                <td>${escapeHtml(moveQuantity(move))}</td>
+                <td>${escapeHtml(dryRun || move.dryRun ? "preview" : move.method || "")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderStackMoves(report) {
+      const stats = report.stats || {};
+      const moves = asArray(stats.moves);
+      const errors = asArray(stats.errors);
+      const itemTotals = groupedMoveTotals(moves, "items");
+      const fluidTotals = groupedMoveTotals(moves, "fluids");
+      const sourceTotals = sourceMoveTotals(moves);
+      const action = report.dryRun ? "Preview" : "Moved";
+
+      return `
+        <section class="block">
+          <h2>${escapeHtml(action)} Summary</h2>
+          <div class="status-line">
+            <span class="pill">destination ${escapeHtml(report.destination?.label || "n/a")}</span>
+            <span class="pill">${escapeHtml(stats.sources ?? 0)} source jobs</span>
+            <span class="pill">${escapeHtml(stats.movedItems ?? 0)} items</span>
+            <span class="pill">${escapeHtml(stats.movedFluid ?? 0)} fluid</span>
+            <span class="pill">${escapeHtml(stats.zeroMoves ?? 0)} zero moves</span>
+            ${errors.length ? `<span class="pill warn-text">${escapeHtml(errors.length)} errors</span>` : ""}
+          </div>
+        </section>
+        <div class="grid-2">
+          <section class="block">
+            <h2>Items</h2>
+            ${totalsTable(itemTotals, "items")}
+          </section>
+          <section class="block">
+            <h2>Fluids</h2>
+            ${totalsTable(fluidTotals, "fluids")}
+          </section>
+        </div>
+        <section class="block">
+          <h2>Sources</h2>
+          ${sourceTotalsTable(sourceTotals)}
+        </section>
+        <section class="block">
+          <h2>Move Details</h2>
+          ${detailMovesTable(moves, report.dryRun)}
+        </section>
+        ${errors.length ? `
+          <section class="block">
+            <h2>Errors</h2>
+            <table>
+              <thead><tr><th>Error</th></tr></thead>
+              <tbody>${errors.map((error) => `<tr><td class="bad-text">${escapeHtml(error)}</td></tr>`).join("")}</tbody>
+            </table>
+          </section>
+        ` : ""}
+      `;
     }
 
     function renderOutput(report) {
