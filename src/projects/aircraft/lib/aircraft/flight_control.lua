@@ -294,12 +294,14 @@ end
 local function mixerSignals(settings, state, level)
   local angle1 = numberAt(state.angles, 1)
   local angle2 = numberAt(state.angles, 2)
-  local rate1 = numberAt(state.angularRates, 1)
-  local rate2 = numberAt(state.angularRates, 2)
+  local rawRate1 = numberAt(state.angularRates, 1)
+  local rawRate2 = numberAt(state.angularRates, 2)
   local neutral1 = numberAt(level.angles, 1)
   local neutral2 = numberAt(level.angles, 2)
   local error1 = (angle1 - neutral1) * settings.axis1Sign
   local error2 = (angle2 - neutral2) * settings.axis2Sign
+  local rate1 = rawRate1 * settings.axis1Sign
+  local rate2 = rawRate2 * settings.axis2Sign
   local correction1 = -(settings.axis1Kp * error1 + settings.axis1Kd * rate1)
   local correction2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2)
   local power = {
@@ -320,6 +322,8 @@ local function mixerSignals(settings, state, level)
     angle2 = angle2,
     rate1 = rate1,
     rate2 = rate2,
+    rawRate1 = rawRate1,
+    rawRate2 = rawRate2,
     neutral1 = neutral1,
     neutral2 = neutral2,
     error1 = error1,
