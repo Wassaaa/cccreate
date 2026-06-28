@@ -16,6 +16,26 @@ local FAMILY_ORDER = {
   "rotorBearing",
 }
 
+local function copyPlain(value, depth)
+  if type(value) ~= "table" then
+    return value
+  end
+
+  depth = depth or 0
+  if depth > 8 then
+    return tostring(value)
+  end
+
+  local result = {}
+  for key, child in pairs(value) do
+    if type(child) ~= "function" then
+      result[copyPlain(key, depth + 1)] = copyPlain(child, depth + 1)
+    end
+  end
+
+  return result
+end
+
 local function safePeripheralTypes(name)
   local values = { pcall(peripheral.getType, name) }
   local ok = table.remove(values, 1)
@@ -193,7 +213,7 @@ local function callReadMethodReport(object, method)
   return {
     method = method,
     ok = true,
-    value = value,
+    value = copyPlain(value),
     display = method .. "=" .. compactValue(value),
   }
 end
@@ -221,7 +241,7 @@ end
 
 local function readDeviceReport(router, coord, entry, limit)
   local device = {
-    coord = coord,
+    coord = copyPlain(coord),
     label = coords.label(coord),
     ok = false,
     reads = {},
@@ -401,8 +421,8 @@ function status.collect(config)
       name = routerName or (scan.router and scan.router.name),
     },
     scan = {
-      orientation = scan.orientation,
-      summary = scan.summary,
+      orientation = copyPlain(scan.orientation),
+      summary = copyPlain(scan.summary),
     },
     sideSensors = readSideSensors(router, scan, index, limit),
     families = {},
