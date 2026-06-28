@@ -59,6 +59,90 @@ function coords.label(coord)
   return "(" .. tostring(coord.x) .. "," .. tostring(coord.y) .. "," .. tostring(coord.z) .. ")"
 end
 
+function coords.add(left, right)
+  return {
+    x = left.x + right.x,
+    y = left.y + right.y,
+    z = left.z + right.z,
+  }
+end
+
+function coords.sub(left, right)
+  return {
+    x = left.x - right.x,
+    y = left.y - right.y,
+    z = left.z - right.z,
+  }
+end
+
+function coords.neg(value)
+  return {
+    x = -value.x,
+    y = -value.y,
+    z = -value.z,
+  }
+end
+
+function coords.dot(left, right)
+  return left.x * right.x + left.y * right.y + left.z * right.z
+end
+
+function coords.cross(left, right)
+  return {
+    x = left.y * right.z - left.z * right.y,
+    y = left.z * right.x - left.x * right.z,
+    z = left.x * right.y - left.y * right.x,
+  }
+end
+
+function coords.manhattan(left, right)
+  return math.abs(left.x - right.x) + math.abs(left.y - right.y) + math.abs(left.z - right.z)
+end
+
+function coords.isCardinal(value)
+  if not value then
+    return false
+  end
+
+  local nonZero = 0
+
+  if math.abs(value.x) == 1 and value.y == 0 and value.z == 0 then
+    nonZero = nonZero + 1
+  end
+
+  if math.abs(value.y) == 1 and value.x == 0 and value.z == 0 then
+    nonZero = nonZero + 1
+  end
+
+  if math.abs(value.z) == 1 and value.x == 0 and value.y == 0 then
+    nonZero = nonZero + 1
+  end
+
+  return nonZero == 1
+end
+
+function coords.axisLabel(value)
+  if not value then
+    return "unknown"
+  end
+
+  if value.x == 1 and value.y == 0 and value.z == 0 then
+    return "+X"
+  elseif value.x == -1 and value.y == 0 and value.z == 0 then
+    return "-X"
+  elseif value.y == 1 and value.x == 0 and value.z == 0 then
+    return "+Y"
+  elseif value.y == -1 and value.x == 0 and value.z == 0 then
+    return "-Y"
+  elseif value.z == 1 and value.x == 0 and value.y == 0 then
+    return "+Z"
+  elseif value.z == -1 and value.x == 0 and value.y == 0 then
+    return "-Z"
+  end
+
+  return coords.label(value)
+end
+
 function coords.iterate(bounds, visit)
   for y = bounds.yMin, bounds.yMax do
     for z = bounds.zMin, bounds.zMax do

@@ -3,6 +3,20 @@ local coords = require("lib.aircraft.coords")
 
 local scanner = {}
 
+local SIDE_NAMES = {
+  front = true,
+  back = true,
+  left = true,
+  right = true,
+  top = true,
+  bottom = true,
+}
+
+local SIDE_AXIS = {
+  top = { x = 0, y = 1, z = 0 },
+  bottom = { x = 0, y = -1, z = 0 },
+}
+
 local function now()
   if os and type(os.date) == "function" then
     return os.date("%Y-%m-%d %H:%M:%S")
@@ -33,6 +47,10 @@ local function sorted(values)
 
   table.sort(copy)
   return copy
+end
+
+local function methodKey(methods)
+  return table.concat(methods or {}, "\n")
 end
 
 local function sanitize(value, depth)
@@ -164,6 +182,16 @@ local function isRouterType(types)
   return false
 end
 
+local function hasCategory(entry, category)
+  for _, value in ipairs(entry.categories or {}) do
+    if value == category then
+      return true
+    end
+  end
+
+  return false
+end
+
 local function findRouter()
   for _, peripheralName in ipairs(peripheral.getNames()) do
     local types = safePeripheralTypes(peripheralName)
@@ -260,9 +288,217 @@ local function makeEntry(object, x, y, z, config)
     categories = categoryList,
     categoryReasons = reasons,
     methodCount = #methods,
+    methodKey = methodKey(methods),
     methods = methods,
     samples = sampleGetters(object, methods, config.scan.sampleLimit),
   }
+end
+
+local function directComputerCoord(routerName)
+  local sideAxis = SIDE_AXIS[routerName]
+  if not sideAxis then
+    return nil, "router is not on top/bottom, so computer origin needs another side hint"
+  end
+
+  return coords.neg(sideAxis), nil
+end
+
+local function inferDirectSideHints(report)
+  local hints = {}
+
+  if not report.orientation.computerCoord then
+    return hints
+  end
+
+  for _, direct in ipairs(report.directPeripherals or {}) do
+    if SIDE_NAMES[direct.name] and not isRouterType(direct.types) then
+      local directKey = methodKey(direct.methods)
+      local matches = {}
+
+      if directKey ~= "" then
+        for _, entry in ipairs(report.peripherals or {}) do
+          if entry.methodKey == directKey
+              and coords.manhattan(entry.coord, report.orientation.computerCoord) == 1 then
+            table.insert(matches, entry)
+          end
+        end
+      end
+
+      if #matches == 1 then
+        local vector = coords.sub(matches[1].coord, report.orientation.computerCoord)
+        hints[direct.name] = {
+          side = direct.name,
+          coord = matches[1].coord,
+          vector = vector,
+          type = table.concat(direct.types or {}, ","),
+          methodCount = #direct.methods,
+        }
+      elseif #matches > 1 then
+        hints[direct.name] = {
+          side = direct.name,
+          ambiguous = true,
+          count = #matches,
+          methodCount = #direct.methods,
+        }
+      end
+    end
+  end
+
+  return hints
+end
+
+local function setAxisIfMissing(orientation, field, value, source)
+  if orientation[field] or not coords.isCardinal(value) then
+    return
+  end
+
+  orientation[field] = value
+  orientation.sources[field] = source
+end
+
+local function inferAxes(report)
+  local orientation = report.orientation
+
+  if report.router and SIDE_AXIS[report.router.name] then
+    local routerVector = SIDE_AXIS[report.router.name]
+    local computerToRouter = routerVector
+
+    if report.router.name == "top" then
+      setAxisIfMissing(orientation, "upVector", computerToRouter, "router on top side")
+    elseif report.router.name == "bottom" then
+      setAxisIfMissing(orientation, "upVector", coords.neg(computerToRouter), "router on bottom side")
+    end
+  end
+
+  for side, hint in pairs(orientation.sideHints or {}) do
+    if not hint.ambiguous and hint.vector then
+      if side == "front" then
+        setAxisIfMissing(orientation, "frontVector", hint.vector, "direct front peripheral")
+      elseif side == "back" then
+        setAxisIfMissing(orientation, "frontVector", coords.neg(hint.vector), "direct back peripheral")
+      elseif side == "left" then
+        setAxisIfMissing(orientation, "leftVector", hint.vector, "direct left peripheral")
+      elseif side == "right" then
+        setAxisIfMissing(orientation, "leftVector", coords.neg(hint.vector), "direct right peripheral")
+      elseif side == "top" then
+        setAxisIfMissing(orientation, "upVector", hint.vector, "direct top peripheral")
+      elseif side == "bottom" then
+        setAxisIfMissing(orientation, "upVector", coords.neg(hint.vector), "direct bottom peripheral")
+      end
+    end
+  end
+
+  if orientation.upVector and orientation.frontVector and not orientation.leftVector then
+    setAxisIfMissing(orientation, "leftVector", coords.cross(orientation.upVector, orientation.frontVector), "cross(up, front)")
+  end
+
+  if orientation.leftVector and orientation.upVector and not orientation.frontVector then
+    setAxisIfMissing(orientation, "frontVector", coords.cross(orientation.leftVector, orientation.upVector), "cross(left, up)")
+  end
+
+  if orientation.frontVector and orientation.leftVector and not orientation.upVector then
+    setAxisIfMissing(orientation, "upVector", coords.cross(orientation.frontVector, orientation.leftVector), "cross(front, left)")
+  end
+end
+
+local function roleCandidates(report, filter)
+  local results = {}
+
+  for _, entry in ipairs(report.peripherals or {}) do
+    if filter(entry) then
+      table.insert(results, entry)
+    end
+  end
+
+  return results
+end
+
+local function averageCoord(entries)
+  local total = { x = 0, y = 0, z = 0 }
+
+  for _, entry in ipairs(entries) do
+    total.x = total.x + entry.coord.x
+    total.y = total.y + entry.coord.y
+    total.z = total.z + entry.coord.z
+  end
+
+  return {
+    x = total.x / #entries,
+    y = total.y / #entries,
+    z = total.z / #entries,
+  }
+end
+
+local function assignRoles(entries, frontVector, leftVector)
+  local roles = {}
+
+  if #entries == 0 or not frontVector or not leftVector then
+    return roles
+  end
+
+  local center = averageCoord(entries)
+
+  for _, entry in ipairs(entries) do
+    local relative = coords.sub(entry.coord, center)
+    local frontScore = coords.dot(frontVector, relative)
+    local leftScore = coords.dot(leftVector, relative)
+    local frontRear = frontScore >= 0 and "front" or "rear"
+    local leftRight = leftScore >= 0 and "left" or "right"
+    local role = frontRear .. "_" .. leftRight
+
+    roles[role] = {
+      coord = entry.coord,
+      frontScore = frontScore,
+      leftScore = leftScore,
+      methodCount = entry.methodCount,
+      categories = entry.categories,
+    }
+  end
+
+  return roles
+end
+
+local function inferRoles(report)
+  local orientation = report.orientation
+
+  if not orientation.frontVector or not orientation.leftVector then
+    orientation.roleStatus = "missing front/left vectors"
+    return
+  end
+
+  local rotors = roleCandidates(report, function(entry)
+    return hasCategory(entry, "rotorBearing")
+  end)
+  local scalarControls = roleCandidates(report, function(entry)
+    return hasCategory(entry, "scalarActuator") and not hasCategory(entry, "rotorBearing")
+  end)
+
+  orientation.roles = {
+    rotorBearing = assignRoles(rotors, orientation.frontVector, orientation.leftVector),
+    scalarActuator = assignRoles(scalarControls, orientation.frontVector, orientation.leftVector),
+  }
+  orientation.roleCounts = {
+    rotorBearing = #rotors,
+    scalarActuator = #scalarControls,
+  }
+end
+
+local function inferOrientation(report)
+  report.orientation = {
+    computerCoord = nil,
+    sideHints = {},
+    sources = {},
+    roles = {},
+    roleCounts = {},
+  }
+
+  local computerCoord, computerCoordError = directComputerCoord(report.router and report.router.name)
+  report.orientation.computerCoord = computerCoord
+  report.orientation.computerCoordError = computerCoordError
+
+  report.orientation.sideHints = inferDirectSideHints(report)
+  inferAxes(report)
+  inferRoles(report)
 end
 
 function scanner.scan(config)
@@ -363,6 +599,12 @@ function scanner.scan(config)
 
     return left.coord.x < right.coord.x
   end)
+
+  inferOrientation(report)
+
+  for _, entry in ipairs(report.peripherals) do
+    entry.methodKey = nil
+  end
 
   return report
 end

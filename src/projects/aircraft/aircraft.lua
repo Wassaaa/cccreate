@@ -185,6 +185,42 @@ local function printSummary(report, path)
     end
   end
 
+  if report.orientation then
+    print("Orientation:")
+    print("  computerCoord=" .. coords.label(report.orientation.computerCoord))
+
+    if report.orientation.computerCoordError then
+      print("  origin note=" .. tostring(report.orientation.computerCoordError))
+    end
+
+    print("  front=" .. coords.axisLabel(report.orientation.frontVector) .. " source=" .. tostring(report.orientation.sources.frontVector))
+    print("  left=" .. coords.axisLabel(report.orientation.leftVector) .. " source=" .. tostring(report.orientation.sources.leftVector))
+    print("  up=" .. coords.axisLabel(report.orientation.upVector) .. " source=" .. tostring(report.orientation.sources.upVector))
+
+    for side, hint in pairs(report.orientation.sideHints or {}) do
+      if hint.ambiguous then
+        print("  side " .. side .. " ambiguous matches=" .. tostring(hint.count))
+      else
+        print("  side " .. side .. " -> " .. coords.label(hint.coord) .. " vector=" .. coords.axisLabel(hint.vector))
+      end
+    end
+
+    if report.orientation.roles then
+      for family, roles in pairs(report.orientation.roles) do
+        print("Suggested " .. family .. " roles:")
+
+        for _, role in ipairs({ "front_left", "front_right", "rear_left", "rear_right" }) do
+          local entry = roles[role]
+          if entry then
+            print("  " .. role .. "=" .. coords.label(entry.coord))
+          else
+            print("  " .. role .. "=missing")
+          end
+        end
+      end
+    end
+  end
+
   print("Report: " .. path)
   print("Next: inspect candidate coordinates, then configure frontAxis and leftAxis before any control mode exists.")
 end
