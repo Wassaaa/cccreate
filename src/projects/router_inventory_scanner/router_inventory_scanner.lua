@@ -6,22 +6,25 @@ local DEFAULT_SAMPLE_LIMIT = 5
 local MAX_RADIUS = 16
 local DEFAULT_MAP_REPORT_PATH = "router_base_map_report.txt"
 local DEFAULT_SCAN_REPORT_PATH = "router_inventory_scan_report.txt"
+local DEFAULT_STACK_REPORT_PATH = "router_stack_report.txt"
 
 local args = { ... }
 local unpackArgs = table.unpack or unpack
 
 local function usage()
-  print("router_inventory_scanner [scan|report|map] [radius]")
-  print("router_inventory_scanner scan --radius 8")
-  print("router_inventory_scanner map --radius 8")
-  print("router_inventory_scanner stack-preview --to <x> <y> <z>")
-  print("router_inventory_scanner stack --to <x> <y> <z> [--fluids]")
-  print("router_inventory_scanner scan --radius 8 --height 3")
-  print("router_inventory_scanner scan --cube-radius 4")
-  print("router_inventory_scanner scan --x-radius 8 --y-radius 1 --z-radius 8")
-  print("router_inventory_scanner scan --all")
+  print("router_inventory_scanner [map] [options]")
+  print("router_inventory_scanner map --radius 8 --height 3")
+  print("router_inventory_scanner map --x-radius 8 --y-radius 1 --z-radius 8")
+  print("router_inventory_scanner map --cube-radius 4")
+  print("router_inventory_scanner map --out base_map.txt")
+  print("router_inventory_scanner stack-preview --to <x> <y> <z> [--out path]")
+  print("router_inventory_scanner stack --to <x> <y> <z> [--fluids] [--out path]")
+  print("router_inventory_scanner stack --to <x> <y> <z> --from-report base_map.txt")
   print("")
-  print("Default scan is 5x3x5: x/z radius 2, y radius 1.")
+  print("Default map is 5x3x5: x/z radius 2, y radius 1.")
+  print("Reports write a local file and send webhook unless --no-webhook is set.")
+  print("Default files: " .. DEFAULT_MAP_REPORT_PATH .. ", " .. DEFAULT_STACK_REPORT_PATH .. ".")
+  print("Use scan only for the legacy inventory-only report.")
 end
 
 local function contains(values, target)
@@ -88,7 +91,8 @@ end
 
 local function parseArgs(rawArgs)
   local config = {
-    command = "scan",
+    command = "map",
+    requestedCommand = "map",
     radius = DEFAULT_RADIUS,
     xRadius = DEFAULT_RADIUS,
     yRadius = DEFAULT_Y_RADIUS,
@@ -97,6 +101,7 @@ local function parseArgs(rawArgs)
     includeAll = false,
     includeOrigin = false,
     reportPath = nil,
+    outputPath = nil,
     dryRun = false,
     includeItems = true,
     includeFluids = false,
@@ -107,7 +112,8 @@ local function parseArgs(rawArgs)
   if rawArgs[index] == "scan" or rawArgs[index] == "report" or rawArgs[index] == "map"
     or rawArgs[index] == "stack" or rawArgs[index] == "stack-preview"
   then
-    config.command = rawArgs[index]
+    config.requestedCommand = rawArgs[index]
+    config.command = rawArgs[index] == "report" and "map" or rawArgs[index]
     config.dryRun = rawArgs[index] == "stack-preview"
     index = index + 1
   elseif rawArgs[index] == "help" or rawArgs[index] == "--help" or rawArgs[index] == "-h" then
@@ -157,6 +163,12 @@ local function parseArgs(rawArgs)
       config.reportPath = rawArgs[index + 1]
       if not config.reportPath or config.reportPath == "" then
         error("from-report path is required", 0)
+      end
+      index = index + 2
+    elseif arg == "--out" or arg == "--output" or arg == "-o" then
+      config.outputPath = rawArgs[index + 1]
+      if not config.outputPath or config.outputPath == "" then
+        error("out path is required", 0)
       end
       index = index + 2
     elseif arg == "--dry-run" then
@@ -611,6 +623,8 @@ local function scan(config)
 
   return {
     kind = config.command == "map" and "router_base_map" or "router_inventory_scan",
+    command = config.requestedCommand,
+    effectiveCommand = config.command,
     computerId = os.getComputerID(),
     label = os.getComputerLabel(),
     router = routerName,
@@ -1069,6 +1083,8 @@ local function runStack(config)
 
   return {
     kind = "router_stack",
+    command = config.requestedCommand,
+    effectiveCommand = config.command,
     dryRun = config.dryRun,
     computerId = os.getComputerID(),
     label = os.getComputerLabel(),
@@ -1200,6 +1216,26 @@ local function printStackReport(report)
   end
 end
 
+local function defaultOutputPath(report)
+  if report.kind == "router_stack" then
+    return DEFAULT_STACK_REPORT_PATH
+  end
+
+  if report.kind == "router_base_map" then
+    return DEFAULT_MAP_REPORT_PATH
+  end
+
+  return DEFAULT_SCAN_REPORT_PATH
+end
+
+local function saveAndMaybeSend(report, config)
+  reporter.saveLocal(report, config.outputPath or defaultOutputPath(report))
+
+  if not config.noWebhook then
+    reporter.send(report)
+  end
+end
+
 local ok, result = pcall(function()
   local config = parseArgs(args)
 
@@ -1211,24 +1247,13 @@ local ok, result = pcall(function()
   if isStackCommand(config.command) then
     local stackReport = runStack(config)
     printStackReport(stackReport)
-    reporter.saveLocal(stackReport, "router_stack_report.txt")
-
-    if not config.noWebhook then
-      reporter.send(stackReport)
-    end
-
+    saveAndMaybeSend(stackReport, config)
     return true
   end
 
   local report = scan(config)
   printReport(report)
-  local reportPath = report.kind == "router_base_map" and "router_base_map_report.txt" or "router_inventory_scan_report.txt"
-  reporter.saveLocal(report, reportPath)
-
-  if config.command == "report" or config.command == "map" then
-    reporter.send(report)
-  end
-
+  saveAndMaybeSend(report, config)
   return true
 end)
 
