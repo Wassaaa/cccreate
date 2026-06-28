@@ -457,9 +457,34 @@ function flightControl.levelSet(config)
   return report
 end
 
+function flightControl.levelZero(config)
+  local gravity = { 0, -1, 0 }
+  local createdAt = now()
+  local report = {
+    kind = "aircraft_level_zero",
+    createdAt = createdAt,
+    computerId = os.getComputerID(),
+    label = os.getComputerLabel(),
+    dryRun = config.dryRun ~= false,
+    level = {
+      angles = { 0, 0, 0 },
+      gravity = copyPlain(gravity),
+      gravityTilt = gravityTilt(gravity),
+      mode = "world_zero",
+      createdAt = createdAt,
+    },
+  }
+
+  local path = saveAndSend(config, report)
+  print("Aircraft world-level report: " .. path)
+  print("level gravity=" .. textutils.serialize(report.level.gravity))
+
+  return report
+end
+
 function flightControl.stabilize(config, options)
   if type(config.level) ~= "table" or type(config.level.angles) ~= "table" then
-    error("No saved level. Run aircraft level-set while the craft is level.", 0)
+    error("No saved level. Run aircraft level-zero for world-level or level-set while the craft is level.", 0)
   end
 
   local scan, router, routerName = loadContext(config)

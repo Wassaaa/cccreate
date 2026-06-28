@@ -66,6 +66,7 @@ local function usage()
   print("aircraft config display <true|false>")
   print("aircraft brake [role|all] [--apply]")
   print("aircraft level-set")
+  print("aircraft level-zero")
   print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n] [--no-display]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n]")
   print("aircraft zero [role|all] [--apply]")
@@ -615,6 +616,15 @@ local function runLevelSet()
   print("Saved level-set to " .. CONFIG_PATH)
 end
 
+local function runLevelZero()
+  local config = loadConfig()
+  local report = flightControl.levelZero(config)
+
+  config.level = report.level
+  saveConfig(config)
+  print("Saved world-level zero to " .. CONFIG_PATH)
+end
+
 local function runStabilize()
   local config = loadConfig()
   local options = parseCommandOptions(2)
@@ -675,6 +685,12 @@ elseif command == "level-set" then
   if not ok then
     print("aircraft level-set failed: " .. tostring(result))
     error("aircraft level-set failed", 0)
+  end
+elseif command == "level-zero" then
+  local ok, result = pcall(runLevelZero)
+  if not ok then
+    print("aircraft level-zero failed: " .. tostring(result))
+    error("aircraft level-zero failed", 0)
   end
 elseif command == "stabilize" then
   local ok, result = pcall(runStabilize)
