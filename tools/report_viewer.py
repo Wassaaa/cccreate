@@ -395,6 +395,7 @@ HTML = r"""<!doctype html>
     .map-cell {
       background: #f8faf6;
       font-size: 12px;
+      cursor: pointer;
     }
 
     .map-cell.empty {
@@ -1204,6 +1205,10 @@ HTML = r"""<!doctype html>
       return lines.join("\n");
     }
 
+    function coordinateWrapSnippet(x, y, z) {
+      return `r = peripheral.find("peripheral_router"); p=r.wrap(${Number(x)}, ${Number(y)}, ${Number(z)});`;
+    }
+
     function stackCommand(entry, mode) {
       const base = `router_inventory_scanner ${mode} --to ${Number(entry.x)} ${Number(entry.y)} ${Number(entry.z)}`;
       return base;
@@ -1278,8 +1283,11 @@ HTML = r"""<!doctype html>
     }
 
     function mapCell(entry, x, y, z) {
+      const copyText = coordinateWrapSnippet(x, y, z);
+      const copyLabel = `p ${x},${y},${z}`;
+
       if (!entry) {
-        return `<div class="map-cell empty"><span class="map-coord">${x},${y},${z}</span></div>`;
+        return `<div class="map-cell empty" data-copy="${escapeHtml(encodeCopy(copyText))}" data-copy-label="${escapeHtml(copyLabel)}"><span class="map-coord">${x},${y},${z}</span></div>`;
       }
 
       const detail = entry.inventory
@@ -1289,7 +1297,7 @@ HTML = r"""<!doctype html>
       const title = `${entry.label || ""} ${entry.displayName || ""} ${items}`.trim();
 
       return `
-        <div class="map-cell ${escapeHtml(mapEntryClass(entry))}" title="${escapeHtml(title)}" data-copy="${escapeHtml(encodeCopy(wrapSnippet(state.latest, entry)))}" data-copy-label="${escapeHtml(entry.label || "wrap snippet")}">
+        <div class="map-cell ${escapeHtml(mapEntryClass(entry))}" title="${escapeHtml(title)}" data-copy="${escapeHtml(encodeCopy(copyText))}" data-copy-label="${escapeHtml(copyLabel)}">
           <span class="map-coord">${escapeHtml(entry.label || `${x},${y},${z}`)}</span>
           <span class="map-name">${escapeHtml(entry.displayName || (entry.inventory ? "inventory" : entry.kind || "wrappable"))}</span>
           <span class="map-detail">${escapeHtml(detail)}</span>
@@ -1383,7 +1391,7 @@ HTML = r"""<!doctype html>
         <section class="block">
           <h2>Router Map</h2>
           ${metrics}
-          <div id="copyStatus" class="copy-status">Click a mapped cell to copy a Lua wrap snippet.</div>
+          <div id="copyStatus" class="copy-status">Click any map cell to copy a quick Lua p-wrap snippet.</div>
           ${layers.map((y) => routerMapLayer(y, bounds, byCoord)).join("")}
         </section>
         <section class="block">
