@@ -225,7 +225,11 @@ local function printSummary(report, path)
   end
 
   print("Report: " .. path)
-  print("Next: inspect candidate coordinates, then configure frontAxis and leftAxis before any control mode exists.")
+  if report.orientation and report.orientation.frontVector and report.orientation.leftVector then
+    print("Next: run aircraft status to read the mapped parts without moving the craft.")
+  else
+    print("Next: configure frontAxis and leftAxis, then scan again before any control mode exists.")
+  end
 end
 
 local function runScan()
