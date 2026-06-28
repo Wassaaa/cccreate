@@ -3,6 +3,7 @@ local displays = require("lib.aircraft.displays")
 local reporting = require("lib.aircraft.reporting")
 
 local flightControl = {}
+local CONTROLLER_VERSION = "timer-stop-v1"
 
 local ROLE_ORDER = {
   "front_left",
@@ -13,14 +14,6 @@ local ROLE_ORDER = {
 
 local function now()
   return os.date("%Y-%m-%d %H:%M:%S")
-end
-
-local function clockSeconds()
-  if os.epoch then
-    return os.epoch("utc") / 1000
-  end
-
-  return os.clock()
 end
 
 local function copyPlain(value, depth)
@@ -281,6 +274,7 @@ local function baseReport(kind, config, scan, routerName)
     computerId = os.getComputerID(),
     label = os.getComputerLabel(),
     dryRun = config.dryRun ~= false,
+    controllerVersion = CONTROLLER_VERSION,
     scanPath = config.reportPath or "/aircraft_scan.txt",
     router = {
       name = routerName or (scan.router and scan.router.name),
@@ -519,6 +513,7 @@ function flightControl.stabilize(config, options)
   report.timing = {
     requestedSeconds = settings.seconds,
     interval = settings.interval,
+    mode = "computer_timer",
   }
 
   local displayContext = displays.collect(config, router, scan, options)
@@ -529,8 +524,8 @@ function flightControl.stabilize(config, options)
   end
 
   local function runLoop()
-    local startTime = clockSeconds()
-    local deadline = startTime + settings.seconds
+    local stopTimer = active and os.startTimer(settings.seconds) or nil
+    local stopRequested = false
     local frameIndex = 1
 
     while true do
@@ -538,7 +533,6 @@ function flightControl.stabilize(config, options)
       local mixed = mixerSignals(settings, state, config.level)
       local frame = {
         index = frameIndex,
-        elapsed = clockSeconds() - startTime,
         state = state,
         mixed = mixed,
       }
@@ -567,16 +561,38 @@ function flightControl.stabilize(config, options)
         break
       end
 
-      local remaining = deadline - clockSeconds()
-      if remaining <= 0 then
+      local intervalTimer = os.startTimer(settings.interval)
+
+      while true do
+        local event, timerId = os.pullEvent()
+
+        if event == "timer" and timerId == stopTimer then
+          stopRequested = true
+          report.timing.stopReason = "duration_timer"
+          break
+        elseif event == "timer" and timerId == intervalTimer then
+          break
+        end
+      end
+
+      if stopRequested and os.cancelTimer then
+        os.cancelTimer(intervalTimer)
+      end
+
+      if stopRequested then
         break
       end
 
-      sleep(math.min(settings.interval, remaining))
       frameIndex = frameIndex + 1
     end
 
-    report.timing.elapsed = clockSeconds() - startTime
+    if stopTimer and os.cancelTimer then
+      os.cancelTimer(stopTimer)
+    end
+
+    if not report.timing.stopReason then
+      report.timing.stopReason = report.abortReason or "loop_complete"
+    end
   end
 
   local ok, result = pcall(runLoop)
