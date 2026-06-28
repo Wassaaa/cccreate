@@ -13,6 +13,10 @@ local SIDE_NAMES = {
 }
 
 local SIDE_AXIS = {
+  front = { x = 0, y = 0, z = -1 },
+  back = { x = 0, y = 0, z = 1 },
+  left = { x = 1, y = 0, z = 0 },
+  right = { x = -1, y = 0, z = 0 },
   top = { x = 0, y = 1, z = 0 },
   bottom = { x = 0, y = -1, z = 0 },
 }
@@ -320,7 +324,7 @@ end
 local function directComputerCoord(routerName)
   local sideAxis = SIDE_AXIS[routerName]
   if not sideAxis then
-    return nil, "router is not on top/bottom, so computer origin needs another side hint"
+    return nil, "router is not on a direct computer side, so computer origin needs another side hint"
   end
 
   return coords.neg(sideAxis), nil

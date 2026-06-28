@@ -106,6 +106,16 @@ local function isRouterType(types)
   return false
 end
 
+local function hasCategory(entry, category)
+  for _, value in ipairs(entry and entry.categories or {}) do
+    if value == category then
+      return true
+    end
+  end
+
+  return false
+end
+
 local function findRouter()
   for _, peripheralName in ipairs(peripheral.getNames()) do
     local types = safePeripheralTypes(peripheralName)
@@ -240,15 +250,30 @@ local function wrapCoord(router, coord, label)
   return objectOrError
 end
 
+local function tryGimbalAt(router, coord)
+  local ok, objectOrError = pcall(router.wrap, coord.x, coord.y, coord.z)
+  if not ok or not objectOrError then
+    return nil
+  end
+
+  if type(objectOrError.getGravity) == "function"
+      and type(objectOrError.getAngularRates) == "function" then
+    return objectOrError
+  end
+
+  return nil
+end
+
 local function findGimbal(scan, router)
   local hints = scan.orientation and scan.orientation.sideHints or {}
 
   for side, hint in pairs(hints) do
     if not hint.ambiguous and hint.coord then
-      local object = wrapCoord(router, hint.coord, "gimbal " .. tostring(side))
-      if type(object.getGravity) == "function" and type(object.getAngularRates) == "function" then
+      local object = tryGimbalAt(router, hint.coord)
+      if object then
         return {
           side = side,
+          source = "side_hint",
           coord = copyPlain(hint.coord),
           object = object,
         }
@@ -256,7 +281,21 @@ local function findGimbal(scan, router)
     end
   end
 
-  error("No gimbal-like side sensor found in scan. Run aircraft scan first.", 0)
+  for _, entry in ipairs(scan.peripherals or {}) do
+    if entry.coord and hasCategory(entry, "attitudeSensor") then
+      local object = tryGimbalAt(router, entry.coord)
+      if object then
+        return {
+          side = nil,
+          source = "scan_attitude_sensor",
+          coord = copyPlain(entry.coord),
+          object = object,
+        }
+      end
+    end
+  end
+
+  error("No gimbal-like attitude sensor found in scan. Run aircraft scan first.", 0)
 end
 
 local function wrapScalarDevices(scan, router)
@@ -531,6 +570,7 @@ function flightControl.levelSet(config)
 
   report.gimbal = {
     side = gimbal.side,
+    source = gimbal.source,
     coord = gimbal.coord,
   }
   report.state = state
@@ -603,6 +643,7 @@ function flightControl.stabilize(config, options)
   report.level = copyPlain(config.level)
   report.gimbal = {
     side = gimbal.side,
+    source = gimbal.source,
     coord = gimbal.coord,
   }
   report.hud = hud.describe(hudContext)
