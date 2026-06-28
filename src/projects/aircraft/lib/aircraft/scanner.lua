@@ -53,6 +53,29 @@ local function methodKey(methods)
   return table.concat(methods or {}, "\n")
 end
 
+local function copyCoord(coord)
+  if not coord then
+    return nil
+  end
+
+  return {
+    x = coord.x,
+    y = coord.y,
+    z = coord.z,
+    key = coord.key,
+  }
+end
+
+local function copyList(values)
+  local result = {}
+
+  for index, value in ipairs(values or {}) do
+    result[index] = value
+  end
+
+  return result
+end
+
 local function sanitize(value, depth)
   depth = depth or 0
 
@@ -328,7 +351,7 @@ local function inferDirectSideHints(report)
         local vector = coords.sub(matches[1].coord, report.orientation.computerCoord)
         hints[direct.name] = {
           side = direct.name,
-          coord = matches[1].coord,
+          coord = copyCoord(matches[1].coord),
           vector = vector,
           type = table.concat(direct.types or {}, ","),
           methodCount = #direct.methods,
@@ -447,11 +470,11 @@ local function assignRoles(entries, frontVector, leftVector)
     local role = frontRear .. "_" .. leftRight
 
     roles[role] = {
-      coord = entry.coord,
+      coord = copyCoord(entry.coord),
       frontScore = frontScore,
       leftScore = leftScore,
       methodCount = entry.methodCount,
-      categories = entry.categories,
+      categories = copyList(entry.categories),
     }
   end
 
