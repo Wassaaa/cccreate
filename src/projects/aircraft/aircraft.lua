@@ -50,9 +50,11 @@ local function usage()
   print("aircraft config axes <frontAxis> <leftAxis>")
   print("aircraft config dry-run <true|false>")
   print("aircraft config max-signal <0-15>")
+  print("aircraft config stabilize-signs <-1|1> <-1|1>")
+  print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft brake [role|all] [--apply]")
   print("aircraft level-set")
-  print("aircraft stabilize [--apply] [--seconds n] [--base-power n]")
+  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n]")
   print("aircraft zero [role|all] [--apply]")
   print("aircraft help")
@@ -153,6 +155,24 @@ local function parseNonNegativeInteger(value, label)
 
   if number < 0 then
     error(label .. " must be zero or greater", 0)
+  end
+
+  return number
+end
+
+local function parseSign(value, label)
+  local number = tonumber(value)
+  if number == 1 or number == -1 then
+    return number
+  end
+
+  error(label .. " must be -1 or 1", 0)
+end
+
+local function parseNumber(value, label)
+  local number = tonumber(value)
+  if not number then
+    error(label .. " must be a number", 0)
   end
 
   return number
@@ -317,6 +337,12 @@ local function printConfig(config, source)
   print("  absoluteSignalMax=" .. tostring(config.absoluteSignalMax))
   print("  brakeSignal=" .. tostring(config.brakeSignal))
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
+  print("  stabilize.axis1Sign=" .. tostring(config.stabilize.axis1Sign))
+  print("  stabilize.axis2Sign=" .. tostring(config.stabilize.axis2Sign))
+  print("  stabilize.axis1Kp=" .. tostring(config.stabilize.axis1Kp))
+  print("  stabilize.axis1Kd=" .. tostring(config.stabilize.axis1Kd))
+  print("  stabilize.axis2Kp=" .. tostring(config.stabilize.axis2Kp))
+  print("  stabilize.axis2Kd=" .. tostring(config.stabilize.axis2Kd))
   if config.level and config.level.angles then
     print("  level.angles=" .. textutils.serialize(config.level.angles))
   else
@@ -363,6 +389,24 @@ local function runConfig()
     saveConfig(config)
     print("Saved absoluteSignalMax=" .. tostring(signal) .. " and brakeSignal=" .. tostring(signal) .. " to " .. CONFIG_PATH)
     return
+  elseif subcommand == "stabilize-signs" then
+    config.stabilize.axis1Sign = parseSign(args[3], "axis1Sign")
+    config.stabilize.axis2Sign = parseSign(args[4], "axis2Sign")
+    saveConfig(config)
+    print("Saved stabilize signs to " .. CONFIG_PATH)
+    print("  axis1Sign=" .. tostring(config.stabilize.axis1Sign))
+    print("  axis2Sign=" .. tostring(config.stabilize.axis2Sign))
+    return
+  elseif subcommand == "stabilize-gains" then
+    config.stabilize.axis1Kp = parseNumber(args[3], "axis1Kp")
+    config.stabilize.axis1Kd = parseNumber(args[4], "axis1Kd")
+    config.stabilize.axis2Kp = parseNumber(args[5] or args[3], "axis2Kp")
+    config.stabilize.axis2Kd = parseNumber(args[6] or args[4], "axis2Kd")
+    saveConfig(config)
+    print("Saved stabilize gains to " .. CONFIG_PATH)
+    print("  axis1Kp=" .. tostring(config.stabilize.axis1Kp) .. " axis1Kd=" .. tostring(config.stabilize.axis1Kd))
+    print("  axis2Kp=" .. tostring(config.stabilize.axis2Kp) .. " axis2Kd=" .. tostring(config.stabilize.axis2Kd))
+    return
   end
 
   error("Unknown aircraft config command: " .. tostring(subcommand), 0)
@@ -402,11 +446,41 @@ local function parseCommandOptions(startIndex)
         error("--kp needs a number", 0)
       end
       i = i + 2
+    elseif arg == "--axis1-kp" then
+      options.axis1Kp = tonumber(args[i + 1])
+      if not options.axis1Kp then
+        error("--axis1-kp needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--axis2-kp" then
+      options.axis2Kp = tonumber(args[i + 1])
+      if not options.axis2Kp then
+        error("--axis2-kp needs a number", 0)
+      end
+      i = i + 2
     elseif arg == "--kd" then
       options.kd = tonumber(args[i + 1])
       if not options.kd then
         error("--kd needs a number", 0)
       end
+      i = i + 2
+    elseif arg == "--axis1-kd" then
+      options.axis1Kd = tonumber(args[i + 1])
+      if not options.axis1Kd then
+        error("--axis1-kd needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--axis2-kd" then
+      options.axis2Kd = tonumber(args[i + 1])
+      if not options.axis2Kd then
+        error("--axis2-kd needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--axis1-sign" then
+      options.axis1Sign = parseSign(args[i + 1], "--axis1-sign")
+      i = i + 2
+    elseif arg == "--axis2-sign" then
+      options.axis2Sign = parseSign(args[i + 1], "--axis2-sign")
       i = i + 2
     else
       error("Unknown aircraft option: " .. tostring(arg), 0)

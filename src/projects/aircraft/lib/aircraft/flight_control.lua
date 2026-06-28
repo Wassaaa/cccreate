@@ -281,12 +281,12 @@ local function stabilizeConfig(config, options)
     basePower = tonumber(options.basePower) or tonumber(defaults.basePower) or 0,
     maxSignal = tonumber(config.absoluteSignalMax) or 15,
     brakeSignal = tonumber(config.brakeSignal) or tonumber(config.absoluteSignalMax) or 15,
-    axis1Kp = tonumber(options.kp) or tonumber(defaults.axis1Kp) or 0.08,
-    axis2Kp = tonumber(options.kp) or tonumber(defaults.axis2Kp) or 0.08,
-    axis1Kd = tonumber(options.kd) or tonumber(defaults.axis1Kd) or 0.08,
-    axis2Kd = tonumber(options.kd) or tonumber(defaults.axis2Kd) or 0.08,
-    axis1Sign = tonumber(defaults.axis1Sign) or 1,
-    axis2Sign = tonumber(defaults.axis2Sign) or 1,
+    axis1Kp = tonumber(options.axis1Kp) or tonumber(options.kp) or tonumber(defaults.axis1Kp) or 0.08,
+    axis2Kp = tonumber(options.axis2Kp) or tonumber(options.kp) or tonumber(defaults.axis2Kp) or 0.08,
+    axis1Kd = tonumber(options.axis1Kd) or tonumber(options.kd) or tonumber(defaults.axis1Kd) or 0.08,
+    axis2Kd = tonumber(options.axis2Kd) or tonumber(options.kd) or tonumber(defaults.axis2Kd) or 0.08,
+    axis1Sign = tonumber(options.axis1Sign) or tonumber(defaults.axis1Sign) or 1,
+    axis2Sign = tonumber(options.axis2Sign) or tonumber(defaults.axis2Sign) or 1,
     brakeOnExit = defaults.brakeOnExit ~= false,
   }
 end

@@ -15,7 +15,8 @@ return {
   frontAxis = nil,
   leftAxis = nil,
 
-  -- Future control safety defaults. V1 scan mode does not actuate anything.
+  -- Control defaults. Commands still require --apply and dryRun=false before
+  -- they write actuator outputs.
   dryRun = true,
   absoluteSignalMax = 15,
   brakeSignal = 15,

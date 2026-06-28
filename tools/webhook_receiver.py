@@ -51,11 +51,15 @@ class Handler(BaseHTTPRequestHandler):
 
         latest = INBOX / "latest-report.json"
         archive = INBOX / f"report-{timestamp}.json"
+        suffix = 1
+        while archive.exists():
+            archive = INBOX / f"report-{timestamp}-{suffix:02d}.json"
+            suffix += 1
 
         latest.write_text(formatted + "\n", encoding="utf-8")
         archive.write_text(formatted + "\n", encoding="utf-8")
 
-        print(f"Saved report to {latest}")
+        print(f"Saved report to {latest} and {archive}")
 
         self.send_response(200)
         self.end_headers()
