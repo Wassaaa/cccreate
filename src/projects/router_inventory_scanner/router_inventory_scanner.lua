@@ -1,6 +1,7 @@
 local reporter = require("lib.reporter")
 
 local DEFAULT_RADIUS = 2
+local DEFAULT_Y_RADIUS = 1
 local DEFAULT_SAMPLE_LIMIT = 5
 local MAX_RADIUS = 16
 
@@ -8,10 +9,12 @@ local args = { ... }
 
 local function usage()
   print("router_inventory_scanner [scan|report] [radius]")
-  print("router_inventory_scanner scan --radius 2 --sample 5")
+  print("router_inventory_scanner scan --radius 8 --y-radius 1")
+  print("router_inventory_scanner scan --radius 8 --height 3")
+  print("router_inventory_scanner scan --x-radius 8 --y-radius 1 --z-radius 8")
   print("router_inventory_scanner scan --all")
   print("")
-  print("Default radius 2 scans a 5x5x5 cube around the router.")
+  print("Default scan is 5x3x5: x/z radius 2, y radius 1.")
 end
 
 local function contains(values, target)
@@ -33,10 +36,29 @@ local function parsePositiveInteger(value, label)
   return number
 end
 
+local function setRadius(config, value)
+  config.radius = value
+  config.xRadius = value
+  config.yRadius = value
+  config.zRadius = value
+end
+
+local function radiusFromHeight(value)
+  local height = parsePositiveInteger(value, "height")
+  if height < 1 or height % 2 == 0 then
+    error("height must be an odd positive integer", 0)
+  end
+
+  return math.floor(height / 2)
+end
+
 local function parseArgs(rawArgs)
   local config = {
     command = "scan",
     radius = DEFAULT_RADIUS,
+    xRadius = DEFAULT_RADIUS,
+    yRadius = DEFAULT_Y_RADIUS,
+    zRadius = DEFAULT_RADIUS,
     sampleLimit = DEFAULT_SAMPLE_LIMIT,
     includeAll = false,
     includeOrigin = false,
@@ -50,7 +72,7 @@ local function parseArgs(rawArgs)
     config.command = "help"
     return config
   elseif tonumber(rawArgs[index]) then
-    config.radius = parsePositiveInteger(rawArgs[index], "radius")
+    setRadius(config, parsePositiveInteger(rawArgs[index], "radius"))
     index = index + 1
   elseif rawArgs[index] ~= nil then
     error("Unknown command: " .. tostring(rawArgs[index]), 0)
@@ -60,7 +82,19 @@ local function parseArgs(rawArgs)
     local arg = rawArgs[index]
 
     if arg == "--radius" or arg == "-r" then
-      config.radius = parsePositiveInteger(rawArgs[index + 1], "radius")
+      setRadius(config, parsePositiveInteger(rawArgs[index + 1], "radius"))
+      index = index + 2
+    elseif arg == "--x-radius" or arg == "--xr" then
+      config.xRadius = parsePositiveInteger(rawArgs[index + 1], "x radius")
+      index = index + 2
+    elseif arg == "--y-radius" or arg == "--yr" then
+      config.yRadius = parsePositiveInteger(rawArgs[index + 1], "y radius")
+      index = index + 2
+    elseif arg == "--height" then
+      config.yRadius = radiusFromHeight(rawArgs[index + 1])
+      index = index + 2
+    elseif arg == "--z-radius" or arg == "--zr" then
+      config.zRadius = parsePositiveInteger(rawArgs[index + 1], "z radius")
       index = index + 2
     elseif arg == "--sample" or arg == "-s" then
       config.sampleLimit = parsePositiveInteger(rawArgs[index + 1], "sample")
@@ -72,16 +106,20 @@ local function parseArgs(rawArgs)
       config.includeOrigin = true
       index = index + 1
     elseif tonumber(arg) and index == 2 then
-      config.radius = parsePositiveInteger(arg, "radius")
+      setRadius(config, parsePositiveInteger(arg, "radius"))
       index = index + 1
     else
       error("Unknown option: " .. tostring(arg), 0)
     end
   end
 
-  if config.radius > MAX_RADIUS then
-    error("radius must be " .. MAX_RADIUS .. " or less", 0)
+  if config.xRadius > MAX_RADIUS or config.yRadius > MAX_RADIUS or config.zRadius > MAX_RADIUS then
+    error("axis radii must be " .. MAX_RADIUS .. " or less", 0)
   end
+
+  config.width = config.xRadius * 2 + 1
+  config.height = config.yRadius * 2 + 1
+  config.depth = config.zRadius * 2 + 1
 
   return config
 end
@@ -377,9 +415,9 @@ local function scan(config)
   local totalItems = 0
   local errors = 0
 
-  for y = -config.radius, config.radius do
-    for x = -config.radius, config.radius do
-      for z = -config.radius, config.radius do
+  for y = -config.yRadius, config.yRadius do
+    for x = -config.xRadius, config.xRadius do
+      for z = -config.zRadius, config.zRadius do
         if config.includeOrigin or x ~= 0 or y ~= 0 or z ~= 0 then
           inspected = inspected + 1
           local entry = inspectOffset(router, x, y, z, config)
@@ -411,7 +449,12 @@ local function scan(config)
     label = os.getComputerLabel(),
     router = routerName,
     radius = config.radius,
-    cubeSize = config.radius * 2 + 1,
+    xRadius = config.xRadius,
+    yRadius = config.yRadius,
+    zRadius = config.zRadius,
+    width = config.width,
+    height = config.height,
+    depth = config.depth,
     sampleLimit = config.sampleLimit,
     includeAll = config.includeAll,
     includeOrigin = config.includeOrigin,
@@ -478,7 +521,8 @@ end
 local function printReport(report)
   print("Router inventory scan")
   print("Router: " .. tostring(report.router))
-  print("Area: " .. report.cubeSize .. "x" .. report.cubeSize .. "x" .. report.cubeSize)
+  print("Area: " .. report.width .. "x" .. report.height .. "x" .. report.depth)
+  print("Radii: x=" .. report.xRadius .. " y=" .. report.yRadius .. " z=" .. report.zRadius)
   print("Offsets checked: " .. report.inspected)
   print("Wrappable: " .. report.wrappable)
   print("Inventories: " .. report.inventories)
