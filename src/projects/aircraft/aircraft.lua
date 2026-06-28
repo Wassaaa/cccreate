@@ -68,8 +68,8 @@ local function usage()
   print("aircraft level-set")
   print("aircraft level-zero")
   print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n] [--no-display]")
-  print("aircraft signal <role|all> <0-15> [--apply] [--seconds n]")
-  print("aircraft zero [role|all] [--apply]")
+  print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
+  print("aircraft zero [role|all] [--apply --force-release]")
   print("aircraft help")
   print("")
   print("Options:")
@@ -507,6 +507,15 @@ local function parseCommandOptions(startIndex)
     elseif arg == "--display" then
       options.display = true
       i = i + 1
+    elseif arg == "--after-signal" then
+      options.afterSignal = tonumber(args[i + 1])
+      if not options.afterSignal then
+        error("--after-signal needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--force-release" then
+      options.forceRelease = true
+      i = i + 1
     elseif arg == "--interval" then
       options.interval = tonumber(args[i + 1])
       if not options.interval then
@@ -581,7 +590,7 @@ local function runSignal()
   local signal = tonumber(args[3])
 
   if not role or not signal then
-    error("Usage: aircraft signal <role|all> <0-15> [--apply] [--seconds n]", 0)
+    error("Usage: aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]", 0)
   end
 
   local options = parseCommandOptions(4)

@@ -308,11 +308,13 @@ function actuatorTest.signal(config, options)
 
   local roles = selectedRoles(options.role)
   local clampedSignal = clamp(requestedSignal, 0, maxSignal)
+  local restoreSignal = clamp(tonumber(options.afterSignal) or tonumber(config.brakeSignal) or maxSignal, 0, maxSignal)
   local report = makeBaseReport("aircraft_signal_test", config, scan, routerName)
   report.request = {
     role = options.role,
     signal = requestedSignal,
     clampedSignal = clampedSignal,
+    afterSignal = restoreSignal,
     apply = options.apply == true,
     seconds = options.seconds,
   }
@@ -367,11 +369,13 @@ function actuatorTest.signal(config, options)
 
     for index, device in ipairs(devices) do
       local action = report.actions[index]
-      action.releaseResult = callSetter(device, "releaseSignal")
+      action.restoreMethod = "setSignal"
+      action.restoreSignal = restoreSignal
+      action.restoreResult = callSetter(device, "setSignal", restoreSignal)
       action.after = readScalarState(device)
     end
 
-    report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, nil), nil, true)
+    report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, restoreSignal), nil, true)
   end
 
   local path = saveAndSend(config, report)
@@ -447,11 +451,14 @@ function actuatorTest.zero(config, options)
   report.request = {
     role = options.role or "all",
     apply = options.apply == true,
+    forceRelease = options.forceRelease == true,
   }
 
-  local active = options.apply == true and config.dryRun == false
+  local active = options.apply == true and config.dryRun == false and options.forceRelease == true
   report.applied = active
-  if options.apply == true and not active then
+  if options.apply == true and options.forceRelease ~= true then
+    report.blockedReason = "releaseSignal can remove braking signal; use brake --apply or add --force-release"
+  elseif options.apply == true and not active then
     report.blockedReason = "config.dryRun is true"
   end
   local displayContext = displays.collect(config, router, scan, options)
