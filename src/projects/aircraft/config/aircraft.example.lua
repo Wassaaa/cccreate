@@ -17,6 +17,7 @@ return {
   dryRun = true,
   absoluteSignalMax = 10,
   maxAttitudeDelta = 2,
+  statusReadLimit = 8,
 
   reportPath = "/aircraft_scan.txt",
   sendWebhook = true,

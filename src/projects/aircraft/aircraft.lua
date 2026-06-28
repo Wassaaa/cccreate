@@ -1,6 +1,7 @@
 local coords = require("lib.aircraft.coords")
 local scanner = require("lib.aircraft.scanner")
 local reporting = require("lib.aircraft.reporting")
+local status = require("lib.aircraft.status")
 
 local args = { ... }
 local command = args[1] or "help"
@@ -19,12 +20,14 @@ local DEFAULT_CONFIG = {
   dryRun = true,
   absoluteSignalMax = 10,
   maxAttitudeDelta = 2,
+  statusReadLimit = 8,
   reportPath = "/aircraft_scan.txt",
   sendWebhook = true,
 }
 
 local function usage()
   print("aircraft scan [options]")
+  print("aircraft status")
   print("aircraft help")
   print("")
   print("Options:")
@@ -242,6 +245,12 @@ local function runScan()
   printSummary(report, path)
 end
 
+local function runStatus()
+  local config = loadConfig()
+
+  status.run(config)
+end
+
 if command == "help" or command == "--help" or command == "-h" then
   usage()
 elseif command == "scan" then
@@ -249,6 +258,12 @@ elseif command == "scan" then
   if not ok then
     print("aircraft scan failed: " .. tostring(result))
     error("aircraft scan failed", 0)
+  end
+elseif command == "status" then
+  local ok, result = pcall(runStatus)
+  if not ok then
+    print("aircraft status failed: " .. tostring(result))
+    error("aircraft status failed", 0)
   end
 else
   usage()
