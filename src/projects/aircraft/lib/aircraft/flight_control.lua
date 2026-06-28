@@ -1,4 +1,5 @@
 local coords = require("lib.aircraft.coords")
+local hud = require("lib.aircraft.hud")
 local reporting = require("lib.aircraft.reporting")
 
 local flightControl = {}
@@ -493,6 +494,7 @@ function flightControl.stabilize(config, options)
   local settings = stabilizeConfig(config, options)
 
   local active = options.apply == true and config.dryRun == false
+  local hudContext = hud.open(config, options)
   local report = baseReport("aircraft_stabilize", config, scan, routerName)
 
   report.applied = active
@@ -508,6 +510,7 @@ function flightControl.stabilize(config, options)
     side = gimbal.side,
     coord = gimbal.coord,
   }
+  report.hud = hud.describe(hudContext)
   report.frames = {}
   report.timing = {
     requestedSeconds = settings.seconds,
@@ -552,6 +555,7 @@ function flightControl.stabilize(config, options)
         frame.dryRun = true
       end
 
+      frame.hud = hud.update(hudContext, frame, settings, active, attitudeExceeded)
       table.insert(report.frames, frame)
 
       if attitudeExceeded then

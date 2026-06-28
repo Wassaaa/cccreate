@@ -39,6 +39,12 @@ return {
   display = {
     enabled = true,
   },
+  hud = {
+    enabled = true,
+    interval = 0.5,
+    monitorScale = 0.5,
+    monitorName = nil,
+  },
 
   reportPath = "/aircraft_scan.txt",
   statusReportPath = "/aircraft_status.txt",

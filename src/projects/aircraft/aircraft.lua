@@ -46,6 +46,12 @@ local DEFAULT_CONFIG = {
   display = {
     enabled = true,
   },
+  hud = {
+    enabled = true,
+    interval = 0.5,
+    monitorScale = 0.5,
+    monitorName = nil,
+  },
   sendWebhook = true,
 }
 
@@ -60,11 +66,12 @@ local function usage()
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
   print("aircraft config display <true|false>")
+  print("aircraft config hud <true|false>")
   print("aircraft brake [role|all] [--apply]")
   print("aircraft displays [--seconds n] [--interval n]")
   print("aircraft level-set")
   print("aircraft level-zero")
-  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n]")
+  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n] [--no-hud]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
   print("aircraft help")
   print("")
@@ -76,6 +83,7 @@ local function usage()
   print("  --sample-limit <n> max getter samples per peripheral")
   print("  --out <path>       default /aircraft_scan.txt")
   print("  --no-webhook       save local report only")
+  print("  --hud-interval <n> stabilize HUD refresh seconds")
   print("")
   print("signal/brake are dry-run unless --apply is used and config dryRun=false.")
 end
@@ -361,6 +369,9 @@ local function printConfig(config, source)
   print("  stabilize.axis2Kd=" .. tostring(config.stabilize.axis2Kd))
   print("  stabilize.maxCorrection=" .. tostring(config.stabilize.maxCorrection))
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
+  print("  hud.enabled=" .. tostring(config.hud and config.hud.enabled))
+  print("  hud.interval=" .. tostring(config.hud and config.hud.interval))
+  print("  hud.monitorName=" .. tostring(config.hud and config.hud.monitorName))
   if config.level and config.level.gravity then
     print("  level.gravity=" .. textutils.serialize(config.level.gravity))
   else
@@ -449,6 +460,12 @@ local function runConfig()
     saveConfig(config)
     print("Saved display.enabled=" .. tostring(config.display.enabled) .. " to " .. CONFIG_PATH)
     return
+  elseif subcommand == "hud" then
+    config.hud = config.hud or {}
+    config.hud.enabled = parseBoolean(args[3])
+    saveConfig(config)
+    print("Saved hud.enabled=" .. tostring(config.hud.enabled) .. " to " .. CONFIG_PATH)
+    return
   end
 
   error("Unknown aircraft config command: " .. tostring(subcommand), 0)
@@ -482,6 +499,18 @@ local function parseCommandOptions(startIndex)
     elseif arg == "--display" then
       options.display = true
       i = i + 1
+    elseif arg == "--hud" then
+      options.hud = true
+      i = i + 1
+    elseif arg == "--no-hud" then
+      options.hud = false
+      i = i + 1
+    elseif arg == "--hud-interval" then
+      options.hudInterval = tonumber(args[i + 1])
+      if not options.hudInterval then
+        error("--hud-interval needs a number", 0)
+      end
+      i = i + 2
     elseif arg == "--after-signal" then
       options.afterSignal = tonumber(args[i + 1])
       if not options.afterSignal then
