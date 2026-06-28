@@ -42,6 +42,13 @@ local DEFAULT_CONFIG = {
     maxCorrection = 0.75,
     brakeOnExit = true,
   },
+  display = {
+    enabled = true,
+    includeRole = false,
+    decimals = 1,
+    updateEveryFrames = 1,
+    textColor = nil,
+  },
   sendWebhook = true,
 }
 
@@ -56,9 +63,10 @@ local function usage()
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
   print("aircraft config stabilize-mode <gravity|angles>")
+  print("aircraft config display <true|false>")
   print("aircraft brake [role|all] [--apply]")
   print("aircraft level-set")
-  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n]")
+  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n] [--no-display]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n]")
   print("aircraft zero [role|all] [--apply]")
   print("aircraft help")
@@ -291,7 +299,14 @@ local function printSummary(report, path)
         for _, role in ipairs({ "front_left", "front_right", "rear_left", "rear_right" }) do
           local entry = roles[role]
           if entry then
-            print("  " .. role .. "=" .. coords.label(entry.coord))
+            local details = ""
+            if family == "displaySink" then
+              details = " kind=" .. tostring(entry.displayKind or "?")
+              if entry.targetCoord then
+                details = details .. " target=" .. coords.label(entry.targetCoord)
+              end
+            end
+            print("  " .. role .. "=" .. coords.label(entry.coord) .. details)
           else
             print("  " .. role .. "=missing")
           end
@@ -357,6 +372,10 @@ local function printConfig(config, source)
   print("  stabilize.axis2Kp=" .. tostring(config.stabilize.axis2Kp))
   print("  stabilize.axis2Kd=" .. tostring(config.stabilize.axis2Kd))
   print("  stabilize.maxCorrection=" .. tostring(config.stabilize.maxCorrection))
+  print("  display.enabled=" .. tostring(config.display and config.display.enabled))
+  print("  display.includeRole=" .. tostring(config.display and config.display.includeRole))
+  print("  display.decimals=" .. tostring(config.display and config.display.decimals))
+  print("  display.updateEveryFrames=" .. tostring(config.display and config.display.updateEveryFrames))
   if config.level and config.level.angles then
     print("  level.angles=" .. textutils.serialize(config.level.angles))
   else
@@ -445,6 +464,12 @@ local function runConfig()
     print("Saved stabilize sensor mode to " .. CONFIG_PATH)
     print("  sensorMode=" .. tostring(config.stabilize.sensorMode))
     return
+  elseif subcommand == "display" then
+    config.display = config.display or {}
+    config.display.enabled = parseBoolean(args[3])
+    saveConfig(config)
+    print("Saved display.enabled=" .. tostring(config.display.enabled) .. " to " .. CONFIG_PATH)
+    return
   end
 
   error("Unknown aircraft config command: " .. tostring(subcommand), 0)
@@ -475,6 +500,12 @@ local function parseCommandOptions(startIndex)
     elseif arg == "--sensor-mode" then
       options.sensorMode = parseSensorMode(args[i + 1])
       i = i + 2
+    elseif arg == "--no-display" then
+      options.display = false
+      i = i + 1
+    elseif arg == "--display" then
+      options.display = true
+      i = i + 1
     elseif arg == "--interval" then
       options.interval = tonumber(args[i + 1])
       if not options.interval then

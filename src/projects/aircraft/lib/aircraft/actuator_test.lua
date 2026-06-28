@@ -1,4 +1,5 @@
 local coords = require("lib.aircraft.coords")
+local displays = require("lib.aircraft.displays")
 local reporting = require("lib.aircraft.reporting")
 
 local actuatorTest = {}
@@ -159,6 +160,34 @@ local function readScalarState(device)
   }
 end
 
+local function readNumber(read)
+  if type(read) == "table" and read.ok and type(read.value) == "number" then
+    return read.value
+  end
+
+  return nil
+end
+
+local function actionSignals(actions, fallback)
+  local signals = {}
+
+  for _, action in ipairs(actions or {}) do
+    local signal = fallback
+
+    if action.after then
+      signal = readNumber(action.after.signal) or signal
+    elseif action.during then
+      signal = readNumber(action.during.signal) or signal
+    end
+
+    if action.role and signal ~= nil then
+      signals[action.role] = signal
+    end
+  end
+
+  return signals
+end
+
 local function wrapRole(router, scan, role)
   local mapped = scan.orientation
     and scan.orientation.roles
@@ -293,6 +322,8 @@ function actuatorTest.signal(config, options)
   if options.apply == true and not active then
     report.blockedReason = "config.dryRun is true"
   end
+  local displayContext = displays.collect(config, router, scan, options)
+  report.displays = displays.describe(displayContext)
 
   local devices = collectScalarDevices(router, scan, roles, report)
 
@@ -316,6 +347,8 @@ function actuatorTest.signal(config, options)
   end
 
   if active then
+    report.displayDuring = displays.updateSignals(displayContext, actionSignals(report.actions, clampedSignal), nil, true)
+
     local seconds = tonumber(options.seconds) or 0.5
     local sampleDelay = math.min(0.1, math.max(0, seconds))
 
@@ -337,6 +370,8 @@ function actuatorTest.signal(config, options)
       action.releaseResult = callSetter(device, "releaseSignal")
       action.after = readScalarState(device)
     end
+
+    report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, nil), nil, true)
   end
 
   local path = saveAndSend(config, report)
@@ -367,6 +402,8 @@ function actuatorTest.brake(config, options)
   if options.apply == true and not active then
     report.blockedReason = "config.dryRun is true"
   end
+  local displayContext = displays.collect(config, router, scan, options)
+  report.displays = displays.describe(displayContext)
 
   local devices = collectScalarDevices(router, scan, roles, report)
 
@@ -387,6 +424,10 @@ function actuatorTest.brake(config, options)
     end
 
     table.insert(report.actions, action)
+  end
+
+  if active then
+    report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, signal), nil, true)
   end
 
   local path = saveAndSend(config, report)
@@ -413,6 +454,8 @@ function actuatorTest.zero(config, options)
   if options.apply == true and not active then
     report.blockedReason = "config.dryRun is true"
   end
+  local displayContext = displays.collect(config, router, scan, options)
+  report.displays = displays.describe(displayContext)
 
   local devices = collectScalarDevices(router, scan, roles, report)
 
@@ -432,6 +475,10 @@ function actuatorTest.zero(config, options)
     end
 
     table.insert(report.actions, action)
+  end
+
+  if active then
+    report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, nil), nil, true)
   end
 
   local path = saveAndSend(config, report)

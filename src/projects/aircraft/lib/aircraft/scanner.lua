@@ -477,6 +477,50 @@ local function averageCoord(entries)
   }
 end
 
+local function distanceSquared(left, right)
+  local dx = left.x - right.x
+  local dy = left.y - right.y
+  local dz = left.z - right.z
+
+  return dx * dx + dy * dy + dz * dz
+end
+
+local function hasMethod(entry, name)
+  for _, method in ipairs(entry.methods or {}) do
+    if method == name then
+      return true
+    end
+  end
+
+  return false
+end
+
+local function displayKind(entry)
+  if hasMethod(entry, "setText") then
+    return "text"
+  elseif hasMethod(entry, "write") then
+    return "terminal"
+  elseif hasMethod(entry, "setSignal") then
+    return "signal"
+  end
+
+  return "unknown"
+end
+
+local function displayPriority(entry)
+  local kind = displayKind(entry)
+
+  if kind == "text" then
+    return 1
+  elseif kind == "terminal" then
+    return 2
+  elseif kind == "signal" then
+    return 3
+  end
+
+  return 4
+end
+
 local function assignRoles(entries, frontVector, leftVector)
   local roles = {}
 
@@ -506,6 +550,67 @@ local function assignRoles(entries, frontVector, leftVector)
   return roles
 end
 
+local function assignNearestDisplays(displayEntries, targetRoles)
+  local roles = {}
+  local used = {}
+
+  if #displayEntries == 0 or not targetRoles then
+    return roles
+  end
+
+  for _, role in ipairs({ "front_left", "front_right", "rear_left", "rear_right" }) do
+    local target = targetRoles[role]
+    local best = nil
+    local bestPriority = nil
+    local bestDistance = nil
+
+    if target and target.coord then
+      for _, display in ipairs(displayEntries) do
+        local key = coords.key(display.coord.x, display.coord.y, display.coord.z)
+
+        if not used[key] then
+          local distance = distanceSquared(display.coord, target.coord)
+          local priority = displayPriority(display)
+
+          if not best
+              or priority < bestPriority
+              or (priority == bestPriority and distance < bestDistance) then
+            best = display
+            bestPriority = priority
+            bestDistance = distance
+          end
+        end
+      end
+    end
+
+    if best then
+      local key = coords.key(best.coord.x, best.coord.y, best.coord.z)
+      used[key] = true
+      roles[role] = {
+        coord = copyCoord(best.coord),
+        targetCoord = copyCoord(target.coord),
+        targetRole = role,
+        distanceSquared = bestDistance,
+        displayKind = displayKind(best),
+        methodCount = best.methodCount,
+        categories = copyList(best.categories),
+      }
+    end
+  end
+
+  return roles
+end
+
+local function hasAnyRole(roles)
+  for _, role in ipairs({ "front_left", "front_right", "rear_left", "rear_right" }) do
+    if roles and roles[role] then
+      return true
+    end
+  end
+
+  return false
+end
+
 local function inferRoles(report)
   local orientation = report.orientation
 
@@ -518,16 +623,25 @@ local function inferRoles(report)
     return hasCategory(entry, "rotorBearing")
   end)
   local scalarControls = roleCandidates(report, function(entry)
-    return hasCategory(entry, "scalarActuator") and not hasCategory(entry, "rotorBearing")
+    return hasCategory(entry, "scalarActuator")
+      and not hasCategory(entry, "rotorBearing")
+      and not hasCategory(entry, "displaySink")
   end)
+  local displays = roleCandidates(report, function(entry)
+    return hasCategory(entry, "displaySink")
+  end)
+  local rotorRoles = assignRoles(rotors, orientation.frontVector, orientation.leftVector)
+  local scalarRoles = assignRoles(scalarControls, orientation.frontVector, orientation.leftVector)
 
   orientation.roles = {
-    rotorBearing = assignRoles(rotors, orientation.frontVector, orientation.leftVector),
-    scalarActuator = assignRoles(scalarControls, orientation.frontVector, orientation.leftVector),
+    rotorBearing = rotorRoles,
+    scalarActuator = scalarRoles,
+    displaySink = assignNearestDisplays(displays, hasAnyRole(rotorRoles) and rotorRoles or scalarRoles),
   }
   orientation.roleCounts = {
     rotorBearing = #rotors,
     scalarActuator = #scalarControls,
+    displaySink = #displays,
   }
 end
 

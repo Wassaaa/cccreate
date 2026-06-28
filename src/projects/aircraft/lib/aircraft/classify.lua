@@ -5,6 +5,7 @@ local CATEGORY_ORDER = {
   "scalarActuator",
   "vectorActuator",
   "rotorBearing",
+  "displaySink",
   "statusSource",
 }
 
@@ -53,6 +54,10 @@ local SAMPLE_METHODS = {
   "getVectorY",
   "getTargetVectorX",
   "getTargetVectorY",
+  "getSize",
+  "getCursorPos",
+  "isColor",
+  "isColour",
   "getSailCount",
   "getSailPower",
   "getEnergyAmountFe",
@@ -178,6 +183,24 @@ function classify.classifyMethods(methods)
         "getAngle",
       }) then
     add("rotorBearing", "propeller/bearing/airflow/angle methods")
+  end
+
+  if containsAny(methodSet, {
+        "setText",
+        "setTextColor",
+        "setTextColour",
+      })
+      or containsName(methodSet, "write")
+      or (
+        containsName(methodSet, "setCursorPos")
+        and containsAny(methodSet, {
+          "clear",
+          "update",
+          "getSize",
+        })
+      )
+      or methodNameContains(methods, { "display", "monitor", "nixie", "textcolour", "textcolor" }) then
+    add("displaySink", "display/text/terminal methods")
   end
 
   if containsAny(methodSet, {

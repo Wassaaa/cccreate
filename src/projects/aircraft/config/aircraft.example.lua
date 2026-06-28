@@ -37,6 +37,13 @@ return {
     maxCorrection = 0.75,
     brakeOnExit = true,
   },
+  display = {
+    enabled = true,
+    includeRole = false,
+    decimals = 1,
+    updateEveryFrames = 1,
+    textColor = nil,
+  },
 
   reportPath = "/aircraft_scan.txt",
   statusReportPath = "/aircraft_status.txt",

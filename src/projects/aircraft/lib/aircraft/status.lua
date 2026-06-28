@@ -14,6 +14,7 @@ local ROLE_ORDER = {
 local FAMILY_ORDER = {
   "scalarActuator",
   "rotorBearing",
+  "displaySink",
 }
 
 local function copyPlain(value, depth)
