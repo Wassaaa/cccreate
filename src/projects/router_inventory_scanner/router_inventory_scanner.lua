@@ -1,6 +1,6 @@
 local reporter = require("lib.reporter")
 
-local DEFAULT_RADIUS = 2
+local DEFAULT_RADIUS = 8
 local DEFAULT_Y_RADIUS = 1
 local DEFAULT_SAMPLE_LIMIT = 0
 local MAX_RADIUS = 16
@@ -20,7 +20,7 @@ local function usage()
   print("router_inventory_scanner stack --to <x> <y> <z> [--fluids] [--out path]")
   print("router_inventory_scanner stack --to <x> <y> <z> --from-report base_map.txt")
   print("")
-  print("Default map is 5x3x5: x/z radius 2, y radius 1.")
+  print("Default map is 17x3x17: x/z radius 8, y radius 1.")
   print("Reports write a local file and send webhook unless --no-webhook is set.")
   print("Default files: " .. DEFAULT_MAP_REPORT_PATH .. ", " .. DEFAULT_STACK_REPORT_PATH .. ".")
 end
