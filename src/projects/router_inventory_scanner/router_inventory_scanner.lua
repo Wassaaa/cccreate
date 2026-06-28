@@ -9,8 +9,9 @@ local args = { ... }
 
 local function usage()
   print("router_inventory_scanner [scan|report] [radius]")
-  print("router_inventory_scanner scan --radius 8 --y-radius 1")
+  print("router_inventory_scanner scan --radius 8")
   print("router_inventory_scanner scan --radius 8 --height 3")
+  print("router_inventory_scanner scan --cube-radius 4")
   print("router_inventory_scanner scan --x-radius 8 --y-radius 1 --z-radius 8")
   print("router_inventory_scanner scan --all")
   print("")
@@ -36,7 +37,13 @@ local function parsePositiveInteger(value, label)
   return number
 end
 
-local function setRadius(config, value)
+local function setHorizontalRadius(config, value)
+  config.radius = value
+  config.xRadius = value
+  config.zRadius = value
+end
+
+local function setCubeRadius(config, value)
   config.radius = value
   config.xRadius = value
   config.yRadius = value
@@ -72,7 +79,7 @@ local function parseArgs(rawArgs)
     config.command = "help"
     return config
   elseif tonumber(rawArgs[index]) then
-    setRadius(config, parsePositiveInteger(rawArgs[index], "radius"))
+    setHorizontalRadius(config, parsePositiveInteger(rawArgs[index], "radius"))
     index = index + 1
   elseif rawArgs[index] ~= nil then
     error("Unknown command: " .. tostring(rawArgs[index]), 0)
@@ -82,7 +89,10 @@ local function parseArgs(rawArgs)
     local arg = rawArgs[index]
 
     if arg == "--radius" or arg == "-r" then
-      setRadius(config, parsePositiveInteger(rawArgs[index + 1], "radius"))
+      setHorizontalRadius(config, parsePositiveInteger(rawArgs[index + 1], "radius"))
+      index = index + 2
+    elseif arg == "--cube-radius" or arg == "--cr" then
+      setCubeRadius(config, parsePositiveInteger(rawArgs[index + 1], "cube radius"))
       index = index + 2
     elseif arg == "--x-radius" or arg == "--xr" then
       config.xRadius = parsePositiveInteger(rawArgs[index + 1], "x radius")
@@ -106,7 +116,7 @@ local function parseArgs(rawArgs)
       config.includeOrigin = true
       index = index + 1
     elseif tonumber(arg) and index == 2 then
-      setRadius(config, parsePositiveInteger(arg, "radius"))
+      setHorizontalRadius(config, parsePositiveInteger(arg, "radius"))
       index = index + 1
     else
       error("Unknown option: " .. tostring(arg), 0)
