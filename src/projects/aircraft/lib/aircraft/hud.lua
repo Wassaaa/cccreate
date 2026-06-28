@@ -116,7 +116,7 @@ local function fixed(value, digits)
   return string.format("%." .. tostring(digits or 1) .. "f", number(value))
 end
 
-local function compactNumber(value, digits)
+local function compactNumber(value)
   if type(value) ~= "number" then
     return "?"
   end
@@ -126,7 +126,7 @@ local function compactNumber(value, digits)
     return fixed(value, 0)
   end
 
-  return fixed(value, digits or 1)
+  return fixed(value, 1)
 end
 
 local function signed(value, digits)
@@ -198,49 +198,6 @@ local function roleValues(values, digits)
   return table.concat(parts, " ")
 end
 
-local function readValue(read)
-  if type(read) == "table" and read.ok and type(read.value) == "number" then
-    return read.value
-  end
-
-  return nil
-end
-
-local function firstNumber(...)
-  local values = { ... }
-
-  for _, value in ipairs(values) do
-    if type(value) == "number" then
-      return value
-    end
-  end
-
-  return nil
-end
-
-local function telemetryValue(roleTelemetry, key)
-  return readValue(roleTelemetry and roleTelemetry[key])
-end
-
-local function minMax(values)
-  local minValue = nil
-  local maxValue = nil
-
-  for _, role in ipairs(ROLE_ORDER) do
-    local value = values and values[role]
-    if type(value) == "number" then
-      if not minValue or value < minValue then
-        minValue = value
-      end
-      if not maxValue or value > maxValue then
-        maxValue = value
-      end
-    end
-  end
-
-  return minValue, maxValue
-end
-
 local function statusText(frame, mixed, settings)
   if mixed.correctionLimited then
     return "correction capped"
@@ -251,76 +208,37 @@ local function statusText(frame, mixed, settings)
   return "maxCorr " .. fixed(settings.maxCorrection, 2)
 end
 
+local function telemetryNumber(telemetry, role, key)
+  local read = telemetry
+    and telemetry.roles
+    and telemetry.roles[role]
+    and telemetry.roles[role][key]
+
+  if type(read) == "table" and read.ok and type(read.value) == "number" then
+    return read.value
+  end
+
+  return nil
+end
+
 local function roleText(role, mixed, telemetry)
   local signal = mixed.signals and mixed.signals[role]
   local power = mixed.power and mixed.power[role]
-  local roleTelemetry = telemetry and telemetry.roles and telemetry.roles[role]
-  local readSignal = telemetryValue(roleTelemetry, "signal")
-  local speed = firstNumber(
-    telemetryValue(roleTelemetry, "outputSpeed"),
-    telemetryValue(roleTelemetry, "speed")
-  )
-  local rotorAirflow = telemetryValue(roleTelemetry, "rotorAirflow")
-  local rotorThrust = telemetryValue(roleTelemetry, "rotorThrust")
-  local rotorAngle = telemetryValue(roleTelemetry, "rotorAngle")
-  local rotorSailPower = telemetryValue(roleTelemetry, "rotorSailPower")
-  local rotorSpeed = telemetryValue(roleTelemetry, "rotorSpeed")
-  local rotorAngularSpeed = telemetryValue(roleTelemetry, "rotorAngularSpeed")
-  local rotorActive = roleTelemetry and roleTelemetry.rotorActive
+  local rotorThrust = telemetryNumber(telemetry, role, "rotorThrust")
   local powerText = "?"
-  local readText = ""
-  local speedText = "out?"
-  local rotorText = "rotor ?"
-  local activeText = ""
+  local thrustText = ""
 
   if type(power) == "number" then
     powerText = fixed(power, 1)
   end
 
-  if type(readSignal) == "number" then
-    readText = " rd " .. tostring(readSignal)
-  end
-
-  if type(speed) == "number" then
-    speedText = "out" .. compactNumber(speed, 0)
-  end
-
-  if type(rotorSpeed) == "number" and speedText == "out?" then
-    speedText = "rot" .. compactNumber(rotorSpeed, 0)
-  elseif type(rotorSpeed) == "number" then
-    speedText = speedText .. " r" .. compactNumber(rotorSpeed, 0)
-  elseif type(rotorAngularSpeed) == "number" then
-    speedText = speedText .. " av" .. compactNumber(rotorAngularSpeed, 0)
-  end
-
-  if rotorActive and rotorActive.ok and type(rotorActive.value) == "boolean" then
-    activeText = rotorActive.value and " on" or " off"
-  end
-
-  if type(rotorAirflow) == "number" and type(rotorThrust) == "number" then
-    rotorText = "air" .. compactNumber(rotorAirflow, 1) .. " th" .. compactNumber(rotorThrust, 1)
-  elseif type(rotorAirflow) == "number" and type(rotorAngle) == "number" then
-    rotorText = "air" .. compactNumber(rotorAirflow, 1) .. " a" .. compactNumber(rotorAngle, 0)
-  elseif type(rotorAirflow) == "number" then
-    rotorText = "air" .. compactNumber(rotorAirflow, 1)
-  elseif type(rotorThrust) == "number" then
-    rotorText = "th" .. compactNumber(rotorThrust, 1)
-  elseif type(rotorAngle) == "number" then
-    rotorText = "ang" .. compactNumber(rotorAngle, 0)
-  elseif type(rotorSailPower) == "number" then
-    rotorText = "sail" .. compactNumber(rotorSailPower, 0)
-  elseif type(rotorSpeed) == "number" then
-    rotorText = "rot" .. compactNumber(rotorSpeed, 0)
-  end
-
-  if type(rotorAngle) == "number" and type(rotorSailPower) == "number" and #rotorText < 14 then
-    rotorText = rotorText .. " s" .. compactNumber(rotorSailPower, 0)
+  if type(rotorThrust) == "number" then
+    thrustText = " th " .. compactNumber(rotorThrust)
   end
 
   return {
-    ROLE_LABELS[role] .. " sig " .. tostring(signal or "?") .. readText,
-    "p" .. powerText .. " " .. speedText,
-    rotorText .. activeText,
+    ROLE_LABELS[role] .. " sig " .. tostring(signal or "?"),
+    "pwr " .. powerText .. thrustText,
   }
 end
 
@@ -329,48 +247,6 @@ local function drawRolePanel(target, role, x, y, width, mixed, telemetry, alignR
 
   writeAt(target, x, y, lines[1], width, alignRight)
   writeAt(target, x, y + 1, lines[2], width, alignRight)
-  writeAt(target, x, y + 2, lines[3], width, alignRight)
-end
-
-local function timingText(frame)
-  if type(frame.dt) ~= "number" or frame.dt <= 0 then
-    return "dt ? hz ?"
-  end
-
-  return "dt " .. fixed(frame.dt, 2) .. " hz " .. fixed(1 / frame.dt, 1)
-end
-
-local function costText(frame)
-  local parts = {}
-
-  if frame.telemetry and type(frame.telemetry.elapsed) == "number" then
-    table.insert(parts, "tel " .. fixed(frame.telemetry.elapsed * 1000, 0) .. "ms")
-  end
-
-  if frame.nixies and frame.nixies.updated and type(frame.nixies.elapsed) == "number" then
-    table.insert(parts, "nix " .. fixed(frame.nixies.elapsed * 1000, 0) .. "ms")
-  end
-
-  if #parts == 0 then
-    return ""
-  end
-
-  return table.concat(parts, " ")
-end
-
-local function spreadText(mixed)
-  local signalMin, signalMax = minMax(mixed.signals)
-  local powerMin, powerMax = minMax(mixed.power)
-  local parts = {}
-
-  if signalMin and signalMax then
-    table.insert(parts, "sig " .. tostring(signalMin) .. "-" .. tostring(signalMax))
-  end
-  if powerMin and powerMax then
-    table.insert(parts, "pwr " .. fixed(powerMin, 1) .. "-" .. fixed(powerMax, 1))
-  end
-
-  return table.concat(parts, " ")
 end
 
 local function drawCompact(target, frame, settings, active, status, width)
@@ -383,13 +259,7 @@ local function drawCompact(target, frame, settings, active, status, width)
   writeLine(target, 5, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
   writeLine(target, 6, "signal " .. roleValues(mixed.signals), width)
   writeLine(target, 7, "power  " .. roleValues(mixed.power, 1), width)
-  writeLine(target, 8, timingText(frame), width)
-  if costText(frame) ~= "" then
-    writeLine(target, 9, costText(frame), width)
-    writeLine(target, 10, statusText(frame, mixed, settings), width)
-  else
-    writeLine(target, 9, statusText(frame, mixed, settings), width)
-  end
+  writeLine(target, 8, statusText(frame, mixed, settings), width)
 end
 
 local function drawCornerLayout(target, frame, settings, status, width, height)
@@ -397,7 +267,7 @@ local function drawCornerLayout(target, frame, settings, status, width, height)
   local telemetry = frame.telemetry
   local panelWidth = math.max(12, math.min(18, math.floor(width / 2) - 1))
   local rightX = width - panelWidth + 1
-  local bottomY = math.max(8, height - 3)
+  local bottomY = math.max(8, height - 2)
   local centerY = math.max(5, math.floor(height / 2) - 1)
 
   writeCentered(target, 1, "AIRCRAFT STABILIZE " .. status, width)
@@ -412,18 +282,9 @@ local function drawCornerLayout(target, frame, settings, status, width, height)
     writeCentered(target, centerY, "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1), width)
     writeCentered(target, centerY + 1, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
     writeCentered(target, centerY + 2, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
-    writeCentered(target, centerY + 3, timingText(frame), width)
-    if spreadText(mixed) ~= "" and centerY + 4 < bottomY then
-      writeCentered(target, centerY + 4, spreadText(mixed), width)
-    end
   end
 
-  local footer = statusText(frame, mixed, settings)
-  local costs = costText(frame)
-  if costs ~= "" then
-    footer = footer .. "  " .. costs
-  end
-  writeCentered(target, height, footer, width)
+  writeCentered(target, height, statusText(frame, mixed, settings), width)
 end
 
 local function settingsFrom(config, options)

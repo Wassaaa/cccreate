@@ -504,37 +504,21 @@ local function brakeDevices(devices, signal)
   return results
 end
 
-local function readActuatorTelemetry(devices, rotorDevices)
-  local startTime = os.clock()
+local function readRotorTelemetry(rotorDevices)
   local result = {
     roles = {},
   }
 
   for _, role in ipairs(ROLE_ORDER) do
-    local device = devices[role]
     local roleTelemetry = {}
-
-    if device then
-      roleTelemetry.signal = readOptionalGetter(device.object, "getSignal")
-      roleTelemetry.outputSpeed = readOptionalGetter(device.object, "getOutputSpeed")
-      roleTelemetry.speed = readOptionalGetter(device.object, "getSpeed")
-    end
-
     local rotor = rotorDevices and rotorDevices[role]
+
     if rotor then
-      roleTelemetry.rotorAirflow = readOptionalGetter(rotor.object, "getAirflow")
       roleTelemetry.rotorThrust = readOptionalGetter(rotor.object, "getThrust")
-      roleTelemetry.rotorAngularSpeed = readOptionalGetter(rotor.object, "getAngularSpeed")
-      roleTelemetry.rotorSailPower = readOptionalGetter(rotor.object, "getSailPower")
-      roleTelemetry.rotorAngle = readOptionalGetter(rotor.object, "getAngle")
-      roleTelemetry.rotorSpeed = readOptionalGetter(rotor.object, "getSpeed")
-      roleTelemetry.rotorActive = readOptionalGetter(rotor.object, "isActive")
     end
 
     result.roles[role] = roleTelemetry
   end
-
-  result.elapsed = os.clock() - startTime
 
   return result
 end
@@ -665,7 +649,6 @@ function flightControl.stabilize(config, options)
     local startTime = os.clock()
     local deadline = startTime + settings.seconds
     local frameIndex = 1
-    local previousElapsed = nil
 
     while true do
       if active and frameIndex > 1 and os.clock() >= deadline then
@@ -681,9 +664,6 @@ function flightControl.stabilize(config, options)
         state = state,
         mixed = mixed,
       }
-      if previousElapsed then
-        frame.dt = frame.elapsed - previousElapsed
-      end
       local attitudeExceeded = math.abs(mixed.error1) > settings.maxAttitudeDelta
         or math.abs(mixed.error2) > settings.maxAttitudeDelta
 
@@ -700,11 +680,10 @@ function flightControl.stabilize(config, options)
 
       frame.nixies = updateNixies(frame, attitudeExceeded)
       if hud.shouldUpdate(hudContext, frame, attitudeExceeded) then
-        frame.telemetry = readActuatorTelemetry(devices, rotorDevices)
+        frame.telemetry = readRotorTelemetry(rotorDevices)
       end
       frame.hud = hud.update(hudContext, frame, settings, active, attitudeExceeded)
       table.insert(report.frames, frame)
-      previousElapsed = frame.elapsed
 
       if attitudeExceeded then
         break
