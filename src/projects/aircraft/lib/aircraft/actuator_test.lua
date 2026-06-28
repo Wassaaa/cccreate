@@ -216,7 +216,7 @@ local function makeBaseReport(kind, config, scan, routerName)
     computerId = os.getComputerID(),
     label = os.getComputerLabel(),
     dryRun = config.dryRun ~= false,
-    absoluteSignalMax = tonumber(config.absoluteSignalMax) or 10,
+    absoluteSignalMax = tonumber(config.absoluteSignalMax) or 15,
     scanPath = config.reportPath or "/aircraft_scan.txt",
     router = {
       name = routerName or (scan.router and scan.router.name),
@@ -270,7 +270,7 @@ end
 
 function actuatorTest.signal(config, options)
   local scan, router, routerName = loadContext(config)
-  local maxSignal = tonumber(config.absoluteSignalMax) or 10
+  local maxSignal = tonumber(config.absoluteSignalMax) or 15
   local requestedSignal = tonumber(options.signal)
 
   if not requestedSignal then
@@ -341,6 +341,56 @@ function actuatorTest.signal(config, options)
 
   local path = saveAndSend(config, report)
   print("Aircraft signal test report: " .. path)
+  print("applied=" .. tostring(report.applied) .. " actions=" .. tostring(#report.actions))
+  if report.blockedReason then
+    print("blocked: " .. report.blockedReason)
+  end
+
+  return report
+end
+
+function actuatorTest.brake(config, options)
+  local scan, router, routerName = loadContext(config)
+  local maxSignal = tonumber(config.absoluteSignalMax) or 15
+  local brakeSignal = tonumber(config.brakeSignal) or maxSignal
+  local roles = selectedRoles(options.role or "all")
+  local signal = clamp(brakeSignal, 0, maxSignal)
+  local report = makeBaseReport("aircraft_brake", config, scan, routerName)
+  report.request = {
+    role = options.role or "all",
+    signal = signal,
+    apply = options.apply == true,
+  }
+
+  local active = options.apply == true and config.dryRun == false
+  report.applied = active
+  if options.apply == true and not active then
+    report.blockedReason = "config.dryRun is true"
+  end
+
+  local devices = collectScalarDevices(router, scan, roles, report)
+
+  for _, device in ipairs(devices) do
+    local action = {
+      role = device.role,
+      coord = device.coord,
+      method = "setSignal",
+      signal = signal,
+      before = readScalarState(device),
+    }
+
+    if active then
+      action.setResult = callSetter(device, "setSignal", signal)
+      action.after = readScalarState(device)
+    else
+      action.dryRun = true
+    end
+
+    table.insert(report.actions, action)
+  end
+
+  local path = saveAndSend(config, report)
+  print("Aircraft brake report: " .. path)
   print("applied=" .. tostring(report.applied) .. " actions=" .. tostring(#report.actions))
   if report.blockedReason then
     print("blocked: " .. report.blockedReason)

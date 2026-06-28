@@ -17,12 +17,27 @@ return {
 
   -- Future control safety defaults. V1 scan mode does not actuate anything.
   dryRun = true,
-  absoluteSignalMax = 10,
+  absoluteSignalMax = 15,
+  brakeSignal = 15,
   maxAttitudeDelta = 2,
   statusReadLimit = 8,
+  level = nil,
+  stabilize = {
+    interval = 0.1,
+    seconds = 1,
+    basePower = 0,
+    axis1Kp = 0.08,
+    axis2Kp = 0.08,
+    axis1Kd = 0.08,
+    axis2Kd = 0.08,
+    axis1Sign = 1,
+    axis2Sign = 1,
+    brakeOnExit = true,
+  },
 
   reportPath = "/aircraft_scan.txt",
   statusReportPath = "/aircraft_status.txt",
   actuatorReportPath = "/aircraft_actuator_test.txt",
+  stabilizeReportPath = "/aircraft_stabilize.txt",
   sendWebhook = true,
 }

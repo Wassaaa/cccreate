@@ -1,5 +1,6 @@
 local coords = require("lib.aircraft.coords")
 local actuatorTest = require("lib.aircraft.actuator_test")
+local flightControl = require("lib.aircraft.flight_control")
 local scanner = require("lib.aircraft.scanner")
 local reporting = require("lib.aircraft.reporting")
 local status = require("lib.aircraft.status")
@@ -19,12 +20,26 @@ local DEFAULT_CONFIG = {
   frontAxis = nil,
   leftAxis = nil,
   dryRun = true,
-  absoluteSignalMax = 10,
+  absoluteSignalMax = 15,
+  brakeSignal = 15,
   maxAttitudeDelta = 2,
   statusReadLimit = 8,
   reportPath = "/aircraft_scan.txt",
   statusReportPath = "/aircraft_status.txt",
   actuatorReportPath = "/aircraft_actuator_test.txt",
+  stabilizeReportPath = "/aircraft_stabilize.txt",
+  stabilize = {
+    interval = 0.1,
+    seconds = 1,
+    basePower = 0,
+    axis1Kp = 0.08,
+    axis2Kp = 0.08,
+    axis1Kd = 0.08,
+    axis2Kd = 0.08,
+    axis1Sign = 1,
+    axis2Sign = 1,
+    brakeOnExit = true,
+  },
   sendWebhook = true,
 }
 
@@ -34,6 +49,10 @@ local function usage()
   print("aircraft config show")
   print("aircraft config axes <frontAxis> <leftAxis>")
   print("aircraft config dry-run <true|false>")
+  print("aircraft config max-signal <0-15>")
+  print("aircraft brake [role|all] [--apply]")
+  print("aircraft level-set")
+  print("aircraft stabilize [--apply] [--seconds n] [--base-power n]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n]")
   print("aircraft zero [role|all] [--apply]")
   print("aircraft help")
@@ -296,7 +315,13 @@ local function printConfig(config, source)
   print("  leftAxis=" .. tostring(config.leftAxis))
   print("  dryRun=" .. tostring(config.dryRun))
   print("  absoluteSignalMax=" .. tostring(config.absoluteSignalMax))
+  print("  brakeSignal=" .. tostring(config.brakeSignal))
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
+  if config.level and config.level.angles then
+    print("  level.angles=" .. textutils.serialize(config.level.angles))
+  else
+    print("  level.angles=nil")
+  end
 end
 
 local function runConfig()
@@ -327,6 +352,17 @@ local function runConfig()
     saveConfig(config)
     print("Saved dryRun=" .. tostring(config.dryRun) .. " to " .. CONFIG_PATH)
     return
+  elseif subcommand == "max-signal" then
+    local signal = tonumber(args[3])
+    if not signal or signal < 0 or signal > 15 then
+      error("max-signal must be a number from 0 to 15", 0)
+    end
+
+    config.absoluteSignalMax = signal
+    config.brakeSignal = signal
+    saveConfig(config)
+    print("Saved absoluteSignalMax=" .. tostring(signal) .. " and brakeSignal=" .. tostring(signal) .. " to " .. CONFIG_PATH)
+    return
   end
 
   error("Unknown aircraft config command: " .. tostring(subcommand), 0)
@@ -346,6 +382,30 @@ local function parseCommandOptions(startIndex)
       options.seconds = tonumber(args[i + 1])
       if not options.seconds then
         error("--seconds needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--base-power" then
+      options.basePower = tonumber(args[i + 1])
+      if not options.basePower then
+        error("--base-power needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--interval" then
+      options.interval = tonumber(args[i + 1])
+      if not options.interval then
+        error("--interval needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--kp" then
+      options.kp = tonumber(args[i + 1])
+      if not options.kp then
+        error("--kp needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--kd" then
+      options.kd = tonumber(args[i + 1])
+      if not options.kd then
+        error("--kd needs a number", 0)
       end
       i = i + 2
     else
@@ -370,6 +430,38 @@ local function runSignal()
   options.signal = signal
 
   actuatorTest.signal(config, options)
+end
+
+local function runBrake()
+  local config = loadConfig()
+  local role = args[2] or "all"
+  local optionStart = 3
+
+  if string.sub(role, 1, 2) == "--" then
+    role = "all"
+    optionStart = 2
+  end
+
+  local options = parseCommandOptions(optionStart)
+  options.role = role
+
+  actuatorTest.brake(config, options)
+end
+
+local function runLevelSet()
+  local config = loadConfig()
+  local report = flightControl.levelSet(config)
+
+  config.level = report.level
+  saveConfig(config)
+  print("Saved level-set to " .. CONFIG_PATH)
+end
+
+local function runStabilize()
+  local config = loadConfig()
+  local options = parseCommandOptions(2)
+
+  flightControl.stabilize(config, options)
 end
 
 local function runZero()
@@ -413,6 +505,24 @@ elseif command == "signal" then
   if not ok then
     print("aircraft signal failed: " .. tostring(result))
     error("aircraft signal failed", 0)
+  end
+elseif command == "brake" then
+  local ok, result = pcall(runBrake)
+  if not ok then
+    print("aircraft brake failed: " .. tostring(result))
+    error("aircraft brake failed", 0)
+  end
+elseif command == "level-set" then
+  local ok, result = pcall(runLevelSet)
+  if not ok then
+    print("aircraft level-set failed: " .. tostring(result))
+    error("aircraft level-set failed", 0)
+  end
+elseif command == "stabilize" then
+  local ok, result = pcall(runStabilize)
+  if not ok then
+    print("aircraft stabilize failed: " .. tostring(result))
+    error("aircraft stabilize failed", 0)
   end
 elseif command == "zero" then
   local ok, result = pcall(runZero)
