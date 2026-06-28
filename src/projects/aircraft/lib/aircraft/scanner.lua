@@ -154,23 +154,31 @@ local function directPeripherals()
   return entries
 end
 
-local function findRouter()
-  local router, name = peripheral.find("peripheral_router")
-
-  if router and type(router.wrap) == "function" then
-    return router, name
+local function isRouterType(types)
+  for _, typeName in ipairs(types or {}) do
+    if string.find(string.lower(tostring(typeName)), "peripheral_router", 1, true) then
+      return true
+    end
   end
 
-  for _, peripheralName in ipairs(peripheral.getNames()) do
-    local types = { safePeripheralTypes(peripheralName) }
-    local typeText = table.concat(types[1] or {}, " ")
+  return false
+end
 
-    if string.find(string.lower(typeText), "peripheral_router", 1, true) then
+local function findRouter()
+  for _, peripheralName in ipairs(peripheral.getNames()) do
+    local types = safePeripheralTypes(peripheralName)
+
+    if isRouterType(types) then
       local wrapped = peripheral.wrap(peripheralName)
       if wrapped and type(wrapped.wrap) == "function" then
         return wrapped, peripheralName
       end
     end
+  end
+
+  local router = peripheral.find("peripheral_router")
+  if router and type(router.wrap) == "function" then
+    return router, nil
   end
 
   return nil, nil
