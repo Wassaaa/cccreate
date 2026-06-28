@@ -44,6 +44,26 @@ local function clamp(value, minValue, maxValue)
   return value
 end
 
+local function atan2(y, x)
+  if math.atan2 then
+    return math.atan2(y, x)
+  end
+
+  if x > 0 then
+    return math.atan(y / x)
+  elseif x < 0 and y >= 0 then
+    return math.atan(y / x) + math.pi
+  elseif x < 0 and y < 0 then
+    return math.atan(y / x) - math.pi
+  elseif x == 0 and y > 0 then
+    return math.pi / 2
+  elseif x == 0 and y < 0 then
+    return -math.pi / 2
+  end
+
+  return 0
+end
+
 local function wrapRadians(delta)
   local tau = math.pi * 2
 
@@ -286,6 +306,21 @@ local function numberAt(values, index)
   return value
 end
 
+local function gravityTilt(gravity)
+  local gx = numberAt(gravity, 1)
+  local gy = numberAt(gravity, 2)
+  local gz = numberAt(gravity, 3)
+  local down = -gy
+
+  return {
+    axis1 = atan2(gx, down),
+    axis2 = atan2(gz, down),
+    x = gx,
+    y = gy,
+    z = gz,
+  }
+end
+
 local function stabilizeConfig(config, options)
   local defaults = config.stabilize or {}
 
@@ -293,6 +328,7 @@ local function stabilizeConfig(config, options)
     seconds = tonumber(options.seconds) or tonumber(defaults.seconds) or 1,
     interval = tonumber(options.interval) or tonumber(defaults.interval) or 0.1,
     basePower = tonumber(options.basePower) or tonumber(defaults.basePower) or 0,
+    sensorMode = options.sensorMode or defaults.sensorMode or "gravity",
     maxSignal = tonumber(config.absoluteSignalMax) or 15,
     brakeSignal = tonumber(config.brakeSignal) or tonumber(config.absoluteSignalMax) or 15,
     axis1Kp = tonumber(options.axis1Kp) or tonumber(options.kp) or tonumber(defaults.axis1Kp) or 0.08,
@@ -318,6 +354,16 @@ local function mixerSignals(settings, state, level)
   local neutral2 = numberAt(level.angles, 2)
   local rawError1 = angle1 - neutral1
   local rawError2 = angle2 - neutral2
+  local currentTilt = nil
+  local neutralTilt = nil
+
+  if settings.sensorMode == "gravity" then
+    currentTilt = gravityTilt(state.gravity)
+    neutralTilt = gravityTilt(level.gravity)
+    rawError1 = currentTilt.axis1 - neutralTilt.axis1
+    rawError2 = currentTilt.axis2 - neutralTilt.axis2
+  end
+
   local error1 = wrapRadians(rawError1) * settings.axis1Sign
   local error2 = wrapRadians(rawError2) * settings.axis2Sign
   local rate1 = rawRate1 * settings.axis1Sign
@@ -348,6 +394,9 @@ local function mixerSignals(settings, state, level)
     rawRate2 = rawRate2,
     neutral1 = neutral1,
     neutral2 = neutral2,
+    sensorMode = settings.sensorMode,
+    currentTilt = currentTilt,
+    neutralTilt = neutralTilt,
     rawError1 = rawError1,
     rawError2 = rawError2,
     error1 = error1,
@@ -395,6 +444,8 @@ function flightControl.levelSet(config)
   report.state = state
   report.level = {
     angles = copyPlain(state.angles),
+    gravity = copyPlain(state.gravity),
+    gravityTilt = gravityTilt(state.gravity),
     createdAt = report.createdAt,
   }
 
@@ -414,6 +465,10 @@ function flightControl.stabilize(config, options)
   local gimbal = findGimbal(scan, router)
   local devices = wrapScalarDevices(scan, router)
   local settings = stabilizeConfig(config, options)
+  if settings.sensorMode == "gravity" and type(config.level.gravity) ~= "table" then
+    error("Saved level has no gravity reading. Run aircraft level-set again with the updated controller.", 0)
+  end
+
   local active = options.apply == true and config.dryRun == false
   local report = baseReport("aircraft_stabilize", config, scan, routerName)
 

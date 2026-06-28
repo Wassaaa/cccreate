@@ -27,6 +27,7 @@ return {
     interval = 0.1,
     seconds = 1,
     basePower = 0,
+    sensorMode = "gravity",
     axis1Kp = 0.08,
     axis2Kp = 0.08,
     axis1Kd = 0.08,

@@ -32,6 +32,7 @@ local DEFAULT_CONFIG = {
     interval = 0.1,
     seconds = 1,
     basePower = 0,
+    sensorMode = "gravity",
     axis1Kp = 0.08,
     axis2Kp = 0.08,
     axis1Kd = 0.08,
@@ -54,6 +55,7 @@ local function usage()
   print("aircraft config stabilize-signs <-1|1> <-1|1>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
+  print("aircraft config stabilize-mode <gravity|angles>")
   print("aircraft brake [role|all] [--apply]")
   print("aircraft level-set")
   print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n]")
@@ -178,6 +180,14 @@ local function parseNumber(value, label)
   end
 
   return number
+end
+
+local function parseSensorMode(value)
+  if value == "gravity" or value == "angles" then
+    return value
+  end
+
+  error("sensor mode must be gravity or angles", 0)
 end
 
 local function parseOptions(config)
@@ -339,6 +349,7 @@ local function printConfig(config, source)
   print("  absoluteSignalMax=" .. tostring(config.absoluteSignalMax))
   print("  brakeSignal=" .. tostring(config.brakeSignal))
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
+  print("  stabilize.sensorMode=" .. tostring(config.stabilize.sensorMode))
   print("  stabilize.axis1Sign=" .. tostring(config.stabilize.axis1Sign))
   print("  stabilize.axis2Sign=" .. tostring(config.stabilize.axis2Sign))
   print("  stabilize.axis1Kp=" .. tostring(config.stabilize.axis1Kp))
@@ -428,6 +439,12 @@ local function runConfig()
     print("  maxCorrection=" .. tostring(config.stabilize.maxCorrection))
     print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
     return
+  elseif subcommand == "stabilize-mode" then
+    config.stabilize.sensorMode = parseSensorMode(args[3])
+    saveConfig(config)
+    print("Saved stabilize sensor mode to " .. CONFIG_PATH)
+    print("  sensorMode=" .. tostring(config.stabilize.sensorMode))
+    return
   end
 
   error("Unknown aircraft config command: " .. tostring(subcommand), 0)
@@ -454,6 +471,9 @@ local function parseCommandOptions(startIndex)
       if not options.basePower then
         error("--base-power needs a number", 0)
       end
+      i = i + 2
+    elseif arg == "--sensor-mode" then
+      options.sensorMode = parseSensorMode(args[i + 1])
       i = i + 2
     elseif arg == "--interval" then
       options.interval = tonumber(args[i + 1])
