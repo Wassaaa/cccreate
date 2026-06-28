@@ -3,7 +3,7 @@ local displays = require("lib.aircraft.displays")
 local reporting = require("lib.aircraft.reporting")
 
 local flightControl = {}
-local CONTROLLER_VERSION = "timer-stop-v1"
+local CONTROLLER_VERSION = "clock-stop-v2"
 
 local ROLE_ORDER = {
   "front_left",
@@ -334,13 +334,13 @@ local function stabilizeConfig(config, options)
     basePower = tonumber(options.basePower) or tonumber(defaults.basePower) or 0,
     maxSignal = tonumber(config.absoluteSignalMax) or 15,
     brakeSignal = tonumber(config.brakeSignal) or tonumber(config.absoluteSignalMax) or 15,
-    axis1Kp = tonumber(options.axis1Kp) or tonumber(options.kp) or tonumber(defaults.axis1Kp) or 1,
-    axis2Kp = tonumber(options.axis2Kp) or tonumber(options.kp) or tonumber(defaults.axis2Kp) or 1,
-    axis1Kd = tonumber(options.axis1Kd) or tonumber(options.kd) or tonumber(defaults.axis1Kd) or 0.03,
-    axis2Kd = tonumber(options.axis2Kd) or tonumber(options.kd) or tonumber(defaults.axis2Kd) or 0.05,
+    axis1Kp = tonumber(options.axis1Kp) or tonumber(options.kp) or tonumber(defaults.axis1Kp) or 4,
+    axis2Kp = tonumber(options.axis2Kp) or tonumber(options.kp) or tonumber(defaults.axis2Kp) or 4,
+    axis1Kd = tonumber(options.axis1Kd) or tonumber(options.kd) or tonumber(defaults.axis1Kd) or 0.12,
+    axis2Kd = tonumber(options.axis2Kd) or tonumber(options.kd) or tonumber(defaults.axis2Kd) or 0.2,
     axis1Sign = tonumber(options.axis1Sign) or tonumber(defaults.axis1Sign) or -1,
     axis2Sign = tonumber(options.axis2Sign) or tonumber(defaults.axis2Sign) or 1,
-    maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 0.75,
+    maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 1.5,
     maxAttitudeDelta = tonumber(options.maxAttitudeDelta) or tonumber(defaults.maxAttitudeDelta)
       or tonumber(config.maxAttitudeDelta)
       or 2,
@@ -513,7 +513,7 @@ function flightControl.stabilize(config, options)
   report.timing = {
     requestedSeconds = settings.seconds,
     interval = settings.interval,
-    mode = "computer_timer",
+    mode = "os_clock",
   }
 
   local displayContext = displays.collect(config, router, scan, options)
@@ -524,15 +524,21 @@ function flightControl.stabilize(config, options)
   end
 
   local function runLoop()
-    local stopTimer = active and os.startTimer(settings.seconds) or nil
-    local stopRequested = false
+    local startTime = os.clock()
+    local deadline = startTime + settings.seconds
     local frameIndex = 1
 
     while true do
+      if active and frameIndex > 1 and os.clock() >= deadline then
+        report.timing.stopReason = "duration_clock"
+        break
+      end
+
       local state = readGimbal(gimbal)
       local mixed = mixerSignals(settings, state, config.level)
       local frame = {
         index = frameIndex,
+        elapsed = os.clock() - startTime,
         state = state,
         mixed = mixed,
       }
@@ -561,35 +567,17 @@ function flightControl.stabilize(config, options)
         break
       end
 
-      local intervalTimer = os.startTimer(settings.interval)
-
-      while true do
-        local event, timerId = os.pullEvent()
-
-        if event == "timer" and timerId == stopTimer then
-          stopRequested = true
-          report.timing.stopReason = "duration_timer"
-          break
-        elseif event == "timer" and timerId == intervalTimer then
-          break
-        end
-      end
-
-      if stopRequested and os.cancelTimer then
-        os.cancelTimer(intervalTimer)
-      end
-
-      if stopRequested then
+      local remaining = deadline - os.clock()
+      if remaining <= 0 then
+        report.timing.stopReason = "duration_clock"
         break
       end
 
+      sleep(math.min(settings.interval, remaining))
       frameIndex = frameIndex + 1
     end
 
-    if stopTimer and os.cancelTimer then
-      os.cancelTimer(stopTimer)
-    end
-
+    report.timing.elapsed = os.clock() - startTime
     if not report.timing.stopReason then
       report.timing.stopReason = report.abortReason or "loop_complete"
     end
