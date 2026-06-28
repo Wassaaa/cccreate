@@ -44,6 +44,20 @@ local function clamp(value, minValue, maxValue)
   return value
 end
 
+local function wrapRadians(delta)
+  local tau = math.pi * 2
+
+  while delta > math.pi do
+    delta = delta - tau
+  end
+
+  while delta < -math.pi do
+    delta = delta + tau
+  end
+
+  return delta
+end
+
 local function safePeripheralTypes(name)
   local values = { pcall(peripheral.getType, name) }
   local ok = table.remove(values, 1)
@@ -287,6 +301,10 @@ local function stabilizeConfig(config, options)
     axis2Kd = tonumber(options.axis2Kd) or tonumber(options.kd) or tonumber(defaults.axis2Kd) or 0.08,
     axis1Sign = tonumber(options.axis1Sign) or tonumber(defaults.axis1Sign) or 1,
     axis2Sign = tonumber(options.axis2Sign) or tonumber(defaults.axis2Sign) or 1,
+    maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 0.75,
+    maxAttitudeDelta = tonumber(options.maxAttitudeDelta) or tonumber(defaults.maxAttitudeDelta)
+      or tonumber(config.maxAttitudeDelta)
+      or 2,
     brakeOnExit = defaults.brakeOnExit ~= false,
   }
 end
@@ -298,12 +316,16 @@ local function mixerSignals(settings, state, level)
   local rawRate2 = numberAt(state.angularRates, 2)
   local neutral1 = numberAt(level.angles, 1)
   local neutral2 = numberAt(level.angles, 2)
-  local error1 = (angle1 - neutral1) * settings.axis1Sign
-  local error2 = (angle2 - neutral2) * settings.axis2Sign
+  local rawError1 = angle1 - neutral1
+  local rawError2 = angle2 - neutral2
+  local error1 = wrapRadians(rawError1) * settings.axis1Sign
+  local error2 = wrapRadians(rawError2) * settings.axis2Sign
   local rate1 = rawRate1 * settings.axis1Sign
   local rate2 = rawRate2 * settings.axis2Sign
-  local correction1 = -(settings.axis1Kp * error1 + settings.axis1Kd * rate1)
-  local correction2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2)
+  local rawCorrection1 = -(settings.axis1Kp * error1 + settings.axis1Kd * rate1)
+  local rawCorrection2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2)
+  local correction1 = clamp(rawCorrection1, -settings.maxCorrection, settings.maxCorrection)
+  local correction2 = clamp(rawCorrection2, -settings.maxCorrection, settings.maxCorrection)
   local power = {
     front_left = settings.basePower + correction1 - correction2,
     front_right = settings.basePower - correction1 - correction2,
@@ -326,10 +348,15 @@ local function mixerSignals(settings, state, level)
     rawRate2 = rawRate2,
     neutral1 = neutral1,
     neutral2 = neutral2,
+    rawError1 = rawError1,
+    rawError2 = rawError2,
     error1 = error1,
     error2 = error2,
+    rawCorrection1 = rawCorrection1,
+    rawCorrection2 = rawCorrection2,
     correction1 = correction1,
     correction2 = correction2,
+    correctionLimited = correction1 ~= rawCorrection1 or correction2 ~= rawCorrection2,
     power = power,
     signals = signals,
   }
@@ -420,14 +447,25 @@ function flightControl.stabilize(config, options)
         state = state,
         mixed = mixed,
       }
+      local attitudeExceeded = math.abs(mixed.error1) > settings.maxAttitudeDelta
+        or math.abs(mixed.error2) > settings.maxAttitudeDelta
 
-      if active then
+      if attitudeExceeded then
+        frame.aborted = true
+        frame.abortReason = "attitude error exceeded maxAttitudeDelta"
+        report.aborted = true
+        report.abortReason = frame.abortReason
+      elseif active then
         frame.setResults = applySignals(devices, mixed.signals)
       else
         frame.dryRun = true
       end
 
       table.insert(report.frames, frame)
+
+      if attitudeExceeded then
+        break
+      end
 
       if active and frameIndex < frames then
         sleep(settings.interval)

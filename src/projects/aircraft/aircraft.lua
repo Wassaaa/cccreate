@@ -38,6 +38,7 @@ local DEFAULT_CONFIG = {
     axis2Kd = 0.08,
     axis1Sign = 1,
     axis2Sign = 1,
+    maxCorrection = 0.75,
     brakeOnExit = true,
   },
   sendWebhook = true,
@@ -52,6 +53,7 @@ local function usage()
   print("aircraft config max-signal <0-15>")
   print("aircraft config stabilize-signs <-1|1> <-1|1>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
+  print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
   print("aircraft brake [role|all] [--apply]")
   print("aircraft level-set")
   print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n]")
@@ -343,6 +345,7 @@ local function printConfig(config, source)
   print("  stabilize.axis1Kd=" .. tostring(config.stabilize.axis1Kd))
   print("  stabilize.axis2Kp=" .. tostring(config.stabilize.axis2Kp))
   print("  stabilize.axis2Kd=" .. tostring(config.stabilize.axis2Kd))
+  print("  stabilize.maxCorrection=" .. tostring(config.stabilize.maxCorrection))
   if config.level and config.level.angles then
     print("  level.angles=" .. textutils.serialize(config.level.angles))
   else
@@ -406,6 +409,24 @@ local function runConfig()
     print("Saved stabilize gains to " .. CONFIG_PATH)
     print("  axis1Kp=" .. tostring(config.stabilize.axis1Kp) .. " axis1Kd=" .. tostring(config.stabilize.axis1Kd))
     print("  axis2Kp=" .. tostring(config.stabilize.axis2Kp) .. " axis2Kd=" .. tostring(config.stabilize.axis2Kd))
+    return
+  elseif subcommand == "stabilize-limits" then
+    local maxCorrection = parseNumber(args[3], "maxCorrection")
+    local maxAttitudeDelta = parseNumber(args[4], "maxAttitudeDelta")
+
+    if maxCorrection < 0 then
+      error("maxCorrection must be zero or greater", 0)
+    end
+    if maxAttitudeDelta <= 0 then
+      error("maxAttitudeDelta must be greater than zero", 0)
+    end
+
+    config.stabilize.maxCorrection = maxCorrection
+    config.maxAttitudeDelta = maxAttitudeDelta
+    saveConfig(config)
+    print("Saved stabilize limits to " .. CONFIG_PATH)
+    print("  maxCorrection=" .. tostring(config.stabilize.maxCorrection))
+    print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
     return
   end
 
@@ -481,6 +502,18 @@ local function parseCommandOptions(startIndex)
       i = i + 2
     elseif arg == "--axis2-sign" then
       options.axis2Sign = parseSign(args[i + 1], "--axis2-sign")
+      i = i + 2
+    elseif arg == "--max-correction" then
+      options.maxCorrection = tonumber(args[i + 1])
+      if not options.maxCorrection or options.maxCorrection < 0 then
+        error("--max-correction needs a non-negative number", 0)
+      end
+      i = i + 2
+    elseif arg == "--max-attitude" then
+      options.maxAttitudeDelta = tonumber(args[i + 1])
+      if not options.maxAttitudeDelta or options.maxAttitudeDelta <= 0 then
+        error("--max-attitude needs a positive number", 0)
+      end
       i = i + 2
     else
       error("Unknown aircraft option: " .. tostring(arg), 0)
