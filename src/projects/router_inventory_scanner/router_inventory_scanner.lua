@@ -2,10 +2,9 @@ local reporter = require("lib.reporter")
 
 local DEFAULT_RADIUS = 2
 local DEFAULT_Y_RADIUS = 1
-local DEFAULT_SAMPLE_LIMIT = 5
+local DEFAULT_SAMPLE_LIMIT = 0
 local MAX_RADIUS = 16
 local DEFAULT_MAP_REPORT_PATH = "router_base_map_report.txt"
-local DEFAULT_SCAN_REPORT_PATH = "router_inventory_scan_report.txt"
 local DEFAULT_STACK_REPORT_PATH = "router_stack_report.txt"
 
 local args = { ... }
@@ -24,7 +23,6 @@ local function usage()
   print("Default map is 5x3x5: x/z radius 2, y radius 1.")
   print("Reports write a local file and send webhook unless --no-webhook is set.")
   print("Default files: " .. DEFAULT_MAP_REPORT_PATH .. ", " .. DEFAULT_STACK_REPORT_PATH .. ".")
-  print("Use scan only for the legacy inventory-only report.")
 end
 
 local function contains(values, target)
@@ -92,13 +90,11 @@ end
 local function parseArgs(rawArgs)
   local config = {
     command = "map",
-    requestedCommand = "map",
     radius = DEFAULT_RADIUS,
     xRadius = DEFAULT_RADIUS,
     yRadius = DEFAULT_Y_RADIUS,
     zRadius = DEFAULT_RADIUS,
     sampleLimit = DEFAULT_SAMPLE_LIMIT,
-    includeAll = false,
     includeOrigin = false,
     reportPath = nil,
     outputPath = nil,
@@ -109,11 +105,8 @@ local function parseArgs(rawArgs)
   }
 
   local index = 1
-  if rawArgs[index] == "scan" or rawArgs[index] == "report" or rawArgs[index] == "map"
-    or rawArgs[index] == "stack" or rawArgs[index] == "stack-preview"
-  then
-    config.requestedCommand = rawArgs[index]
-    config.command = rawArgs[index] == "report" and "map" or rawArgs[index]
+  if rawArgs[index] == "map" or rawArgs[index] == "stack" or rawArgs[index] == "stack-preview" then
+    config.command = rawArgs[index]
     config.dryRun = rawArgs[index] == "stack-preview"
     index = index + 1
   elseif rawArgs[index] == "help" or rawArgs[index] == "--help" or rawArgs[index] == "-h" then
@@ -150,9 +143,6 @@ local function parseArgs(rawArgs)
     elseif arg == "--sample" or arg == "-s" then
       config.sampleLimit = parsePositiveInteger(rawArgs[index + 1], "sample")
       index = index + 2
-    elseif arg == "--all" then
-      config.includeAll = true
-      index = index + 1
     elseif arg == "--include-origin" then
       config.includeOrigin = true
       index = index + 1
@@ -204,13 +194,6 @@ local function parseArgs(rawArgs)
   config.width = config.xRadius * 2 + 1
   config.height = config.yRadius * 2 + 1
   config.depth = config.zRadius * 2 + 1
-
-  if config.command == "map" then
-    config.includeAll = true
-    if config.sampleLimit == DEFAULT_SAMPLE_LIMIT then
-      config.sampleLimit = 0
-    end
-  end
 
   if isStackCommand(config.command) then
     if not config.destination then
@@ -578,7 +561,7 @@ local function inspectOffset(router, x, y, z, config)
   return entry
 end
 
-local function scan(config)
+local function buildMap(config)
   local router, routerName = findRouter()
   if not router then
     error("No peripheral_router with wrap(x, y, z) found", 0)
@@ -613,7 +596,7 @@ local function scan(config)
             totalItems = totalItems + (tonumber(entry.totalItems) or 0)
           end
 
-          if entry.inventory or (config.includeAll and entry.ok) or (entry.error and entry.error ~= "no peripheral") then
+          if entry.ok or (entry.error and entry.error ~= "no peripheral") then
             table.insert(results, entry)
           end
         end
@@ -622,9 +605,8 @@ local function scan(config)
   end
 
   return {
-    kind = config.command == "map" and "router_base_map" or "router_inventory_scan",
-    command = config.requestedCommand,
-    effectiveCommand = config.command,
+    kind = "router_base_map",
+    command = config.command,
     computerId = os.getComputerID(),
     label = os.getComputerLabel(),
     router = routerName,
@@ -636,7 +618,6 @@ local function scan(config)
     height = config.height,
     depth = config.depth,
     sampleLimit = config.sampleLimit,
-    includeAll = config.includeAll,
     includeOrigin = config.includeOrigin,
     inspected = inspected,
     wrappable = wrappable,
@@ -661,14 +642,6 @@ local function coordLabel(coord)
   return offsetLabel(coord.x, coord.y, coord.z)
 end
 
-local function defaultReportPath()
-  if fs.exists(DEFAULT_MAP_REPORT_PATH) then
-    return DEFAULT_MAP_REPORT_PATH
-  end
-
-  return DEFAULT_SCAN_REPORT_PATH
-end
-
 local function readAll(path)
   local handle = fs.open(path, "r")
   if not handle then
@@ -681,7 +654,7 @@ local function readAll(path)
 end
 
 local function readStoredReport(path)
-  path = path or defaultReportPath()
+  path = path or DEFAULT_MAP_REPORT_PATH
 
   if not fs.exists(path) then
     error("Report not found: " .. tostring(path) .. ". Run router_inventory_scanner map --radius <n> first.", 0)
@@ -1083,8 +1056,7 @@ local function runStack(config)
 
   return {
     kind = "router_stack",
-    command = config.requestedCommand,
-    effectiveCommand = config.command,
+    command = config.command,
     dryRun = config.dryRun,
     computerId = os.getComputerID(),
     label = os.getComputerLabel(),
@@ -1156,11 +1128,7 @@ local function printResultEntry(entry, sampleLimit)
 end
 
 local function printReport(report)
-  if report.kind == "router_base_map" then
-    print("Router base map")
-  else
-    print("Router inventory scan")
-  end
+  print("Router base map")
   print("Router: " .. tostring(report.router))
   print("Area: " .. report.width .. "x" .. report.height .. "x" .. report.depth)
   print("Radii: x=" .. report.xRadius .. " y=" .. report.yRadius .. " z=" .. report.zRadius)
@@ -1221,11 +1189,7 @@ local function defaultOutputPath(report)
     return DEFAULT_STACK_REPORT_PATH
   end
 
-  if report.kind == "router_base_map" then
-    return DEFAULT_MAP_REPORT_PATH
-  end
-
-  return DEFAULT_SCAN_REPORT_PATH
+  return DEFAULT_MAP_REPORT_PATH
 end
 
 local function saveAndMaybeSend(report, config)
@@ -1251,7 +1215,7 @@ local ok, result = pcall(function()
     return true
   end
 
-  local report = scan(config)
+  local report = buildMap(config)
   printReport(report)
   saveAndMaybeSend(report, config)
   return true
