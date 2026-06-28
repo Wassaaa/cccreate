@@ -51,12 +51,6 @@ local function call(target, method, ...)
   return ok
 end
 
-local function line(target, row, text)
-  call(target, "setCursorPos", 1, row)
-  call(target, "clearLine")
-  call(target, "write", text)
-end
-
 local function number(value, fallback)
   if type(value) == "number" then
     return value
@@ -77,6 +71,54 @@ local function signed(value, digits)
   return string.format("%+." .. tostring(digits or 1) .. "f", number(value))
 end
 
+local function getSize(target)
+  if type(target.getSize) ~= "function" then
+    return 51, 19
+  end
+
+  local ok, width, height = pcall(target.getSize)
+  if ok and type(width) == "number" and type(height) == "number" then
+    return width, height
+  end
+
+  return 51, 19
+end
+
+local function trim(text, width)
+  text = tostring(text or "")
+
+  if width <= 0 then
+    return ""
+  elseif #text <= width then
+    return text
+  end
+
+  return string.sub(text, 1, width)
+end
+
+local function writeAt(target, x, y, text, width, alignRight)
+  width = width or #tostring(text or "")
+  text = trim(text, width)
+
+  if alignRight then
+    x = x + width - #text
+  end
+
+  call(target, "setCursorPos", math.max(1, x), math.max(1, y))
+  call(target, "write", text)
+end
+
+local function writeLine(target, row, text, width)
+  call(target, "setCursorPos", 1, row)
+  call(target, "clearLine")
+  writeAt(target, 1, row, text, width)
+end
+
+local function writeCentered(target, row, text, width)
+  text = trim(text, width)
+  writeAt(target, math.floor((width - #text) / 2) + 1, row, text, #text)
+end
+
 local function roleValues(values, digits)
   local parts = {}
 
@@ -92,6 +134,75 @@ local function roleValues(values, digits)
   end
 
   return table.concat(parts, " ")
+end
+
+local function statusText(frame, mixed, settings)
+  if mixed.correctionLimited then
+    return "correction capped"
+  elseif frame.abortReason then
+    return frame.abortReason
+  end
+
+  return "maxCorr " .. fixed(settings.maxCorrection, 2)
+end
+
+local function roleText(role, mixed)
+  local signal = mixed.signals and mixed.signals[role]
+  local power = mixed.power and mixed.power[role]
+  local powerText = "?"
+
+  if type(power) == "number" then
+    powerText = fixed(power, 1)
+  end
+
+  return {
+    ROLE_LABELS[role] .. " sig " .. tostring(signal or "?"),
+    "pwr " .. powerText,
+  }
+end
+
+local function drawRolePanel(target, role, x, y, width, mixed, alignRight)
+  local lines = roleText(role, mixed)
+
+  writeAt(target, x, y, lines[1], width, alignRight)
+  writeAt(target, x, y + 1, lines[2], width, alignRight)
+end
+
+local function drawCompact(target, frame, settings, active, status, width)
+  local mixed = frame.mixed or {}
+
+  writeLine(target, 1, "AIRCRAFT STABILIZE " .. status, width)
+  writeLine(target, 2, "t " .. fixed(frame.elapsed, 1) .. "/" .. fixed(settings.seconds, 1) .. "s base " .. fixed(settings.basePower, 1), width)
+  writeLine(target, 3, "err A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1) .. " deg", width)
+  writeLine(target, 4, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
+  writeLine(target, 5, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
+  writeLine(target, 6, "signal " .. roleValues(mixed.signals), width)
+  writeLine(target, 7, "power  " .. roleValues(mixed.power, 1), width)
+  writeLine(target, 8, statusText(frame, mixed, settings), width)
+end
+
+local function drawCornerLayout(target, frame, settings, status, width, height)
+  local mixed = frame.mixed or {}
+  local panelWidth = math.max(12, math.min(18, math.floor(width / 2) - 1))
+  local rightX = width - panelWidth + 1
+  local bottomY = math.max(8, height - 2)
+  local centerY = math.max(5, math.floor(height / 2) - 1)
+
+  writeCentered(target, 1, "AIRCRAFT STABILIZE " .. status, width)
+  writeCentered(target, 2, "t " .. fixed(frame.elapsed, 1) .. "/" .. fixed(settings.seconds, 1) .. "s  base " .. fixed(settings.basePower, 1), width)
+
+  drawRolePanel(target, "front_left", 1, 3, panelWidth, mixed, false)
+  drawRolePanel(target, "front_right", rightX, 3, panelWidth, mixed, true)
+  drawRolePanel(target, "rear_left", 1, bottomY, panelWidth, mixed, false)
+  drawRolePanel(target, "rear_right", rightX, bottomY, panelWidth, mixed, true)
+
+  if centerY + 3 < bottomY then
+    writeCentered(target, centerY, "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1), width)
+    writeCentered(target, centerY + 1, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
+    writeCentered(target, centerY + 2, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
+  end
+
+  writeCentered(target, height, statusText(frame, mixed, settings), width)
 end
 
 local function settingsFrom(config, options)
@@ -173,26 +284,21 @@ function hud.update(context, frame, settings, active, force)
     status = "ABORT"
   end
 
+  local width, height = getSize(context.target)
+
   call(context.target, "clear")
-  line(context.target, 1, "AIRCRAFT STABILIZE " .. status)
-  line(context.target, 2, "t " .. fixed(elapsed, 1) .. "/" .. fixed(settings.seconds, 1) .. "s base " .. fixed(settings.basePower, 1))
-  line(context.target, 3, "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1))
-  line(context.target, 4, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2))
-  line(context.target, 5, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2))
-  line(context.target, 6, "signal " .. roleValues(mixed.signals))
-  line(context.target, 7, "power  " .. roleValues(mixed.power, 1))
-  if mixed.correctionLimited then
-    line(context.target, 8, "correction capped")
-  elseif frame.abortReason then
-    line(context.target, 8, frame.abortReason)
+  if width >= 40 and height >= 12 then
+    drawCornerLayout(context.target, frame, settings, status, width, height)
   else
-    line(context.target, 8, "maxCorr " .. fixed(settings.maxCorrection, 2))
+    drawCompact(context.target, frame, settings, active, status, width)
   end
 
   return {
     updated = true,
     kind = context.kind,
     targetName = context.targetName,
+    width = width,
+    height = height,
   }
 end
 

@@ -38,6 +38,8 @@ return {
   },
   display = {
     enabled = true,
+    stabilizeEnabled = false,
+    stabilizeInterval = 0.5,
   },
   hud = {
     enabled = true,

@@ -1,4 +1,5 @@
 local coords = require("lib.aircraft.coords")
+local displays = require("lib.aircraft.displays")
 local hud = require("lib.aircraft.hud")
 local reporting = require("lib.aircraft.reporting")
 
@@ -327,6 +328,12 @@ end
 
 local function stabilizeConfig(config, options)
   local defaults = config.stabilize or {}
+  local display = config.display or {}
+  local nixiesEnabled = display.stabilizeEnabled == true
+
+  if options.nixies ~= nil then
+    nixiesEnabled = options.nixies == true
+  end
 
   return {
     seconds = tonumber(options.seconds) or tonumber(defaults.seconds) or 1,
@@ -345,6 +352,8 @@ local function stabilizeConfig(config, options)
       or tonumber(config.maxAttitudeDelta)
       or 2,
     brakeOnExit = defaults.brakeOnExit ~= false,
+    nixiesEnabled = nixiesEnabled,
+    nixieInterval = tonumber(options.nixieInterval) or tonumber(display.stabilizeInterval) or 0.5,
   }
 end
 
@@ -495,6 +504,10 @@ function flightControl.stabilize(config, options)
 
   local active = options.apply == true and config.dryRun == false
   local hudContext = hud.open(config, options)
+  local nixieOptions = copyPlain(options)
+  nixieOptions.display = settings.nixiesEnabled
+  local nixieContext = displays.collect(config, router, scan, nixieOptions)
+  local lastNixieElapsed = nil
   local report = baseReport("aircraft_stabilize", config, scan, routerName)
 
   report.applied = active
@@ -511,6 +524,7 @@ function flightControl.stabilize(config, options)
     coord = gimbal.coord,
   }
   report.hud = hud.describe(hudContext)
+  report.nixies = displays.describe(nixieContext)
   report.frames = {}
   report.timing = {
     requestedSeconds = settings.seconds,
@@ -520,6 +534,30 @@ function flightControl.stabilize(config, options)
 
   if options.apply == true and not active then
     report.blockedReason = "config.dryRun is true"
+  end
+
+  local function updateNixies(frame, force)
+    if not settings.nixiesEnabled then
+      return {
+        updated = false,
+        skipped = "stabilize nixies disabled",
+      }
+    end
+
+    local elapsed = frame.elapsed or 0
+    if not force and lastNixieElapsed and elapsed - lastNixieElapsed < settings.nixieInterval then
+      return {
+        updated = false,
+        skipped = "nixie interval",
+      }
+    end
+
+    local startTime = os.clock()
+    lastNixieElapsed = elapsed
+    local result = displays.updateSignals(nixieContext, frame.mixed and frame.mixed.signals)
+    result.elapsed = os.clock() - startTime
+
+    return result
   end
 
   local function runLoop()
@@ -556,6 +594,7 @@ function flightControl.stabilize(config, options)
       end
 
       frame.hud = hud.update(hudContext, frame, settings, active, attitudeExceeded)
+      frame.nixies = updateNixies(frame, attitudeExceeded)
       table.insert(report.frames, frame)
 
       if attitudeExceeded then
@@ -585,6 +624,14 @@ function flightControl.stabilize(config, options)
   local ok, result = pcall(runLoop)
   if active and settings.brakeOnExit then
     report.brakeOnExit = brakeDevices(devices, settings.brakeSignal)
+    if settings.nixiesEnabled then
+      report.nixieBrakeOnExit = displays.updateSignals(nixieContext, {
+        front_left = settings.brakeSignal,
+        front_right = settings.brakeSignal,
+        rear_left = settings.brakeSignal,
+        rear_right = settings.brakeSignal,
+      })
+    end
   end
 
   if not ok then
