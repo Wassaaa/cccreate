@@ -100,7 +100,7 @@ function coords.manhattan(left, right)
 end
 
 function coords.isCardinal(value)
-  if not value then
+  if type(value) ~= "table" or type(value.x) ~= "number" or type(value.y) ~= "number" or type(value.z) ~= "number" then
     return false
   end
 
@@ -144,7 +144,7 @@ function coords.axisLabel(value)
 end
 
 function coords.parseAxis(value)
-  if coords.isCardinal(value) then
+  if type(value) == "table" and coords.isCardinal(value) then
     return {
       x = value.x,
       y = value.y,
