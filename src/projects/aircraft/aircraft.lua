@@ -1,5 +1,6 @@
 local coords = require("lib.aircraft.coords")
 local actuatorTest = require("lib.aircraft.actuator_test")
+local displayLoop = require("lib.aircraft.display_loop")
 local flightControl = require("lib.aircraft.flight_control")
 local scanner = require("lib.aircraft.scanner")
 local reporting = require("lib.aircraft.reporting")
@@ -28,6 +29,7 @@ local DEFAULT_CONFIG = {
   statusReportPath = "/aircraft_status.txt",
   actuatorReportPath = "/aircraft_actuator_test.txt",
   stabilizeReportPath = "/aircraft_stabilize.txt",
+  displayReportPath = "/aircraft_displays.txt",
   stabilize = {
     interval = 0.1,
     seconds = 1,
@@ -43,7 +45,6 @@ local DEFAULT_CONFIG = {
   },
   display = {
     enabled = true,
-    updateEveryFrames = 1,
   },
   sendWebhook = true,
 }
@@ -60,9 +61,10 @@ local function usage()
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
   print("aircraft config display <true|false>")
   print("aircraft brake [role|all] [--apply]")
+  print("aircraft displays [--seconds n] [--interval n]")
   print("aircraft level-set")
   print("aircraft level-zero")
-  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n] [--no-display]")
+  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
   print("aircraft help")
   print("")
@@ -359,7 +361,6 @@ local function printConfig(config, source)
   print("  stabilize.axis2Kd=" .. tostring(config.stabilize.axis2Kd))
   print("  stabilize.maxCorrection=" .. tostring(config.stabilize.maxCorrection))
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
-  print("  display.updateEveryFrames=" .. tostring(config.display and config.display.updateEveryFrames))
   if config.level and config.level.gravity then
     print("  level.gravity=" .. textutils.serialize(config.level.gravity))
   else
@@ -587,6 +588,13 @@ local function runBrake()
   actuatorTest.brake(config, options)
 end
 
+local function runDisplays()
+  local config = loadConfig()
+  local options = parseCommandOptions(2)
+
+  displayLoop.run(config, options)
+end
+
 local function runLevelSet()
   local config = loadConfig()
   local report = flightControl.levelSet(config)
@@ -643,6 +651,12 @@ elseif command == "brake" then
   if not ok then
     print("aircraft brake failed: " .. tostring(result))
     error("aircraft brake failed", 0)
+  end
+elseif command == "displays" then
+  local ok, result = pcall(runDisplays)
+  if not ok then
+    print("aircraft displays failed: " .. tostring(result))
+    error("aircraft displays failed", 0)
   end
 elseif command == "level-set" then
   local ok, result = pcall(runLevelSet)

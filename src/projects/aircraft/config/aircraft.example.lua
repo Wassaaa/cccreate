@@ -38,12 +38,12 @@ return {
   },
   display = {
     enabled = true,
-    updateEveryFrames = 1,
   },
 
   reportPath = "/aircraft_scan.txt",
   statusReportPath = "/aircraft_status.txt",
   actuatorReportPath = "/aircraft_actuator_test.txt",
   stabilizeReportPath = "/aircraft_stabilize.txt",
+  displayReportPath = "/aircraft_displays.txt",
   sendWebhook = true,
 }

@@ -63,7 +63,6 @@ local function displayConfig(config, options)
 
   return {
     enabled = enabled,
-    updateEveryFrames = math.max(1, tonumber(display.updateEveryFrames) or 1),
   }
 end
 
@@ -170,7 +169,7 @@ function displays.describe(context)
   return result
 end
 
-function displays.updateSignals(context, signals, frameIndex, force)
+function displays.updateSignals(context, signals)
   local report = {
     enabled = context.enabled,
     updated = false,
@@ -179,11 +178,6 @@ function displays.updateSignals(context, signals, frameIndex, force)
 
   if not context.enabled then
     report.skipped = context.skipped or "display disabled"
-    return report
-  end
-
-  if not force and frameIndex and ((frameIndex - 1) % context.settings.updateEveryFrames ~= 0) then
-    report.skipped = "updateEveryFrames"
     return report
   end
 

@@ -362,7 +362,7 @@ function actuatorTest.signal(config, options)
       parallel.waitForAll(unpack(setTasks))
     end
 
-    report.displayDuring = displays.updateSignals(displayContext, actionSignals(report.actions, clampedSignal), nil, true)
+    report.displayDuring = displays.updateSignals(displayContext, actionSignals(report.actions, clampedSignal))
 
     local seconds = tonumber(options.seconds) or 0.5
     local sampleDelay = math.min(0.1, math.max(0, seconds))
@@ -401,7 +401,7 @@ function actuatorTest.signal(config, options)
       action.after = readScalarState(device)
     end
 
-    report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, restoreSignal), nil, true)
+    report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, restoreSignal))
   end
 
   local path = saveAndSend(config, report)
@@ -469,7 +469,7 @@ function actuatorTest.brake(config, options)
       report.actions[index].after = readScalarState(device)
     end
 
-    report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, signal), nil, true)
+    report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, signal))
   end
 
   local path = saveAndSend(config, report)

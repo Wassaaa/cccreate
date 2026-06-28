@@ -1,5 +1,4 @@
 local coords = require("lib.aircraft.coords")
-local displays = require("lib.aircraft.displays")
 local reporting = require("lib.aircraft.reporting")
 
 local flightControl = {}
@@ -516,9 +515,6 @@ function flightControl.stabilize(config, options)
     mode = "os_clock",
   }
 
-  local displayContext = displays.collect(config, router, scan, options)
-  report.displays = displays.describe(displayContext)
-
   if options.apply == true and not active then
     report.blockedReason = "config.dryRun is true"
   end
@@ -552,7 +548,6 @@ function flightControl.stabilize(config, options)
         report.abortReason = frame.abortReason
       elseif active then
         frame.setResults = applySignals(devices, mixed.signals)
-        frame.displayResults = displays.updateSignals(displayContext, mixed.signals, frameIndex)
       else
         frame.dryRun = true
       end
@@ -586,12 +581,6 @@ function flightControl.stabilize(config, options)
   local ok, result = pcall(runLoop)
   if active and settings.brakeOnExit then
     report.brakeOnExit = brakeDevices(devices, settings.brakeSignal)
-    report.displayBrakeOnExit = displays.updateSignals(displayContext, {
-      front_left = settings.brakeSignal,
-      front_right = settings.brakeSignal,
-      rear_left = settings.brakeSignal,
-      rear_right = settings.brakeSignal,
-    }, nil, true)
   end
 
   if not ok then
