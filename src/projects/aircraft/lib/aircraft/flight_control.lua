@@ -188,6 +188,34 @@ local function callSetter(object, method, ...)
   }
 end
 
+local function readOptionalGetter(object, method)
+  if type(object[method]) ~= "function" then
+    return nil
+  end
+
+  local values = { pcall(object[method]) }
+  local ok = table.remove(values, 1)
+
+  if not ok then
+    return {
+      ok = false,
+      error = tostring(values[1]),
+    }
+  end
+
+  if #values == 1 then
+    return {
+      ok = true,
+      value = copyPlain(values[1]),
+    }
+  end
+
+  return {
+    ok = true,
+    value = copyPlain(values),
+  }
+end
+
 local function loadContext(config)
   local scan = loadScan(config.reportPath or "/aircraft_scan.txt")
   local router, routerName = findRouter()
@@ -255,6 +283,39 @@ local function wrapScalarDevices(scan, router)
   end
 
   return devices
+end
+
+local function wrapOptionalRoleDevices(scan, router, family)
+  local mapped = scan.orientation
+    and scan.orientation.roles
+    and scan.orientation.roles[family]
+  local devices = {}
+  local errors = {}
+
+  if not mapped then
+    return devices, errors
+  end
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local entry = mapped[role]
+
+    if entry and entry.coord then
+      local ok, objectOrError = pcall(router.wrap, entry.coord.x, entry.coord.y, entry.coord.z)
+      if ok and objectOrError then
+        devices[role] = {
+          role = role,
+          coord = copyPlain(entry.coord),
+          object = objectOrError,
+        }
+      elseif ok then
+        errors[role] = "missing at " .. coords.label(entry.coord)
+      else
+        errors[role] = "wrap error at " .. coords.label(entry.coord) .. ": " .. tostring(objectOrError)
+      end
+    end
+  end
+
+  return devices, errors
 end
 
 local function saveAndSend(config, report)
@@ -443,6 +504,41 @@ local function brakeDevices(devices, signal)
   return results
 end
 
+local function readActuatorTelemetry(devices, rotorDevices)
+  local startTime = os.clock()
+  local result = {
+    roles = {},
+  }
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local device = devices[role]
+    local roleTelemetry = {}
+
+    if device then
+      roleTelemetry.signal = readOptionalGetter(device.object, "getSignal")
+      roleTelemetry.outputSpeed = readOptionalGetter(device.object, "getOutputSpeed")
+      roleTelemetry.speed = readOptionalGetter(device.object, "getSpeed")
+    end
+
+    local rotor = rotorDevices and rotorDevices[role]
+    if rotor then
+      roleTelemetry.rotorAirflow = readOptionalGetter(rotor.object, "getAirflow")
+      roleTelemetry.rotorThrust = readOptionalGetter(rotor.object, "getThrust")
+      roleTelemetry.rotorAngularSpeed = readOptionalGetter(rotor.object, "getAngularSpeed")
+      roleTelemetry.rotorSailPower = readOptionalGetter(rotor.object, "getSailPower")
+      roleTelemetry.rotorAngle = readOptionalGetter(rotor.object, "getAngle")
+      roleTelemetry.rotorSpeed = readOptionalGetter(rotor.object, "getSpeed")
+      roleTelemetry.rotorActive = readOptionalGetter(rotor.object, "isActive")
+    end
+
+    result.roles[role] = roleTelemetry
+  end
+
+  result.elapsed = os.clock() - startTime
+
+  return result
+end
+
 function flightControl.levelSet(config)
   local scan, router, routerName = loadContext(config)
   local gimbal = findGimbal(scan, router)
@@ -500,6 +596,7 @@ function flightControl.stabilize(config, options)
   local scan, router, routerName = loadContext(config)
   local gimbal = findGimbal(scan, router)
   local devices = wrapScalarDevices(scan, router)
+  local rotorDevices, rotorErrors = wrapOptionalRoleDevices(scan, router, "rotorBearing")
   local settings = stabilizeConfig(config, options)
 
   local active = options.apply == true and config.dryRun == false
@@ -526,6 +623,9 @@ function flightControl.stabilize(config, options)
   }
   report.hud = hud.describe(hudContext)
   report.nixies = displays.describe(nixieContext)
+  report.rotorTelemetry = {
+    errors = copyPlain(rotorErrors),
+  }
   report.frames = {}
   report.timing = {
     requestedSeconds = settings.seconds,
@@ -565,6 +665,7 @@ function flightControl.stabilize(config, options)
     local startTime = os.clock()
     local deadline = startTime + settings.seconds
     local frameIndex = 1
+    local previousElapsed = nil
 
     while true do
       if active and frameIndex > 1 and os.clock() >= deadline then
@@ -580,6 +681,9 @@ function flightControl.stabilize(config, options)
         state = state,
         mixed = mixed,
       }
+      if previousElapsed then
+        frame.dt = frame.elapsed - previousElapsed
+      end
       local attitudeExceeded = math.abs(mixed.error1) > settings.maxAttitudeDelta
         or math.abs(mixed.error2) > settings.maxAttitudeDelta
 
@@ -594,9 +698,13 @@ function flightControl.stabilize(config, options)
         frame.dryRun = true
       end
 
-      frame.hud = hud.update(hudContext, frame, settings, active, attitudeExceeded)
       frame.nixies = updateNixies(frame, attitudeExceeded)
+      if hud.shouldUpdate(hudContext, frame, attitudeExceeded) then
+        frame.telemetry = readActuatorTelemetry(devices, rotorDevices)
+      end
+      frame.hud = hud.update(hudContext, frame, settings, active, attitudeExceeded)
       table.insert(report.frames, frame)
+      previousElapsed = frame.elapsed
 
       if attitudeExceeded then
         break
