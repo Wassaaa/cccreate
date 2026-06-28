@@ -3,8 +3,6 @@ local reporter = require("lib.reporter")
 local DEFAULT_RADIUS = 8
 local DEFAULT_Y_RADIUS = 1
 local DEFAULT_SAMPLE_LIMIT = 0
-local MAX_RADIUS = 16
-local MAX_AXIS_LENGTH = MAX_RADIUS * 2 + 1
 local DEFAULT_MAP_REPORT_PATH = "router_base_map_report.txt"
 local DEFAULT_STACK_REPORT_PATH = "router_stack_report.txt"
 
@@ -317,10 +315,6 @@ local function parseArgs(rawArgs)
   end
 
   resolveMapBounds(config)
-
-  if config.width > MAX_AXIS_LENGTH or config.height > MAX_AXIS_LENGTH or config.depth > MAX_AXIS_LENGTH then
-    error("map axis lengths must be " .. MAX_AXIS_LENGTH .. " or less", 0)
-  end
 
   return config
 end
