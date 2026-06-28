@@ -70,6 +70,18 @@ local function copyCoord(coord)
   }
 end
 
+local function copyVector(vector)
+  if not vector then
+    return nil
+  end
+
+  return {
+    x = vector.x,
+    y = vector.y,
+    z = vector.z,
+  }
+end
+
 local function copyList(values)
   local result = {}
 
@@ -379,7 +391,7 @@ local function setAxisIfMissing(orientation, field, value, source)
     return
   end
 
-  orientation[field] = value
+  orientation[field] = copyVector(value)
   orientation.sources[field] = source
 end
 
