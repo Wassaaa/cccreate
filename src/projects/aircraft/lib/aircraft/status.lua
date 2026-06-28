@@ -1,5 +1,6 @@
 local classify = require("lib.aircraft.classify")
 local coords = require("lib.aircraft.coords")
+local reporting = require("lib.aircraft.reporting")
 
 local status = {}
 
@@ -157,49 +158,143 @@ local function compactValue(value)
   return tostring(value)
 end
 
-local function callReadMethod(object, method)
+local function callReadMethodReport(object, method)
   if type(object[method]) ~= "function" then
-    return method .. "=missing"
+    return {
+      method = method,
+      ok = false,
+      error = "missing",
+      display = method .. "=missing",
+    }
   end
 
   local results = { pcall(object[method]) }
   local ok = table.remove(results, 1)
 
   if not ok then
-    return method .. "=err:" .. tostring(results[1])
+    local display = method .. "=err:" .. tostring(results[1])
+    return {
+      method = method,
+      ok = false,
+      error = tostring(results[1]),
+      display = display,
+    }
   end
 
+  local value
   if #results == 0 then
-    return method .. "=nil"
+    value = nil
   elseif #results == 1 then
-    return method .. "=" .. compactValue(results[1])
+    value = results[1]
+  else
+    value = results
   end
 
-  return method .. "=" .. compactValue(results)
+  return {
+    method = method,
+    ok = true,
+    value = value,
+    display = method .. "=" .. compactValue(value),
+  }
 end
 
-local function readDevice(router, coord, entry, limit)
+local function readDisplay(read)
+  return read.display or (tostring(read.method) .. "=" .. compactValue(read.value))
+end
+
+local function formatDeviceReadout(device)
+  if not device.ok then
+    return device.error or "read failed"
+  end
+
+  if #device.reads == 0 then
+    return "no read methods selected"
+  end
+
+  local parts = {}
+  for _, read in ipairs(device.reads) do
+    table.insert(parts, readDisplay(read))
+  end
+
+  return table.concat(parts, " ")
+end
+
+local function readDeviceReport(router, coord, entry, limit)
+  local device = {
+    coord = coord,
+    label = coords.label(coord),
+    ok = false,
+    reads = {},
+  }
+
   local ok, objectOrError = pcall(router.wrap, coord.x, coord.y, coord.z)
   if not ok then
-    return false, "wrap error: " .. tostring(objectOrError)
+    device.error = "wrap error: " .. tostring(objectOrError)
+    return device
   end
 
   if not objectOrError then
-    return false, "no peripheral"
+    device.error = "no peripheral"
+    return device
   end
 
   local methods = entry and entry.methods or sortedFunctionNames(objectOrError)
+  device.ok = true
+  device.methods = readMethodList(methods, limit)
+
+  for _, method in ipairs(device.methods) do
+    table.insert(device.reads, callReadMethodReport(objectOrError, method))
+  end
+
+  return device
+end
+
+local function readDevice(router, coord, entry, limit)
+  local device = readDeviceReport(router, coord, entry, limit)
+  return device.ok, formatDeviceReadout(device)
+end
+
+local function readSideSensors(router, report, index, limit)
+  local result = {}
+  local hints = report.orientation and report.orientation.sideHints or {}
+
+  for side, hint in pairs(hints) do
+    if not hint.ambiguous and hint.coord then
+      result[side] = readDeviceReport(router, hint.coord, index[coordKey(hint.coord)], limit)
+    else
+      result[side] = {
+        ok = false,
+        error = "ambiguous matches=" .. tostring(hint.count),
+      }
+    end
+  end
+
+  return result
+end
+
+local function readFamily(router, report, index, family, limit)
+  local roles = report.orientation
+    and report.orientation.roles
+    and report.orientation.roles[family]
   local reads = {}
 
-  for _, method in ipairs(readMethodList(methods, limit)) do
-    table.insert(reads, callReadMethod(objectOrError, method))
+  if not roles then
+    return reads
   end
 
-  if #reads == 0 then
-    return true, "no read methods selected"
+  for _, role in ipairs(ROLE_ORDER) do
+    local mapped = roles[role]
+    if mapped and mapped.coord then
+      reads[role] = readDeviceReport(router, mapped.coord, index[coordKey(mapped.coord)], limit)
+    else
+      reads[role] = {
+        ok = false,
+        error = "missing role",
+      }
+    end
   end
 
-  return true, table.concat(reads, " ")
+  return reads
 end
 
 local function printOrientation(report)
@@ -268,26 +363,68 @@ local function printFamily(router, report, index, family, limit)
 end
 
 function status.run(config)
+  local report = status.collect(config)
+  local path = config.statusReportPath or "/aircraft_status.txt"
+
+  reporting.save(report, path)
+  if config.sendWebhook ~= false then
+    reporting.send(report)
+  end
+
+  print("Aircraft status report: " .. path)
+  printOrientation(report.scan)
+  print("side sensors: " .. tostring(report.summary.sideSensors))
+
+  for _, family in ipairs(FAMILY_ORDER) do
+    print(family .. ": " .. tostring(report.summary[family] or 0))
+  end
+end
+
+function status.collect(config)
   local scanPath = config.reportPath or "/aircraft_scan.txt"
-  local report = loadScan(scanPath)
+  local scan = loadScan(scanPath)
   local router, routerName = findRouter()
 
   if not router then
     error("No peripheral_router with wrap(x, y, z) found", 0)
   end
 
-  local index = indexPeripherals(report)
+  local index = indexPeripherals(scan)
   local limit = tonumber(config.statusReadLimit) or 8
+  local statusReport = {
+    kind = "aircraft_status",
+    createdAt = os.date("%Y-%m-%d %H:%M:%S"),
+    computerId = os.getComputerID(),
+    label = os.getComputerLabel(),
+    scanPath = scanPath,
+    router = {
+      name = routerName or (scan.router and scan.router.name),
+    },
+    scan = {
+      orientation = scan.orientation,
+      summary = scan.summary,
+    },
+    sideSensors = readSideSensors(router, scan, index, limit),
+    families = {},
+    summary = {
+      sideSensors = 0,
+    },
+  }
 
-  print("Aircraft status from " .. scanPath)
-  print("Router: " .. tostring(routerName or (report.router and report.router.name)))
-  printOrientation(report)
-  print("side sensors:")
-  printGimbal(router, report, index, limit)
+  for _, _ in pairs(statusReport.sideSensors) do
+    statusReport.summary.sideSensors = statusReport.summary.sideSensors + 1
+  end
 
   for _, family in ipairs(FAMILY_ORDER) do
-    printFamily(router, report, index, family, limit)
+    statusReport.families[family] = readFamily(router, scan, index, family, limit)
+    statusReport.summary[family] = 0
+
+    for _, _ in pairs(statusReport.families[family]) do
+      statusReport.summary[family] = statusReport.summary[family] + 1
+    end
   end
+
+  return statusReport
 end
 
 return status

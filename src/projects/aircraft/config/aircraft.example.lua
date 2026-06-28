@@ -20,5 +20,6 @@ return {
   statusReadLimit = 8,
 
   reportPath = "/aircraft_scan.txt",
+  statusReportPath = "/aircraft_status.txt",
   sendWebhook = true,
 }

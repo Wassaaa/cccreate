@@ -22,6 +22,7 @@ local DEFAULT_CONFIG = {
   maxAttitudeDelta = 2,
   statusReadLimit = 8,
   reportPath = "/aircraft_scan.txt",
+  statusReportPath = "/aircraft_status.txt",
   sendWebhook = true,
 }
 
