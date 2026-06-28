@@ -151,6 +151,14 @@ local function readGetter(object, method)
   }
 end
 
+local function readScalarState(device)
+  return {
+    signal = readGetter(device.object, "getSignal"),
+    outputSpeed = readGetter(device.object, "getOutputSpeed"),
+    speed = readGetter(device.object, "getSpeed"),
+  }
+end
+
 local function wrapRole(router, scan, role)
   local mapped = scan.orientation
     and scan.orientation.roles
@@ -295,11 +303,7 @@ function actuatorTest.signal(config, options)
       method = "setSignal",
       requestedSignal = requestedSignal,
       signal = clampedSignal,
-      before = {
-        signal = readGetter(device.object, "getSignal"),
-        outputSpeed = readGetter(device.object, "getOutputSpeed"),
-        speed = readGetter(device.object, "getSpeed"),
-      },
+      before = readScalarState(device),
     }
 
     if active then
@@ -312,16 +316,26 @@ function actuatorTest.signal(config, options)
   end
 
   if active then
-    sleep(tonumber(options.seconds) or 0.5)
+    local seconds = tonumber(options.seconds) or 0.5
+    local sampleDelay = math.min(0.1, math.max(0, seconds))
+
+    if sampleDelay > 0 then
+      sleep(sampleDelay)
+    end
+
+    for index, device in ipairs(devices) do
+      report.actions[index].during = readScalarState(device)
+    end
+
+    local remaining = seconds - sampleDelay
+    if remaining > 0 then
+      sleep(remaining)
+    end
 
     for index, device in ipairs(devices) do
       local action = report.actions[index]
       action.releaseResult = callSetter(device, "releaseSignal")
-      action.after = {
-        signal = readGetter(device.object, "getSignal"),
-        outputSpeed = readGetter(device.object, "getOutputSpeed"),
-        speed = readGetter(device.object, "getSpeed"),
-      }
+      action.after = readScalarState(device)
     end
   end
 
@@ -357,20 +371,12 @@ function actuatorTest.zero(config, options)
       role = device.role,
       coord = device.coord,
       method = "releaseSignal",
-      before = {
-        signal = readGetter(device.object, "getSignal"),
-        outputSpeed = readGetter(device.object, "getOutputSpeed"),
-        speed = readGetter(device.object, "getSpeed"),
-      },
+      before = readScalarState(device),
     }
 
     if active then
       action.releaseResult = callSetter(device, "releaseSignal")
-      action.after = {
-        signal = readGetter(device.object, "getSignal"),
-        outputSpeed = readGetter(device.object, "getOutputSpeed"),
-        speed = readGetter(device.object, "getSpeed"),
-      }
+      action.after = readScalarState(device)
     else
       action.dryRun = true
     end
