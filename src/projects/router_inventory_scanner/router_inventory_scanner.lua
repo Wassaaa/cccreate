@@ -588,7 +588,7 @@ local function findRouter()
 
   for _, peripheralName in ipairs(peripheral.getNames()) do
     local ok, wrapped = pcall(peripheral.wrap, peripheralName)
-    if ok and wrapped and type(wrapped.wrap) == "function" then
+    if ok and wrapped and type(wrapped.wrap) == "function" and type(wrapped.isPresent) == "function" then
       local typeResults = pack(pcall(peripheral.getType, peripheralName))
       local typeOk = table.remove(typeResults, 1)
       local types = typeOk and typeResults or {}
@@ -601,7 +601,7 @@ local function findRouter()
   end
 
   local router = peripheral.find("peripheral_router")
-  if router and type(router.wrap) == "function" then
+  if router and type(router.wrap) == "function" and type(router.isPresent) == "function" then
     cachedRouter = router
     cachedRouterName = "(found by type)"
     return router, cachedRouterName
@@ -634,6 +634,20 @@ local function inspectOffset(router, x, y, z, config)
     methods = {},
     flags = {},
   }
+
+  local presentOk, present = pcall(router.isPresent, x, y, z)
+  entry.presenceChecked = true
+
+  if not presentOk then
+    entry.error = "isPresent: " .. tostring(present)
+    return entry
+  end
+
+  if present ~= true then
+    entry.empty = true
+    entry.error = "no peripheral"
+    return entry
+  end
 
   local ok, object = pcall(router.wrap, x, y, z)
   if not ok then
@@ -675,7 +689,7 @@ end
 local function buildMap(config)
   local router, routerName = findRouter()
   if not router then
-    error("No peripheral_router with wrap(x, y, z) found", 0)
+    error("No peripheral_router with wrap(x, y, z) and isPresent(x, y, z) found", 0)
   end
 
   local results = {}
@@ -1149,7 +1163,7 @@ local function runStack(config)
   local storedReport, reportPath = readStoredReport(config.reportPath)
   local router, routerName = findRouter()
   if not router then
-    error("No peripheral_router with wrap(x, y, z) found", 0)
+    error("No peripheral_router with wrap(x, y, z) and isPresent(x, y, z) found", 0)
   end
 
   local destination, destinationError = wrapRouterCoords(router, config.destination, "Destination")
