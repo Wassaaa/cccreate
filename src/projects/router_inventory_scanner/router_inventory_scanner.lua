@@ -280,13 +280,6 @@ local function findRouter()
     return cachedRouter, cachedRouterName
   end
 
-  local router, name = peripheral.find("peripheral_router")
-  if router and type(router.wrap) == "function" then
-    cachedRouter = router
-    cachedRouterName = name
-    return router, name
-  end
-
   for _, peripheralName in ipairs(peripheral.getNames()) do
     local ok, wrapped = pcall(peripheral.wrap, peripheralName)
     if ok and wrapped and type(wrapped.wrap) == "function" then
@@ -299,6 +292,13 @@ local function findRouter()
         return wrapped, peripheralName
       end
     end
+  end
+
+  local router = peripheral.find("peripheral_router")
+  if router and type(router.wrap) == "function" then
+    cachedRouter = router
+    cachedRouterName = "(found by type)"
+    return router, cachedRouterName
   end
 
   return nil, nil
