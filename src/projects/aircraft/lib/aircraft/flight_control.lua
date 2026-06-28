@@ -353,7 +353,7 @@ local function stabilizeConfig(config, options)
       or 2,
     brakeOnExit = defaults.brakeOnExit ~= false,
     nixiesEnabled = nixiesEnabled,
-    nixieInterval = tonumber(options.nixieInterval) or tonumber(display.stabilizeInterval) or 0.5,
+    nixieInterval = tonumber(options.nixieInterval) or tonumber(display.stabilizeInterval) or 1,
   }
 end
 
@@ -503,9 +503,10 @@ function flightControl.stabilize(config, options)
   local settings = stabilizeConfig(config, options)
 
   local active = options.apply == true and config.dryRun == false
-  local hudContext = hud.open(config, options)
+  local hudContext = hud.open(config, options, router, scan)
   local nixieOptions = copyPlain(options)
   nixieOptions.display = settings.nixiesEnabled
+  nixieOptions.textOnly = true
   local nixieContext = displays.collect(config, router, scan, nixieOptions)
   local lastNixieElapsed = nil
   local report = baseReport("aircraft_stabilize", config, scan, routerName)

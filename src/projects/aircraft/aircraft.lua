@@ -45,8 +45,8 @@ local DEFAULT_CONFIG = {
   },
   display = {
     enabled = true,
-    stabilizeEnabled = false,
-    stabilizeInterval = 0.5,
+    stabilizeEnabled = true,
+    stabilizeInterval = 1,
   },
   hud = {
     enabled = true,

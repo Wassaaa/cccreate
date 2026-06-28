@@ -27,11 +27,60 @@ local function wrapMonitor(name)
   return nil, nil
 end
 
-local function findMonitor(config)
+local function hasMethod(entry, method)
+  for _, name in ipairs(entry.methods or {}) do
+    if name == method then
+      return true
+    end
+  end
+
+  return false
+end
+
+local function isTerminalLike(entry)
+  return hasMethod(entry, "getSize")
+    and hasMethod(entry, "setCursorPos")
+    and hasMethod(entry, "clear")
+    and hasMethod(entry, "write")
+end
+
+local function wrapScanMonitor(router, entry)
+  local coord = entry and entry.coord
+
+  if not router or not coord then
+    return nil, nil
+  end
+
+  local ok, object = pcall(router.wrap, coord.x, coord.y, coord.z)
+  if ok and object and type(object.getSize) == "function" and type(object.write) == "function" then
+    return object, "scan:" .. tostring(coord.x) .. "," .. tostring(coord.y) .. "," .. tostring(coord.z)
+  end
+
+  return nil, nil
+end
+
+local function findScanMonitor(router, scan)
+  for _, entry in ipairs(scan and scan.peripherals or {}) do
+    if isTerminalLike(entry) then
+      local monitor, name = wrapScanMonitor(router, entry)
+
+      if monitor then
+        return monitor, name
+      end
+    end
+  end
+
+  return nil, nil
+end
+
+local function findMonitor(config, router, scan)
   local hudConfig = config.hud or {}
 
   if hudConfig.monitorName then
-    return wrapMonitor(hudConfig.monitorName)
+    local monitor, name = wrapMonitor(hudConfig.monitorName)
+    if monitor then
+      return monitor, name
+    end
   end
 
   local monitor = peripheral.find("monitor")
@@ -39,7 +88,7 @@ local function findMonitor(config)
     return monitor, "monitor"
   end
 
-  return nil, nil
+  return findScanMonitor(router, scan)
 end
 
 local function call(target, method, ...)
@@ -220,7 +269,7 @@ local function settingsFrom(config, options)
   }
 end
 
-function hud.open(config, options)
+function hud.open(config, options, router, scan)
   local settings = settingsFrom(config, options or {})
   local context = {
     enabled = settings.enabled,
@@ -232,7 +281,7 @@ function hud.open(config, options)
     return context
   end
 
-  local monitor, monitorName = findMonitor(config)
+  local monitor, monitorName = findMonitor(config, router, scan)
   if monitor then
     context.target = monitor
     context.targetName = monitorName

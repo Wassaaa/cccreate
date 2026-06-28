@@ -135,12 +135,17 @@ function displays.collect(config, router, scan, options)
     local mapped = roles[role]
 
     if mapped and mapped.coord then
-      local device, errorMessage = wrapDisplay(router, mapped)
-      if device then
-        device.role = role
-        context.devices[role] = device
+      if options.textOnly and mapped.displayKind and mapped.displayKind ~= "text" then
+        context.errors[role] = "skipped non-text displayKind " .. tostring(mapped.displayKind)
       else
-        context.errors[role] = errorMessage
+        local device, errorMessage = wrapDisplay(router, mapped)
+        if device then
+          device.role = role
+          device.displayKind = mapped.displayKind
+          context.devices[role] = device
+        else
+          context.errors[role] = errorMessage
+        end
       end
     end
   end
@@ -162,6 +167,7 @@ function displays.describe(context)
     if device then
       result.devices[role] = {
         coord = copyPlain(device.coord),
+        displayKind = device.displayKind,
       }
     end
   end
