@@ -225,6 +225,9 @@ local function settingsFrom(config, options)
     targetSlewDegPerSecond = numberOr(cfg.targetSlewDegPerSecond, 8),
     throttleSlewPowerPerSecond = numberOr(cfg.throttleSlewPowerPerSecond, 4),
     keyMap = copyPlain(cfg.keyMap),
+    pulseInputs = {
+      k = true,
+    },
     bindings = bindings,
   }
 end

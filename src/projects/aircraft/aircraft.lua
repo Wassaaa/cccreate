@@ -105,6 +105,7 @@ local function usage()
   print("aircraft config controller-threshold <0-15>")
   print("aircraft brake [role|all] [--apply]")
   print("aircraft controller [--seconds n] [--interval n]")
+  print("aircraft killswitch [--seconds n] [--interval n] [--controller-type type]")
   print("aircraft displays [--seconds n] [--interval n]")
   print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--controller-type type] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
   print("aircraft recover [--apply] [--seconds n] [--base-power n] [--axis1-target-deg n] [--axis2-target-deg n] [--axis1-power n] [--axis2-power n] [--pulse-seconds n]")
@@ -727,15 +728,24 @@ local function runConfig()
     return
   elseif subcommand == "killswitch-key" then
     config.killSwitch = config.killSwitch or {}
+    local wasEnabled = config.killSwitch.enabled == true
     config.killSwitch.keyEnabled = parseBoolean(args[3])
     if args[4] then
       config.killSwitch.key = string.lower(tostring(args[4]))
     elseif not config.killSwitch.key then
       config.killSwitch.key = "k"
     end
+    if config.killSwitch.keyEnabled then
+      config.killSwitch.enabled = true
+      if not wasEnabled and not config.killSwitch.binding then
+        config.killSwitch.source = "key"
+      end
+    end
 
     saveConfig(config)
     print("Saved kill switch key to " .. CONFIG_PATH)
+    print("  enabled=" .. tostring(config.killSwitch.enabled))
+    print("  source=" .. tostring(config.killSwitch.source))
     print("  keyEnabled=" .. tostring(config.killSwitch.keyEnabled))
     print("  key=" .. tostring(config.killSwitch.key))
     return
@@ -1105,6 +1115,13 @@ local function runController()
   controller.probe(config, options)
 end
 
+local function runKillSwitch()
+  local config = loadConfig()
+  local options = parseCommandOptions(2)
+
+  flightControl.probeKillSwitch(config, options)
+end
+
 local function runStabilize()
   local config = loadConfig()
   local options = parseCommandOptions(2)
@@ -1182,6 +1199,12 @@ elseif command == "controller" then
   if not ok then
     print("aircraft controller failed: " .. tostring(result))
     error("aircraft controller failed", 0)
+  end
+elseif command == "killswitch" then
+  local ok, result = pcall(runKillSwitch)
+  if not ok then
+    print("aircraft killswitch failed: " .. tostring(result))
+    error("aircraft killswitch failed", 0)
   end
 elseif command == "stabilize" then
   local ok, result = pcall(runStabilize)

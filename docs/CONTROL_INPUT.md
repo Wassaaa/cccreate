@@ -70,6 +70,12 @@ Controller key:
 aircraft config killswitch-key true k
 ```
 
+Probe the currently configured kill switch without running the flight loop:
+
+```text
+aircraft killswitch --seconds 10
+```
+
 The physical kill switch fails closed. If the configured local side or router
 read cannot be checked during stabilization, the aircraft stops instead of
 continuing without a verified kill switch.

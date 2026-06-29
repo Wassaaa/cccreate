@@ -52,6 +52,7 @@ This project installs with `update aircraft`. Its files land at the ComputerCraf
 - The `keyboard` backend consumes CraftOS `key` and `key_up` events from an onboard keyboard or Create: Avionics Linked Typewriter.
 - The controller `k` input is reserved for the aircraft kill switch. It must not be mixed into movement axes.
 - Physical kill switches can use local computer-side redstone or a redstone-router relative coordinate via `aircraft config killswitch-router <x> <y> <z> [side] [activeHigh]`.
+- Use `aircraft killswitch --seconds <n>` to probe the configured kill switch and controller `k` key without running stabilization.
 
 ## Expected In-Game Flow
 

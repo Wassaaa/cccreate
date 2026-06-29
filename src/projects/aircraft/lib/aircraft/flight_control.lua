@@ -1327,4 +1327,97 @@ function flightControl.stabilize(config, options)
   return report
 end
 
+function flightControl.probeKillSwitch(config, options)
+  options = options or {}
+  local settings = stabilizeConfig(config, options)
+  local controllerOptions = copyPlain(options)
+  controllerOptions.controller = true
+  local controllerOk, controllerContextOrError = pcall(controller.open, config, controllerOptions)
+  local controllerContext = controllerOk and controllerContextOrError or {
+    enabled = false,
+    error = tostring(controllerContextOrError),
+  }
+  local killSwitchRouter, killSwitchRouterName = nil, nil
+
+  if settings.killSwitch
+      and settings.killSwitch.enabled
+      and settings.killSwitch.source == "router" then
+    killSwitchRouter, killSwitchRouterName = findRedstoneRouter()
+  end
+
+  local seconds = tonumber(options.seconds) or 10
+  local interval = tonumber(options.interval) or 0.2
+  local startTime = os.clock()
+  local deadline = startTime + seconds
+  local report = {
+    kind = "aircraft_killswitch_probe",
+    createdAt = now(),
+    computerId = os.getComputerID(),
+    label = os.getComputerLabel(),
+    seconds = seconds,
+    interval = interval,
+    killSwitch = copyPlain(settings.killSwitch),
+    controller = controller.describe(controllerContext),
+    frames = {},
+  }
+  if not controllerOk then
+    report.controller.error = tostring(controllerContextOrError)
+  end
+
+  if killSwitchRouterName then
+    report.killSwitch.routerName = killSwitchRouterName
+  end
+
+  print("Aircraft kill switch probe")
+  print("source=" .. tostring(settings.killSwitch and settings.killSwitch.source))
+  print("key=" .. tostring(settings.killSwitch and settings.killSwitch.key))
+  print("Press K or toggle the physical kill switch. Ctrl+T stops.")
+
+  local function runProbeLoop()
+    repeat
+      local control = controllerOk and controller.sample(controllerContext) or {
+        enabled = false,
+        error = tostring(controllerContextOrError),
+        reads = {},
+      }
+      local killSwitch = readKillSwitch(settings, control, killSwitchRouter, killSwitchRouterName)
+      local frame = {
+        elapsed = os.clock() - startTime,
+        controller = compactControllerFrame(control),
+        killSwitch = copyPlain(killSwitch),
+      }
+
+      table.insert(report.frames, frame)
+      print(
+        string.format("%.1f", frame.elapsed)
+          .. " triggered=" .. tostring(killSwitch.triggered)
+          .. " by=" .. tostring(killSwitch.triggeredBy or "none")
+          .. " ok=" .. tostring(killSwitch.ok)
+      )
+
+      sleep(interval)
+    until os.clock() >= deadline
+  end
+
+  if controllerOk and controller.needsPump(controllerContext) then
+    parallel.waitForAny(
+      function()
+        controller.pump(controllerContext)
+      end,
+      runProbeLoop
+    )
+  else
+    runProbeLoop()
+  end
+
+  local path = "/aircraft_killswitch.txt"
+  reporting.save(report, path, config, { localReport = false })
+  if config.sendWebhook ~= false then
+    reporting.send(report)
+  end
+
+  print("Aircraft kill switch report: " .. (config.sendWebhook ~= false and "webhook" or "webhook disabled"))
+  return report
+end
+
 return flightControl

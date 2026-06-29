@@ -122,18 +122,41 @@ local function isInput(context, name)
   return false
 end
 
+local function isPulseInput(context, name)
+  local pulseInputs = context.settings and context.settings.pulseInputs
+
+  if type(pulseInputs) ~= "table" then
+    return false
+  end
+
+  return pulseInputs[name] == true
+end
+
 function keyboard.open(context)
   context.pressed = {}
+  context.pulses = {}
   context.keyCodes = defaultKeyCodes()
   context.eventCount = 0
 end
 
 function keyboard.sample(context)
+  local reads = controlInput.readsFromPressed(context.settings, context.pressed, {
+    ok = true,
+    source = "keyboard",
+  })
+
+  for name, pulsed in pairs(context.pulses or {}) do
+    if pulsed and reads[name] then
+      reads[name].signal = 15
+      reads[name].value = 1
+      reads[name].pressed = true
+      reads[name].pulse = true
+    end
+  end
+  context.pulses = {}
+
   return {
-    reads = controlInput.readsFromPressed(context.settings, context.pressed, {
-      ok = true,
-      source = "keyboard",
-    }),
+    reads = reads,
     eventCount = context.eventCount,
   }
 end
@@ -145,7 +168,11 @@ function keyboard.pump(context)
     if event == "key" or event == "key_up" then
       local name = logicalKey(context, code)
       if name and isInput(context, name) then
-        context.pressed[name] = event == "key"
+        local down = event == "key"
+        context.pressed[name] = down
+        if down and isPulseInput(context, name) then
+          context.pulses[name] = true
+        end
         context.eventCount = (context.eventCount or 0) + 1
       end
     end
