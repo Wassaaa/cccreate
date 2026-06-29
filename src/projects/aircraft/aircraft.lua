@@ -42,6 +42,8 @@ local DEFAULT_CONFIG = {
     axis2Kd = 0.2,
     axis1Sign = -1,
     axis2Sign = 1,
+    axis1RateSign = -1,
+    axis2RateSign = -1,
     axis1Trim = 0,
     axis2Trim = 0,
     maxCorrection = 1.5,
@@ -87,6 +89,7 @@ local function usage()
   print("aircraft config dry-run <true|false>")
   print("aircraft config max-signal <0-15>")
   print("aircraft config stabilize-signs <-1|1> <-1|1>")
+  print("aircraft config stabilize-rate-signs <-1|1> <-1|1>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
@@ -463,6 +466,8 @@ local function printConfig(config, source)
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
   print("  stabilize.axis1Sign=" .. tostring(config.stabilize.axis1Sign))
   print("  stabilize.axis2Sign=" .. tostring(config.stabilize.axis2Sign))
+  print("  stabilize.axis1RateSign=" .. tostring(config.stabilize.axis1RateSign))
+  print("  stabilize.axis2RateSign=" .. tostring(config.stabilize.axis2RateSign))
   print("  stabilize.axis1Kp=" .. tostring(config.stabilize.axis1Kp))
   print("  stabilize.axis1Kd=" .. tostring(config.stabilize.axis1Kd))
   print("  stabilize.axis2Kp=" .. tostring(config.stabilize.axis2Kp))
@@ -550,6 +555,14 @@ local function runConfig()
     print("Saved stabilize signs to " .. CONFIG_PATH)
     print("  axis1Sign=" .. tostring(config.stabilize.axis1Sign))
     print("  axis2Sign=" .. tostring(config.stabilize.axis2Sign))
+    return
+  elseif subcommand == "stabilize-rate-signs" then
+    config.stabilize.axis1RateSign = parseSign(args[3], "axis1RateSign")
+    config.stabilize.axis2RateSign = parseSign(args[4], "axis2RateSign")
+    saveConfig(config)
+    print("Saved stabilize rate signs to " .. CONFIG_PATH)
+    print("  axis1RateSign=" .. tostring(config.stabilize.axis1RateSign))
+    print("  axis2RateSign=" .. tostring(config.stabilize.axis2RateSign))
     return
   elseif subcommand == "stabilize-gains" then
     config.stabilize.axis1Kp = parseNumber(args[3], "axis1Kp")
@@ -833,6 +846,12 @@ local function parseCommandOptions(startIndex)
       i = i + 2
     elseif arg == "--axis2-sign" then
       options.axis2Sign = parseSign(args[i + 1], "--axis2-sign")
+      i = i + 2
+    elseif arg == "--axis1-rate-sign" then
+      options.axis1RateSign = parseSign(args[i + 1], "--axis1-rate-sign")
+      i = i + 2
+    elseif arg == "--axis2-rate-sign" then
+      options.axis2RateSign = parseSign(args[i + 1], "--axis2-rate-sign")
       i = i + 2
     elseif arg == "--axis1-trim" then
       options.axis1Trim = tonumber(args[i + 1])
