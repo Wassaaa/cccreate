@@ -258,7 +258,8 @@ local function tryGimbalAt(router, coord)
   end
 
   if type(objectOrError.getGravity) == "function"
-      and type(objectOrError.getAngularRates) == "function" then
+      and type(objectOrError.getAnglesRad) == "function"
+      and type(objectOrError.getAngularRatesRad) == "function" then
     return objectOrError
   end
 
@@ -390,18 +391,26 @@ local function readGimbal(gimbal)
   local rateError = nil
   local gravity = nil
   local gravityError = nil
+  local anglesRad = nil
+  local anglesRadRead = nil
 
   parallel.waitForAll(
     function()
-      rates, rateError = callGetter(gimbal.object, "getAngularRates")
+      rates, rateError = callGetter(gimbal.object, "getAngularRatesRad")
     end,
     function()
       gravity, gravityError = callGetter(gimbal.object, "getGravity")
+    end,
+    function()
+      anglesRadRead = readOptionalGetter(gimbal.object, "getAnglesRad")
+      if anglesRadRead and anglesRadRead.ok then
+        anglesRad = anglesRadRead.value
+      end
     end
   )
 
   if rateError then
-    error("gimbal getAngularRates failed: " .. tostring(rateError), 0)
+    error("gimbal getAngularRatesRad failed: " .. tostring(rateError), 0)
   end
 
   if gravityError then
@@ -411,6 +420,8 @@ local function readGimbal(gimbal)
   return {
     angularRates = rates,
     gravity = gravity,
+    anglesRad = anglesRad,
+    anglesRadRead = anglesRadRead,
   }
 end
 
@@ -435,6 +446,22 @@ local function gravityTilt(gravity)
     x = gx,
     y = gy,
     z = gz,
+  }
+end
+
+local function directTilt(anglesRad)
+  if type(anglesRad) ~= "table" then
+    return nil
+  end
+
+  local pitch = numberAt(anglesRad, 1)
+  local roll = numberAt(anglesRad, 2)
+
+  return {
+    axis1 = roll,
+    axis2 = pitch,
+    pitch = pitch,
+    roll = roll,
   }
 end
 
@@ -540,14 +567,36 @@ end
 local function mixerSignals(settings, state, level, control, previousMotion, dt)
   control = control or {}
 
-  local rawRate1 = numberAt(state.angularRates, 1)
-  local rawRate2 = numberAt(state.angularRates, 2)
+  local rawRate1 = numberAt(state.angularRates, 3)
+  local rawRate2 = numberAt(state.angularRates, 1)
   local currentTilt = gravityTilt(state.gravity)
   local neutralTilt = gravityTilt(level.gravity)
+  local currentDirectTilt = directTilt(state.anglesRad)
+  local neutralDirectTilt = directTilt(level.anglesRad) or {
+    axis1 = 0,
+    axis2 = 0,
+    pitch = 0,
+    roll = 0,
+  }
   local rawError1 = currentTilt.axis1 - neutralTilt.axis1
   local rawError2 = currentTilt.axis2 - neutralTilt.axis2
   local measured1 = wrapRadians(rawError1) * settings.axis1Sign
   local measured2 = wrapRadians(rawError2) * settings.axis2Sign
+  local directError1 = nil
+  local directError2 = nil
+  local directMeasured1 = nil
+  local directMeasured2 = nil
+  local directDiff1 = nil
+  local directDiff2 = nil
+
+  if currentDirectTilt then
+    directError1 = wrapRadians(currentDirectTilt.axis1 - neutralDirectTilt.axis1)
+    directError2 = wrapRadians(currentDirectTilt.axis2 - neutralDirectTilt.axis2)
+    directMeasured1 = directError1 * settings.axis1Sign
+    directMeasured2 = directError2 * settings.axis2Sign
+    directDiff1 = wrapRadians(directError1 - rawError1)
+    directDiff2 = wrapRadians(directError2 - rawError2)
+  end
 
   local target1 = tonumber(control.axis1Target) or 0
   local target2 = tonumber(control.axis2Target) or 0
@@ -592,6 +641,16 @@ local function mixerSignals(settings, state, level, control, previousMotion, dt)
     neutral2 = neutralTilt.axis2,
     currentTilt = currentTilt,
     neutralTilt = neutralTilt,
+    directAngle1 = currentDirectTilt and currentDirectTilt.axis1,
+    directAngle2 = currentDirectTilt and currentDirectTilt.axis2,
+    directPitch = currentDirectTilt and currentDirectTilt.pitch,
+    directRoll = currentDirectTilt and currentDirectTilt.roll,
+    directError1 = directError1,
+    directError2 = directError2,
+    directMeasured1 = directMeasured1,
+    directMeasured2 = directMeasured2,
+    directDiff1 = directDiff1,
+    directDiff2 = directDiff2,
     rawError1 = rawError1,
     rawError2 = rawError2,
     measured1 = measured1,
@@ -707,6 +766,16 @@ local function compactMixedFrame(mixed)
   return {
     angle1 = mixed.angle1,
     angle2 = mixed.angle2,
+    directAngle1 = mixed.directAngle1,
+    directAngle2 = mixed.directAngle2,
+    directPitch = mixed.directPitch,
+    directRoll = mixed.directRoll,
+    directError1 = mixed.directError1,
+    directError2 = mixed.directError2,
+    directMeasured1 = mixed.directMeasured1,
+    directMeasured2 = mixed.directMeasured2,
+    directDiff1 = mixed.directDiff1,
+    directDiff2 = mixed.directDiff2,
     rate1 = mixed.rate1,
     rate2 = mixed.rate2,
     rawRate1 = mixed.rawRate1,
@@ -760,7 +829,9 @@ function flightControl.levelSet(config)
   report.state = state
   report.level = {
     gravity = copyPlain(state.gravity),
+    anglesRad = copyPlain(state.anglesRad),
     gravityTilt = gravityTilt(state.gravity),
+    directTilt = directTilt(state.anglesRad),
     mode = "sampled_gravity",
     createdAt = report.createdAt,
   }
@@ -783,7 +854,14 @@ function flightControl.levelZero(config)
     dryRun = config.dryRun ~= false,
     level = {
       gravity = copyPlain(gravity),
+      anglesRad = { 0, 0 },
       gravityTilt = gravityTilt(gravity),
+      directTilt = {
+        axis1 = 0,
+        axis2 = 0,
+        pitch = 0,
+        roll = 0,
+      },
       mode = "world_zero",
       createdAt = createdAt,
     },
