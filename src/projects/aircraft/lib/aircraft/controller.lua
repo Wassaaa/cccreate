@@ -199,6 +199,18 @@ local function numberOr(value, fallback)
   return fallback
 end
 
+local function normalizeThrottleMode(value)
+  local text = string.lower(tostring(value or "hold"))
+  text = string.gsub(text, "%s+", "_")
+  text = string.gsub(text, "-", "_")
+
+  if text == "momentary" then
+    return "momentary"
+  end
+
+  return "hold"
+end
+
 local function settingsFrom(config, options)
   local cfg = controllerConfig(config)
   local enabled = cfg.enabled == true
@@ -217,6 +229,7 @@ local function settingsFrom(config, options)
     type = controlInput.normalizeType(typeName),
     inputs = INPUT_ORDER,
     threshold = numberOr(cfg.threshold, 1),
+    throttleMode = normalizeThrottleMode(cfg.throttleMode),
     throttlePower = numberOr(cfg.throttlePower, 1),
     axis1TargetDeg = numberOr(cfg.axis1TargetDeg, 5),
     axis2TargetDeg = numberOr(cfg.axis2TargetDeg, numberOr(cfg.axis1TargetDeg, 5)),

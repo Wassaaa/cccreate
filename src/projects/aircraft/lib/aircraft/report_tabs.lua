@@ -166,6 +166,10 @@ local function configSections(config)
   add(stabilize, config, "stabilize.axis1Trim", "Constant roll correction bias added every frame. Usually keep near 0 and fix balance physically when possible.", "aircraft config stabilize-trim 0 0")
   add(stabilize, config, "stabilize.axis2Trim", "Constant pitch correction bias added every frame. Usually keep near 0 and fix balance physically when possible.")
   add(stabilize, config, "stabilize.maxCorrection", "Maximum stabilizer correction power per axis before mixing into the four rotors.", "aircraft config stabilize-limits 1.5 0.785")
+  add(stabilize, config, "stabilize.desaturate", "When true, shifts all rotor powers together before clipping so pitch/roll correction survives low or high collective.", "aircraft config stabilize-desaturate true")
+  add(stabilize, config, "stabilize.tiltCompensation", "When true, adds bounded collective power while tilted to offset vertical lift lost to pitch/roll.", "aircraft config stabilize-tilt-comp true 1 2")
+  add(stabilize, config, "stabilize.tiltCompensationGain", "Multiplier for tilt-compensating collective power.")
+  add(stabilize, config, "stabilize.tiltCompensationMaxPower", "Maximum extra power tilt compensation may add.")
   add(stabilize, config, "stabilize.signalDither", "Spreads fractional desired signals over time so redstone integer outputs average closer to the float target.", "aircraft config stabilize-dither true")
   add(stabilize, config, "stabilize.brakeOnExit", "Writes brakeSignal when stabilize exits, errors, or aborts.")
   add(stabilize, config, "stabilize.reportFrameLimit", "Maximum recent control frames kept in the saved report. Lower saves space; higher gives more history.", nil)
@@ -174,7 +178,8 @@ local function configSections(config)
   add(controller, config, "controller.enabled", "Default controller enable flag. A run can still use --controller or --no-controller.", "aircraft config controller true")
   add(controller, config, "controller.type", "Controller input backend: redstone_router or keyboard.", "aircraft config controller-type keyboard")
   add(controller, config, "controller.threshold", "Minimum redstone value counted as a pressed controller input.", "aircraft config controller-threshold 1")
-  add(controller, config, "controller.throttlePower", "Extra power while holding space, and negative extra power while holding shift.", "aircraft config controller-tuning <throttlePower> <axis1TargetDeg> <axis2TargetDeg> <axis1Power> <axis2Power>")
+  add(controller, config, "controller.throttleMode", "hold keeps a retained throttle offset; momentary only adds throttle while space/shift is held.", "aircraft config controller-throttle hold <maxPower> <slewPowerPerSecond>")
+  add(controller, config, "controller.throttlePower", "Maximum held throttle offset in hold mode, or momentary extra power while holding space/shift.", "aircraft config controller-tuning <throttlePower> <axis1TargetDeg> <axis2TargetDeg> <axis1Power> <axis2Power>")
   add(controller, config, "controller.axis1TargetDeg", "Requested roll target in degrees while holding A/D.")
   add(controller, config, "controller.axis2TargetDeg", "Requested pitch target in degrees while holding W/S.")
   add(controller, config, "controller.axis1Power", "Optional direct roll power mixed in while steering. 0 means steering only changes the attitude target.")
@@ -304,6 +309,8 @@ local function frameStats(report)
   local stats = {
     frames = 0,
     correctionLimited = 0,
+    desaturatedFrames = 0,
+    tiltedCompensatedFrames = 0,
     controllerActiveFrames = 0,
     pressed = {},
     signalRanges = {},
@@ -329,6 +336,12 @@ local function frameStats(report)
     end
     if mixed.correctionLimited then
       stats.correctionLimited = stats.correctionLimited + 1
+    end
+    if mixed.desaturation and math.abs(tonumber(mixed.desaturation.shift) or 0) > 0.0001 then
+      stats.desaturatedFrames = stats.desaturatedFrames + 1
+    end
+    if math.abs(tonumber(mixed.tiltCompensationPower) or 0) > 0.0001 then
+      stats.tiltedCompensatedFrames = stats.tiltedCompensatedFrames + 1
     end
     if controlsActive(control) then
       stats.controllerActiveFrames = stats.controllerActiveFrames + 1
@@ -432,6 +445,11 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(stabilizerRows, "finalRate2", degPerSecondText(finalMixed.rate2), "Last pitch angular rate.")
   addTextRow(stabilizerRows, "maxCorrection", settings.maxCorrection, "Per-axis correction cap used by the stabilizer.")
   addTextRow(stabilizerRows, "correctionLimitedFrames", stats.correctionLimited, "How often the stabilizer hit maxCorrection.")
+  addTextRow(stabilizerRows, "desaturate", settings.desaturate, "Whether the mixer shifts all rotor powers before clipping.")
+  addTextRow(stabilizerRows, "desaturatedFrames", stats.desaturatedFrames, "Frames where the mixer shifted collective to preserve pitch/roll correction.")
+  addTextRow(stabilizerRows, "tiltCompensation", settings.tiltCompensation, "Whether tilt-based collective compensation was enabled.")
+  addTextRow(stabilizerRows, "tiltCompensatedFrames", stats.tiltedCompensatedFrames, "Frames where tilt compensation added collective power.")
+  addTextRow(stabilizerRows, "finalTiltCompPower", finalMixed.tiltCompensationPower, "Last extra power added by tilt compensation.")
   addTextRow(stabilizerRows, "maxAttitudeDelta", degText(settings.maxAttitudeDelta), "Angle error abort threshold for this run.")
   addTextRow(stabilizerRows, "angleGetter", "getAnglesRad", "Gimbal getter used for pitch/roll attitude.")
   addTextRow(stabilizerRows, "rateGetter", "getAngularRatesRad", "Gimbal getter used for damping.")

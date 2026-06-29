@@ -501,6 +501,10 @@ local function stabilizeConfig(config, options)
     axis1Trim = tonumber(options.axis1Trim) or tonumber(defaults.axis1Trim) or 0,
     axis2Trim = tonumber(options.axis2Trim) or tonumber(defaults.axis2Trim) or 0,
     maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 1.5,
+    desaturate = defaults.desaturate ~= false,
+    tiltCompensation = defaults.tiltCompensation ~= false,
+    tiltCompensationGain = tonumber(defaults.tiltCompensationGain) or 1,
+    tiltCompensationMaxPower = tonumber(defaults.tiltCompensationMaxPower) or 2,
     signalDither = defaults.signalDither ~= false,
     maxAttitudeDelta = tonumber(options.maxAttitudeDelta)
         or (tonumber(options.maxAttitudeDeg) and tonumber(options.maxAttitudeDeg) * math.pi / 180)
@@ -724,10 +728,12 @@ local function smoothControl(context, control, previousControl, dt)
   local elapsed = tonumber(dt) or 0
   local targetSlew = tonumber(settings.targetSlewDegPerSecond) or 0
   local throttleSlew = tonumber(settings.throttleSlewPowerPerSecond) or 0
+  local throttleMode = tostring(settings.throttleMode or "hold")
 
   result.rawAxis1Target = tonumber(control.axis1Target) or 0
   result.rawAxis2Target = tonumber(control.axis2Target) or 0
   result.rawThrottlePower = tonumber(control.throttlePower) or 0
+  result.throttleMode = throttleMode
 
   if elapsed > 0 and previousControl then
     local targetStep = targetSlew * math.pi / 180 * elapsed
@@ -735,7 +741,22 @@ local function smoothControl(context, control, previousControl, dt)
 
     result.axis1Target = slewValue(previousControl.axis1Target, result.rawAxis1Target, targetStep)
     result.axis2Target = slewValue(previousControl.axis2Target, result.rawAxis2Target, targetStep)
-    result.throttlePower = slewValue(previousControl.throttlePower, result.rawThrottlePower, throttleStep)
+
+    if throttleMode == "hold" then
+      local previousHeld = tonumber(previousControl.heldThrottlePower) or tonumber(previousControl.throttlePower) or 0
+      local throttleInput = tonumber(control.throttle) or 0
+      local maxThrottle = math.abs(tonumber(settings.throttlePower) or math.abs(result.rawThrottlePower) or 0)
+      local held = previousHeld + throttleInput * throttleStep
+
+      result.throttlePower = clamp(held, -maxThrottle, maxThrottle)
+      result.heldThrottlePower = result.throttlePower
+    else
+      result.throttlePower = slewValue(previousControl.throttlePower, result.rawThrottlePower, throttleStep)
+      result.heldThrottlePower = nil
+    end
+  elseif throttleMode == "hold" then
+    result.throttlePower = tonumber(previousControl and previousControl.heldThrottlePower) or 0
+    result.heldThrottlePower = result.throttlePower
   end
 
   return result
@@ -772,6 +793,7 @@ local function recoveryContext(test)
     settings = {
       targetSlewDegPerSecond = tonumber(test and test.targetSlewDegPerSecond) or 30,
       throttleSlewPowerPerSecond = tonumber(test and test.throttleSlewPowerPerSecond) or 8,
+      throttleMode = "momentary",
     },
   }
 end
@@ -791,6 +813,85 @@ local function targetAssistPower(controlPower, error, target)
 
   local scale = clamp(math.abs(error) / math.abs(target), 0, 1)
   return controlPower * scale
+end
+
+local function rangeOfPower(power)
+  local minValue = nil
+  local maxValue = nil
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local value = tonumber(power and power[role]) or 0
+    minValue = minValue and math.min(minValue, value) or value
+    maxValue = maxValue and math.max(maxValue, value) or value
+  end
+
+  return minValue or 0, maxValue or 0
+end
+
+local function desaturatePower(power, maxPower, enabled)
+  local inputMin, inputMax = rangeOfPower(power)
+  local shift = 0
+
+  if enabled ~= false then
+    if inputMin < 0 then
+      shift = -inputMin
+    end
+
+    if inputMax + shift > maxPower then
+      shift = shift - (inputMax + shift - maxPower)
+    end
+  end
+
+  local result = {}
+  local saturated = false
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local shifted = (tonumber(power[role]) or 0) + shift
+    local clamped = clamp(shifted, 0, maxPower)
+    result[role] = clamped
+    if math.abs(clamped - shifted) > 0.000001 then
+      saturated = true
+    end
+  end
+
+  local outputMin, outputMax = rangeOfPower(result)
+  return result, {
+    enabled = enabled ~= false,
+    shift = shift,
+    inputMin = inputMin,
+    inputMax = inputMax,
+    outputMin = outputMin,
+    outputMax = outputMax,
+    saturated = saturated,
+  }
+end
+
+local function tiltCompensationPower(settings, measured1, measured2, basePower)
+  if settings.tiltCompensation == false then
+    return 0, {
+      enabled = false,
+    }
+  end
+
+  local base = math.max(0, tonumber(basePower) or 0)
+  local tilt = math.sqrt((tonumber(measured1) or 0) ^ 2 + (tonumber(measured2) or 0) ^ 2)
+  local limitedTilt = clamp(tilt, 0, math.pi / 2 - 0.01)
+  local cosTilt = math.max(0.1, math.cos(limitedTilt))
+  local gain = tonumber(settings.tiltCompensationGain) or 1
+  local maxPower = math.max(0, tonumber(settings.tiltCompensationMaxPower) or 0)
+  local rawPower = base * ((1 / cosTilt) - 1) * gain
+  local power = clamp(rawPower, 0, maxPower)
+
+  return power, {
+    enabled = true,
+    tilt = tilt,
+    cosTilt = cosTilt,
+    gain = gain,
+    maxPower = maxPower,
+    rawPower = rawPower,
+    power = power,
+    limited = power ~= rawPower,
+  }
 end
 
 local function mixerSignals(settings, state, control, signalResiduals)
@@ -820,19 +921,26 @@ local function mixerSignals(settings, state, control, signalResiduals)
   local rawCorrection2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2) + settings.axis2Trim + controlPower2
   local correction1 = clamp(rawCorrection1, -settings.maxCorrection, settings.maxCorrection)
   local correction2 = clamp(rawCorrection2, -settings.maxCorrection, settings.maxCorrection)
-  local basePower = settings.basePower + (tonumber(control.throttlePower) or 0)
-  local power = {
+  local basePowerBeforeTilt = settings.basePower + (tonumber(control.throttlePower) or 0)
+  local tiltCompensation, tiltCompensationDetails = tiltCompensationPower(
+    settings,
+    measured1,
+    measured2,
+    basePowerBeforeTilt
+  )
+  local basePower = basePowerBeforeTilt + tiltCompensation
+  local rawPower = {
     front_left = basePower + correction1 - correction2,
     front_right = basePower - correction1 - correction2,
     rear_left = basePower + correction1 + correction2,
     rear_right = basePower - correction1 + correction2,
   }
+  local power, desaturation = desaturatePower(rawPower, settings.maxSignal, settings.desaturate)
   local signals = {}
   local desiredSignals = {}
 
   for role, value in pairs(power) do
-    local clampedPower = clamp(value, 0, settings.maxSignal)
-    desiredSignals[role] = clamp(settings.brakeSignal - clampedPower, 0, settings.maxSignal)
+    desiredSignals[role] = clamp(settings.brakeSignal - value, 0, settings.maxSignal)
     signals[role] = quantizeSignal(
       desiredSignals[role],
       settings.maxSignal,
@@ -877,9 +985,14 @@ local function mixerSignals(settings, state, control, signalResiduals)
     correction2 = correction2,
     correctionLimited = correction1 ~= rawCorrection1
       or correction2 ~= rawCorrection2,
+    basePowerBeforeTilt = basePowerBeforeTilt,
+    tiltCompensationPower = tiltCompensation,
+    tiltCompensation = tiltCompensationDetails,
     basePower = basePower,
+    rawPower = rawPower,
     control = copyPlain(control),
     power = power,
+    desaturation = desaturation,
     desiredSignals = desiredSignals,
     signals = signals,
   }
@@ -968,6 +1081,8 @@ local function compactControllerFrame(control)
     rawAxis1Target = control.rawAxis1Target,
     rawAxis2Target = control.rawAxis2Target,
     rawThrottlePower = control.rawThrottlePower,
+    throttleMode = control.throttleMode,
+    heldThrottlePower = control.heldThrottlePower,
     axis1Target = control.axis1Target,
     axis2Target = control.axis2Target,
     axis1Power = control.axis1Power,
@@ -1005,8 +1120,13 @@ local function compactMixedFrame(mixed)
     correction1 = mixed.correction1,
     correction2 = mixed.correction2,
     correctionLimited = mixed.correctionLimited == true,
+    basePowerBeforeTilt = mixed.basePowerBeforeTilt,
+    tiltCompensationPower = mixed.tiltCompensationPower,
+    tiltCompensation = copyPlain(mixed.tiltCompensation),
     basePower = mixed.basePower,
+    rawPower = copyPlain(mixed.rawPower),
     power = copyPlain(mixed.power),
+    desaturation = copyPlain(mixed.desaturation),
     desiredSignals = copyPlain(mixed.desiredSignals),
     signals = copyPlain(mixed.signals),
   }
@@ -1174,6 +1294,7 @@ function flightControl.stabilize(config, options)
       axis1Target = 0,
       axis2Target = 0,
       throttlePower = 0,
+      heldThrottlePower = 0,
     }
 
     while true do
@@ -1254,6 +1375,7 @@ function flightControl.stabilize(config, options)
         axis1Target = control.axis1Target,
         axis2Target = control.axis2Target,
         throttlePower = control.throttlePower,
+        heldThrottlePower = control.heldThrottlePower,
       }
       frameIndex = frameIndex + 1
       nextFrameTime = nextFrameTime + settings.interval

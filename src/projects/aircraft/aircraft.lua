@@ -39,6 +39,10 @@ local DEFAULT_CONFIG = {
     axis1Trim = 0,
     axis2Trim = 0,
     maxCorrection = 1.5,
+    desaturate = true,
+    tiltCompensation = true,
+    tiltCompensationGain = 1,
+    tiltCompensationMaxPower = 2,
     signalDither = true,
     brakeOnExit = true,
     reportFrameLimit = 600,
@@ -67,6 +71,7 @@ local DEFAULT_CONFIG = {
     enabled = false,
     type = "redstone_router",
     threshold = 1,
+    throttleMode = "hold",
     throttlePower = 1,
     axis1TargetDeg = 5,
     axis2TargetDeg = 5,
@@ -89,6 +94,8 @@ local function usage()
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
+  print("aircraft config stabilize-desaturate <true|false>")
+  print("aircraft config stabilize-tilt-comp <true|false> [gain] [maxPower]")
   print("aircraft config stabilize-dither <true|false>")
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
@@ -101,6 +108,7 @@ local function usage()
   print("aircraft config controller-layout <shiftX> <shiftY> <shiftZ> [side]")
   print("aircraft config controller-bind <key> <x> <y> <z> [side]")
   print("aircraft config controller-tuning <throttlePower> <axis1TargetDeg> [axis2TargetDeg] [axis1Power] [axis2Power]")
+  print("aircraft config controller-throttle <hold|momentary> [maxPower] [slewPowerPerSecond]")
   print("aircraft config controller-response <targetSlewDegPerSecond> [throttleSlewPowerPerSecond]")
   print("aircraft config controller-threshold <0-15>")
   print("aircraft brake [role|all] [--apply]")
@@ -490,6 +498,18 @@ local function validControllerKey(key)
     or key == "k"
 end
 
+local function normalizeThrottleMode(value)
+  local text = string.lower(tostring(value or "hold"))
+  text = string.gsub(text, "%s+", "_")
+  text = string.gsub(text, "-", "_")
+
+  if text == "hold" or text == "momentary" then
+    return text
+  end
+
+  error("throttle mode must be hold or momentary", 0)
+end
+
 local function bindingText(binding)
   if type(binding) ~= "table" then
     return "nil"
@@ -519,6 +539,10 @@ local function printConfig(config, source)
   print("  stabilize.axis1Trim=" .. tostring(config.stabilize.axis1Trim))
   print("  stabilize.axis2Trim=" .. tostring(config.stabilize.axis2Trim))
   print("  stabilize.maxCorrection=" .. tostring(config.stabilize.maxCorrection))
+  print("  stabilize.desaturate=" .. tostring(config.stabilize.desaturate))
+  print("  stabilize.tiltCompensation=" .. tostring(config.stabilize.tiltCompensation))
+  print("  stabilize.tiltCompensationGain=" .. tostring(config.stabilize.tiltCompensationGain))
+  print("  stabilize.tiltCompensationMaxPower=" .. tostring(config.stabilize.tiltCompensationMaxPower))
   print("  stabilize.signalDither=" .. tostring(config.stabilize.signalDither))
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
   print("  display.stabilizeEnabled=" .. tostring(config.display and config.display.stabilizeEnabled))
@@ -536,6 +560,7 @@ local function printConfig(config, source)
   print("  controller.enabled=" .. tostring(config.controller and config.controller.enabled))
   print("  controller.type=" .. tostring(config.controller and config.controller.type))
   print("  controller.threshold=" .. tostring(config.controller and config.controller.threshold))
+  print("  controller.throttleMode=" .. tostring(config.controller and config.controller.throttleMode))
   print("  controller.throttlePower=" .. tostring(config.controller and config.controller.throttlePower))
   print("  controller.axis1TargetDeg=" .. tostring(config.controller and config.controller.axis1TargetDeg))
   print("  controller.axis2TargetDeg=" .. tostring(config.controller and config.controller.axis2TargetDeg))
@@ -651,6 +676,35 @@ local function runConfig()
     print("Saved stabilize limits to " .. CONFIG_PATH)
     print("  maxCorrection=" .. tostring(config.stabilize.maxCorrection))
     print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
+    return
+  elseif subcommand == "stabilize-desaturate" then
+    config.stabilize.desaturate = parseBoolean(args[3])
+    saveConfig(config)
+    print("Saved stabilize.desaturate=" .. tostring(config.stabilize.desaturate) .. " to " .. CONFIG_PATH)
+    return
+  elseif subcommand == "stabilize-tilt-comp" then
+    config.stabilize.tiltCompensation = parseBoolean(args[3])
+    if args[4] then
+      config.stabilize.tiltCompensationGain = parseNumber(args[4], "tiltCompensationGain")
+      if config.stabilize.tiltCompensationGain < 0 then
+        error("tiltCompensationGain must be non-negative", 0)
+      end
+    elseif config.stabilize.tiltCompensationGain == nil then
+      config.stabilize.tiltCompensationGain = 1
+    end
+    if args[5] then
+      config.stabilize.tiltCompensationMaxPower = parseNumber(args[5], "tiltCompensationMaxPower")
+      if config.stabilize.tiltCompensationMaxPower < 0 then
+        error("tiltCompensationMaxPower must be non-negative", 0)
+      end
+    elseif config.stabilize.tiltCompensationMaxPower == nil then
+      config.stabilize.tiltCompensationMaxPower = 2
+    end
+    saveConfig(config)
+    print("Saved stabilize tilt compensation to " .. CONFIG_PATH)
+    print("  tiltCompensation=" .. tostring(config.stabilize.tiltCompensation))
+    print("  tiltCompensationGain=" .. tostring(config.stabilize.tiltCompensationGain))
+    print("  tiltCompensationMaxPower=" .. tostring(config.stabilize.tiltCompensationMaxPower))
     return
   elseif subcommand == "stabilize-dither" then
     config.stabilize.signalDither = parseBoolean(args[3])
@@ -825,6 +879,37 @@ local function runConfig()
     print("  axis2TargetDeg=" .. tostring(axis2TargetDeg))
     print("  axis1Power=" .. tostring(axis1Power))
     print("  axis2Power=" .. tostring(axis2Power))
+    return
+  elseif subcommand == "controller-throttle" then
+    local controllerConfig = config.controller or {}
+    local throttleMode = normalizeThrottleMode(args[3])
+
+    config.controller = controllerConfig
+    config.controller.throttleMode = throttleMode
+
+    if args[4] then
+      config.controller.throttlePower = parseNumber(args[4], "maxPower")
+      if config.controller.throttlePower < 0 then
+        error("maxPower must be non-negative", 0)
+      end
+    elseif config.controller.throttlePower == nil then
+      config.controller.throttlePower = 1
+    end
+
+    if args[5] then
+      config.controller.throttleSlewPowerPerSecond = parseNumber(args[5], "slewPowerPerSecond")
+      if config.controller.throttleSlewPowerPerSecond < 0 then
+        error("slewPowerPerSecond must be non-negative", 0)
+      end
+    elseif config.controller.throttleSlewPowerPerSecond == nil then
+      config.controller.throttleSlewPowerPerSecond = 4
+    end
+
+    saveConfig(config)
+    print("Saved controller throttle to " .. CONFIG_PATH)
+    print("  throttleMode=" .. tostring(config.controller.throttleMode))
+    print("  throttlePower=" .. tostring(config.controller.throttlePower))
+    print("  throttleSlewPowerPerSecond=" .. tostring(config.controller.throttleSlewPowerPerSecond))
     return
   elseif subcommand == "controller-response" then
     local controllerConfig = config.controller or {}

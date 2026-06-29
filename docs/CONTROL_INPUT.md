@@ -26,6 +26,22 @@ Enable controller input:
 aircraft config controller true
 ```
 
+Controller throttle defaults to hold mode. `space` raises the retained throttle
+offset, `shift` lowers it, and the value stays where you leave it until changed
+again or the stabilize loop exits. The configured `throttlePower` is the maximum
+held offset; `throttleSlewPowerPerSecond` is how quickly space/shift move it.
+
+```text
+aircraft config controller-throttle hold <maxPower> <slewPowerPerSecond>
+```
+
+Use momentary mode if you want the old behavior where throttle only applies
+while the key is held:
+
+```text
+aircraft config controller-throttle momentary
+```
+
 Use the existing Redstone Link / redstone router controller:
 
 ```text

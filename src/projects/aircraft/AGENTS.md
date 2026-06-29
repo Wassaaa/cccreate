@@ -39,6 +39,8 @@ This project installs with `update aircraft`. Its files land at the ComputerCraf
 - Do not add yaw correction to the four vertical-rotor mixer. Testing showed diagonal rotor thrust and handedness changes do not create useful yaw in the current simulation.
 - Future heading/yaw control should use dedicated horizontal/vector actuators, then wire controller keys to that actuator backend.
 - Propeller bearing handedness may still be read with `getThrustHandedness()` for diagnostics. Do not write `setThrustHandedness()` from this module unless a future actuator design has a proven need.
+- The mixer may desaturate rotor powers before clipping, shifting the whole power set to preserve pitch/roll correction near 0 or max redstone power.
+- Tilt compensation is collective-only: it adds bounded base power while pitch/roll tilt reduces vertical lift. It is not real altitude hold.
 
 ## Controller Inputs
 
@@ -50,6 +52,7 @@ This project installs with `update aircraft`. Its files land at the ComputerCraf
   - `aircraft config controller-bind <key> <x> <y> <z> [side]`
 - `controller-layout` uses the bottom-left `shift` coordinate, then lays out `shift A S D space` to aircraft right and `W` one row toward aircraft front. It uses configured axes first, then scan axes, then defaults to `front=+Z` and `left=+X`.
 - The `keyboard` backend consumes CraftOS `key` and `key_up` events from an onboard keyboard or Create: Avionics Linked Typewriter.
+- Controller throttle defaults to hold mode. `space` raises the retained throttle offset, `shift` lowers it, and the value is bounded by `controller.throttlePower`.
 - The controller `k` input is reserved for the aircraft kill switch. It must not be mixed into movement axes.
 - Physical kill switches can use local computer-side redstone or a redstone-router relative coordinate via `aircraft config killswitch-router <x> <y> <z> [side] [activeHigh]`.
 - Use `aircraft killswitch --seconds <n>` to probe the configured kill switch and controller `k` key without running stabilization.

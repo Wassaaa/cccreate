@@ -33,6 +33,14 @@ return {
     axis1Trim = 0,
     axis2Trim = 0,
     maxCorrection = 1.5,
+    -- Desaturation shifts all rotor powers together when one corner would
+    -- clip below 0 or above max, preserving pitch/roll authority when possible.
+    desaturate = true,
+    -- Tilt compensation adds bounded collective power while tilted, roughly
+    -- offsetting the vertical lift lost to pitch/roll.
+    tiltCompensation = true,
+    tiltCompensationGain = 1,
+    tiltCompensationMaxPower = 2,
     signalDither = true,
     brakeOnExit = true,
     reportFrameLimit = 600,
@@ -66,6 +74,9 @@ return {
     -- keyboard or Create: Avionics Linked Typewriter.
     type = "redstone_router",
     threshold = 1,
+    -- hold: space/shift adjust a retained throttle offset.
+    -- momentary: space/shift only add power while held.
+    throttleMode = "hold",
     throttlePower = 1,
     axis1TargetDeg = 5,
     axis2TargetDeg = 5,
