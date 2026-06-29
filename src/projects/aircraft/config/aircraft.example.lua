@@ -31,8 +31,6 @@ return {
     axis2Kp = 4,
     axis1Kd = 0.12,
     axis2Kd = 0.2,
-    axis1Sign = -1,
-    axis2Sign = 1,
     axis1Trim = 0,
     axis2Trim = 0,
     maxCorrection = 1.5,
@@ -64,8 +62,6 @@ return {
     axis2TargetDeg = 5,
     axis1Power = 0,
     axis2Power = 0,
-    axis1Sign = 1,
-    axis2Sign = 1,
     targetSlewDegPerSecond = 8,
     throttleSlewPowerPerSecond = 4,
     -- Default Create controller link layout from the first configured block:

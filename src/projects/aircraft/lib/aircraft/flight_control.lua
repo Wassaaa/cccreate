@@ -65,26 +65,6 @@ local function quantizeSignal(value, maxSignal, residuals, key)
   return signal
 end
 
-local function atan2(y, x)
-  if math.atan2 then
-    return math.atan2(y, x)
-  end
-
-  if x > 0 then
-    return math.atan(y / x)
-  elseif x < 0 and y >= 0 then
-    return math.atan(y / x) + math.pi
-  elseif x < 0 and y < 0 then
-    return math.atan(y / x) - math.pi
-  elseif x == 0 and y > 0 then
-    return math.pi / 2
-  elseif x == 0 and y < 0 then
-    return -math.pi / 2
-  end
-
-  return 0
-end
-
 local function wrapRadians(delta)
   local tau = math.pi * 2
 
@@ -270,7 +250,7 @@ local function tryGimbalAt(router, coord)
     return nil
   end
 
-  if type(objectOrError.getGravity) == "function"
+  if type(objectOrError.getAnglesRad) == "function"
       and type(objectOrError.getAngularRatesRad) == "function" then
     return objectOrError
   end
@@ -399,31 +379,31 @@ local function baseReport(kind, config, scan, routerName)
 end
 
 local function readGimbal(gimbal)
+  local angles = nil
+  local angleError = nil
   local rates = nil
   local rateError = nil
-  local gravity = nil
-  local gravityError = nil
 
   parallel.waitForAll(
     function()
-      rates, rateError = callGetter(gimbal.object, "getAngularRatesRad")
+      angles, angleError = callGetter(gimbal.object, "getAnglesRad")
     end,
     function()
-      gravity, gravityError = callGetter(gimbal.object, "getGravity")
+      rates, rateError = callGetter(gimbal.object, "getAngularRatesRad")
     end
   )
+
+  if angleError then
+    error("gimbal getAnglesRad failed: " .. tostring(angleError), 0)
+  end
 
   if rateError then
     error("gimbal getAngularRatesRad failed: " .. tostring(rateError), 0)
   end
 
-  if gravityError then
-    error("gimbal getGravity failed: " .. tostring(gravityError), 0)
-  end
-
   return {
+    angles = angles,
     angularRates = rates,
-    gravity = gravity,
   }
 end
 
@@ -436,18 +416,31 @@ local function numberAt(values, index)
   return value
 end
 
-local function gravityTilt(gravity)
-  local gx = numberAt(gravity, 1)
-  local gy = numberAt(gravity, 2)
-  local gz = numberAt(gravity, 3)
-  local down = -gy
+local function attitudeAngles(angles)
+  local pitch = numberAt(angles, 1)
+  local roll = numberAt(angles, 2)
+
+  -- The gimbal reports { pitch about body-X, roll about body-Z }.
+  -- The mixer axis1 is left/right correction, so positive roll maps negative.
+  return {
+    axis1 = -roll,
+    axis2 = pitch,
+    pitch = pitch,
+    roll = roll,
+  }
+end
+
+local function attitudeRates(rates)
+  local pitchRate = numberAt(rates, 1)
+  local yawRate = numberAt(rates, 2)
+  local rollRate = numberAt(rates, 3)
 
   return {
-    axis1 = atan2(gx, down),
-    axis2 = atan2(gz, down),
-    x = gx,
-    y = gy,
-    z = gz,
+    axis1 = -rollRate,
+    axis2 = pitchRate,
+    pitch = pitchRate,
+    yaw = yawRate,
+    roll = rollRate,
   }
 end
 
@@ -476,8 +469,6 @@ local function stabilizeConfig(config, options)
     axis2Kp = tonumber(options.axis2Kp) or tonumber(options.kp) or tonumber(defaults.axis2Kp) or 4,
     axis1Kd = tonumber(options.axis1Kd) or tonumber(options.kd) or tonumber(defaults.axis1Kd) or 0.12,
     axis2Kd = tonumber(options.axis2Kd) or tonumber(options.kd) or tonumber(defaults.axis2Kd) or 0.2,
-    axis1Sign = tonumber(options.axis1Sign) or tonumber(defaults.axis1Sign) or -1,
-    axis2Sign = tonumber(options.axis2Sign) or tonumber(defaults.axis2Sign) or 1,
     axis1Trim = tonumber(options.axis1Trim) or tonumber(defaults.axis1Trim) or 0,
     axis2Trim = tonumber(options.axis2Trim) or tonumber(defaults.axis2Trim) or 0,
     maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 1.5,
@@ -641,14 +632,15 @@ end
 local function mixerSignals(settings, state, level, control, signalResiduals)
   control = control or {}
 
-  local rawRate1 = numberAt(state.angularRates, 3)
-  local rawRate2 = numberAt(state.angularRates, 1)
-  local currentTilt = gravityTilt(state.gravity)
-  local neutralTilt = gravityTilt(level.gravity)
+  local currentTilt = attitudeAngles(state.angles)
+  local neutralTilt = attitudeAngles(level.angles)
+  local rates = attitudeRates(state.angularRates)
+  local rawRate1 = rates.axis1
+  local rawRate2 = rates.axis2
   local rawError1 = currentTilt.axis1 - neutralTilt.axis1
   local rawError2 = currentTilt.axis2 - neutralTilt.axis2
-  local measured1 = wrapRadians(rawError1) * settings.axis1Sign
-  local measured2 = wrapRadians(rawError2) * settings.axis2Sign
+  local measured1 = wrapRadians(rawError1)
+  local measured2 = wrapRadians(rawError2)
 
   local target1 = tonumber(control.axis1Target) or 0
   local target2 = tonumber(control.axis2Target) or 0
@@ -920,21 +912,21 @@ function flightControl.levelSet(config)
   }
   report.state = state
   report.level = {
-    gravity = copyPlain(state.gravity),
-    gravityTilt = gravityTilt(state.gravity),
-    mode = "sampled_gravity",
+    angles = copyPlain(state.angles),
+    attitude = attitudeAngles(state.angles),
+    mode = "sampled_angles",
     createdAt = report.createdAt,
   }
 
   local path = saveAndSend(config, report)
   print("Aircraft level report: " .. path)
-  print("level gravity=" .. textutils.serialize(report.level.gravity))
+  print("level angles=" .. textutils.serialize(report.level.angles))
 
   return report
 end
 
 function flightControl.levelZero(config)
-  local gravity = { 0, -1, 0 }
+  local angles = { 0, 0 }
   local createdAt = now()
   local report = {
     kind = "aircraft_level_zero",
@@ -943,8 +935,8 @@ function flightControl.levelZero(config)
     label = os.getComputerLabel(),
     dryRun = config.dryRun ~= false,
     level = {
-      gravity = copyPlain(gravity),
-      gravityTilt = gravityTilt(gravity),
+      angles = copyPlain(angles),
+      attitude = attitudeAngles(angles),
       mode = "world_zero",
       createdAt = createdAt,
     },
@@ -952,14 +944,14 @@ function flightControl.levelZero(config)
 
   local path = saveAndSend(config, report)
   print("Aircraft world-level report: " .. path)
-  print("level gravity=" .. textutils.serialize(report.level.gravity))
+  print("level angles=" .. textutils.serialize(report.level.angles))
 
   return report
 end
 
 function flightControl.stabilize(config, options)
-  if type(config.level) ~= "table" or type(config.level.gravity) ~= "table" then
-    error("No saved level. Run aircraft level-zero for world-level or level-set while the craft is level.", 0)
+  if type(config.level) ~= "table" or type(config.level.angles) ~= "table" then
+    error("No saved angle level. Run aircraft level-zero for world-level or level-set while the craft is level.", 0)
   end
 
   local scan, router, routerName = loadContext(config)

@@ -42,8 +42,6 @@ local DEFAULT_CONFIG = {
     axis2Kp = 4,
     axis1Kd = 0.12,
     axis2Kd = 0.2,
-    axis1Sign = -1,
-    axis2Sign = 1,
     axis1Trim = 0,
     axis2Trim = 0,
     maxCorrection = 1.5,
@@ -75,8 +73,6 @@ local DEFAULT_CONFIG = {
     axis2TargetDeg = 5,
     axis1Power = 0,
     axis2Power = 0,
-    axis1Sign = 1,
-    axis2Sign = 1,
     targetSlewDegPerSecond = 8,
     throttleSlewPowerPerSecond = 4,
     bindings = controller.defaultBindings(-1, -1, -5, "up"),
@@ -91,7 +87,6 @@ local function usage()
   print("aircraft config axes <frontAxis> <leftAxis>")
   print("aircraft config dry-run <true|false>")
   print("aircraft config max-signal <0-15>")
-  print("aircraft config stabilize-signs <-1|1> <-1|1>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
@@ -105,7 +100,6 @@ local function usage()
   print("aircraft config controller-bind <key> <x> <y> <z> [side]")
   print("aircraft config controller-tuning <throttlePower> <axis1TargetDeg> [axis2TargetDeg] [axis1Power] [axis2Power]")
   print("aircraft config controller-response <targetSlewDegPerSecond> [throttleSlewPowerPerSecond]")
-  print("aircraft config controller-signs <-1|1> <-1|1>")
   print("aircraft config controller-threshold <0-15>")
   print("aircraft brake [role|all] [--apply]")
   print("aircraft controller [--seconds n] [--interval n]")
@@ -218,15 +212,6 @@ local function parseNonNegativeInteger(value, label)
   end
 
   return number
-end
-
-local function parseSign(value, label)
-  local number = tonumber(value)
-  if number == 1 or number == -1 then
-    return number
-  end
-
-  error(label .. " must be -1 or 1", 0)
 end
 
 local function parseNumber(value, label)
@@ -467,8 +452,6 @@ local function printConfig(config, source)
   print("  absoluteSignalMax=" .. tostring(config.absoluteSignalMax))
   print("  brakeSignal=" .. tostring(config.brakeSignal))
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
-  print("  stabilize.axis1Sign=" .. tostring(config.stabilize.axis1Sign))
-  print("  stabilize.axis2Sign=" .. tostring(config.stabilize.axis2Sign))
   print("  stabilize.axis1Kp=" .. tostring(config.stabilize.axis1Kp))
   print("  stabilize.axis1Kd=" .. tostring(config.stabilize.axis1Kd))
   print("  stabilize.axis2Kp=" .. tostring(config.stabilize.axis2Kp))
@@ -493,8 +476,6 @@ local function printConfig(config, source)
   print("  controller.axis2TargetDeg=" .. tostring(config.controller and config.controller.axis2TargetDeg))
   print("  controller.axis1Power=" .. tostring(config.controller and config.controller.axis1Power))
   print("  controller.axis2Power=" .. tostring(config.controller and config.controller.axis2Power))
-  print("  controller.axis1Sign=" .. tostring(config.controller and config.controller.axis1Sign))
-  print("  controller.axis2Sign=" .. tostring(config.controller and config.controller.axis2Sign))
   print("  controller.targetSlewDegPerSecond=" .. tostring(config.controller and config.controller.targetSlewDegPerSecond))
   print("  controller.throttleSlewPowerPerSecond=" .. tostring(config.controller and config.controller.throttleSlewPowerPerSecond))
   if config.controller and config.controller.bindings then
@@ -506,10 +487,10 @@ local function printConfig(config, source)
     print("    space=" .. bindingText(config.controller.bindings.space))
     print("    w=" .. bindingText(config.controller.bindings.w))
   end
-  if config.level and config.level.gravity then
-    print("  level.gravity=" .. textutils.serialize(config.level.gravity))
+  if config.level and config.level.angles then
+    print("  level.angles=" .. textutils.serialize(config.level.angles))
   else
-    print("  level.gravity=nil")
+    print("  level.angles=nil")
   end
 end
 
@@ -573,14 +554,6 @@ local function runConfig()
     config.brakeSignal = signal
     saveConfig(config)
     print("Saved absoluteSignalMax=" .. tostring(signal) .. " and brakeSignal=" .. tostring(signal) .. " to " .. CONFIG_PATH)
-    return
-  elseif subcommand == "stabilize-signs" then
-    config.stabilize.axis1Sign = parseSign(args[3], "axis1Sign")
-    config.stabilize.axis2Sign = parseSign(args[4], "axis2Sign")
-    saveConfig(config)
-    print("Saved stabilize signs to " .. CONFIG_PATH)
-    print("  axis1Sign=" .. tostring(config.stabilize.axis1Sign))
-    print("  axis2Sign=" .. tostring(config.stabilize.axis2Sign))
     return
   elseif subcommand == "stabilize-gains" then
     config.stabilize.axis1Kp = parseNumber(args[3], "axis1Kp")
@@ -744,15 +717,6 @@ local function runConfig()
     print("  targetSlewDegPerSecond=" .. tostring(targetSlewDegPerSecond))
     print("  throttleSlewPowerPerSecond=" .. tostring(throttleSlewPowerPerSecond))
     return
-  elseif subcommand == "controller-signs" then
-    config.controller = config.controller or {}
-    config.controller.axis1Sign = parseSign(args[3], "axis1Sign")
-    config.controller.axis2Sign = parseSign(args[4], "axis2Sign")
-    saveConfig(config)
-    print("Saved controller signs to " .. CONFIG_PATH)
-    print("  axis1Sign=" .. tostring(config.controller.axis1Sign))
-    print("  axis2Sign=" .. tostring(config.controller.axis2Sign))
-    return
   elseif subcommand == "controller-threshold" then
     local threshold = parseNumber(args[3], "threshold")
     if threshold < 0 or threshold > 15 then
@@ -883,12 +847,6 @@ local function parseCommandOptions(startIndex)
       if not options.axis2Kd then
         error("--axis2-kd needs a number", 0)
       end
-      i = i + 2
-    elseif arg == "--axis1-sign" then
-      options.axis1Sign = parseSign(args[i + 1], "--axis1-sign")
-      i = i + 2
-    elseif arg == "--axis2-sign" then
-      options.axis2Sign = parseSign(args[i + 1], "--axis2-sign")
       i = i + 2
     elseif arg == "--axis1-trim" then
       options.axis1Trim = tonumber(args[i + 1])

@@ -159,8 +159,6 @@ local function settingsFrom(config, options)
     axis2TargetDeg = tonumber(cfg.axis2TargetDeg) or tonumber(cfg.axis1TargetDeg) or 5,
     axis1Power = tonumber(cfg.axis1Power) or 0,
     axis2Power = tonumber(cfg.axis2Power) or tonumber(cfg.axis1Power) or 0,
-    axis1Sign = tonumber(cfg.axis1Sign) or 1,
-    axis2Sign = tonumber(cfg.axis2Sign) or 1,
     targetSlewDegPerSecond = tonumber(cfg.targetSlewDegPerSecond) or 8,
     throttleSlewPowerPerSecond = tonumber(cfg.throttleSlewPowerPerSecond) or 4,
     bindings = cfg.bindings or {},
@@ -303,8 +301,8 @@ function controller.sample(context)
   parallel.waitForAll(unpack(tasks))
 
   local throttle = inputValue(reads.space) - inputValue(reads.shift)
-  local axis1 = (inputValue(reads.d) - inputValue(reads.a)) * context.settings.axis1Sign
-  local axis2 = (inputValue(reads.w) - inputValue(reads.s)) * context.settings.axis2Sign
+  local axis1 = inputValue(reads.d) - inputValue(reads.a)
+  local axis2 = inputValue(reads.w) - inputValue(reads.s)
   local degToRad = math.pi / 180
 
   return {

@@ -35,8 +35,6 @@ local ORDERS = {
     "axis1Kd",
     "axis2Kp",
     "axis2Kd",
-    "axis1Sign",
-    "axis2Sign",
     "axis1Trim",
     "axis2Trim",
     "maxCorrection",
@@ -52,8 +50,6 @@ local ORDERS = {
     "axis2TargetDeg",
     "axis1Power",
     "axis2Power",
-    "axis1Sign",
-    "axis2Sign",
     "targetSlewDegPerSecond",
     "throttleSlewPowerPerSecond",
     "bindings",
@@ -63,8 +59,8 @@ local ORDERS = {
   display = { "enabled", "stabilizeEnabled", "stabilizeInterval" },
   hud = { "enabled", "interval", "monitorScale", "monitorName" },
   killSwitch = { "enabled", "side", "activeHigh" },
-  level = { "mode", "createdAt", "gravity", "gravityTilt" },
-  gravityTilt = { "axis1", "axis2", "x", "y", "z" },
+  level = { "mode", "createdAt", "angles", "attitude" },
+  attitude = { "axis1", "axis2", "pitch", "roll" },
 }
 
 local function copyPlain(value, depth)
@@ -135,11 +131,11 @@ local function normalizeLevel(level)
   local result = {}
   set(result, "mode", level.mode)
   set(result, "createdAt", level.createdAt)
-  set(result, "gravity", level.gravity)
+  set(result, "angles", level.angles)
 
-  local gravityTilt = pick(level.gravityTilt, ORDERS.gravityTilt)
-  if hasAny(gravityTilt) then
-    result.gravityTilt = gravityTilt
+  local attitude = pick(level.attitude, ORDERS.attitude)
+  if hasAny(attitude) then
+    result.attitude = attitude
   end
 
   if hasAny(result) then
@@ -221,8 +217,8 @@ local function childPath(path, key)
     return "bindings"
   elseif path == "bindings" then
     return "binding"
-  elseif path == "level" and key == "gravityTilt" then
-    return "gravityTilt"
+  elseif path == "level" and key == "attitude" then
+    return "attitude"
   elseif path == "" then
     return key
   end
