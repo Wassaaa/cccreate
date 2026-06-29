@@ -67,6 +67,8 @@ return {
     axis2Power = 0,
     axis1Sign = 1,
     axis2Sign = 1,
+    targetSlewDegPerSecond = 8,
+    throttleSlewPowerPerSecond = 4,
     -- Default Create controller link layout from the first configured block:
     -- space D S A shift on the router X row, W one block opposite the first probe.
     -- Each coord points at the block under the Redstone Link; read its up face.

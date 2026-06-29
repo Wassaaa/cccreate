@@ -161,6 +161,8 @@ local function settingsFrom(config, options)
     axis2Power = tonumber(cfg.axis2Power) or tonumber(cfg.axis1Power) or 0,
     axis1Sign = tonumber(cfg.axis1Sign) or 1,
     axis2Sign = tonumber(cfg.axis2Sign) or 1,
+    targetSlewDegPerSecond = tonumber(cfg.targetSlewDegPerSecond) or 8,
+    throttleSlewPowerPerSecond = tonumber(cfg.throttleSlewPowerPerSecond) or 4,
     bindings = cfg.bindings or {},
   }
 end

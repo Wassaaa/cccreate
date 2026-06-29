@@ -76,6 +76,8 @@ local DEFAULT_CONFIG = {
     axis2Power = 0,
     axis1Sign = 1,
     axis2Sign = 1,
+    targetSlewDegPerSecond = 8,
+    throttleSlewPowerPerSecond = 4,
     bindings = controller.defaultBindings(-1, -1, -5, "up"),
   },
   sendWebhook = true,
@@ -101,6 +103,7 @@ local function usage()
   print("aircraft config controller-layout <x> <y> <z> [side]")
   print("aircraft config controller-bind <key> <x> <y> <z> [side]")
   print("aircraft config controller-tuning <throttlePower> <axis1TargetDeg> [axis2TargetDeg] [axis1Power] [axis2Power]")
+  print("aircraft config controller-response <targetSlewDegPerSecond> [throttleSlewPowerPerSecond]")
   print("aircraft config controller-signs <-1|1> <-1|1>")
   print("aircraft config controller-threshold <0-15>")
   print("aircraft brake [role|all] [--apply]")
@@ -493,6 +496,8 @@ local function printConfig(config, source)
   print("  controller.axis2Power=" .. tostring(config.controller and config.controller.axis2Power))
   print("  controller.axis1Sign=" .. tostring(config.controller and config.controller.axis1Sign))
   print("  controller.axis2Sign=" .. tostring(config.controller and config.controller.axis2Sign))
+  print("  controller.targetSlewDegPerSecond=" .. tostring(config.controller and config.controller.targetSlewDegPerSecond))
+  print("  controller.throttleSlewPowerPerSecond=" .. tostring(config.controller and config.controller.throttleSlewPowerPerSecond))
   if config.controller and config.controller.bindings then
     print("  controller.bindings:")
     print("    shift=" .. bindingText(config.controller.bindings.shift))
@@ -700,6 +705,26 @@ local function runConfig()
     print("  axis2TargetDeg=" .. tostring(axis2TargetDeg))
     print("  axis1Power=" .. tostring(axis1Power))
     print("  axis2Power=" .. tostring(axis2Power))
+    return
+  elseif subcommand == "controller-response" then
+    local controllerConfig = config.controller or {}
+    local targetSlewDegPerSecond = parseNumber(args[3], "targetSlewDegPerSecond")
+    local throttleSlewPowerPerSecond = args[4]
+      and parseNumber(args[4], "throttleSlewPowerPerSecond")
+      or controllerConfig.throttleSlewPowerPerSecond
+      or 4
+
+    if targetSlewDegPerSecond < 0 or throttleSlewPowerPerSecond < 0 then
+      error("controller-response values must be non-negative", 0)
+    end
+
+    config.controller = controllerConfig
+    config.controller.targetSlewDegPerSecond = targetSlewDegPerSecond
+    config.controller.throttleSlewPowerPerSecond = throttleSlewPowerPerSecond
+    saveConfig(config)
+    print("Saved controller response to " .. CONFIG_PATH)
+    print("  targetSlewDegPerSecond=" .. tostring(targetSlewDegPerSecond))
+    print("  throttleSlewPowerPerSecond=" .. tostring(throttleSlewPowerPerSecond))
     return
   elseif subcommand == "controller-signs" then
     config.controller = config.controller or {}

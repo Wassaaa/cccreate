@@ -564,6 +564,44 @@ local function readKillSwitch(settings)
   }
 end
 
+local function slewValue(current, target, maxDelta)
+  current = tonumber(current) or 0
+  target = tonumber(target) or 0
+
+  if not maxDelta or maxDelta <= 0 then
+    return target
+  end
+
+  return current + clamp(target - current, -maxDelta, maxDelta)
+end
+
+local function smoothControl(context, control, previousControl, dt)
+  if not control or control.enabled ~= true then
+    return control
+  end
+
+  local settings = context and context.settings or {}
+  local result = copyPlain(control)
+  local elapsed = tonumber(dt) or 0
+  local targetSlew = tonumber(settings.targetSlewDegPerSecond) or 0
+  local throttleSlew = tonumber(settings.throttleSlewPowerPerSecond) or 0
+
+  result.rawAxis1Target = tonumber(control.axis1Target) or 0
+  result.rawAxis2Target = tonumber(control.axis2Target) or 0
+  result.rawThrottlePower = tonumber(control.throttlePower) or 0
+
+  if elapsed > 0 and previousControl then
+    local targetStep = targetSlew * math.pi / 180 * elapsed
+    local throttleStep = throttleSlew * elapsed
+
+    result.axis1Target = slewValue(previousControl.axis1Target, result.rawAxis1Target, targetStep)
+    result.axis2Target = slewValue(previousControl.axis2Target, result.rawAxis2Target, targetStep)
+    result.throttlePower = slewValue(previousControl.throttlePower, result.rawThrottlePower, throttleStep)
+  end
+
+  return result
+end
+
 local function mixerSignals(settings, state, level, control, previousMotion, dt)
   control = control or {}
 
@@ -750,6 +788,9 @@ local function compactControllerFrame(control)
     throttlePower = control.throttlePower,
     axis1 = control.axis1,
     axis2 = control.axis2,
+    rawAxis1Target = control.rawAxis1Target,
+    rawAxis2Target = control.rawAxis2Target,
+    rawThrottlePower = control.rawThrottlePower,
     axis1Target = control.axis1Target,
     axis2Target = control.axis2Target,
     axis1Power = control.axis1Power,
@@ -963,6 +1004,11 @@ function flightControl.stabilize(config, options)
     local nextFrameTime = startTime
     local frameIndex = 1
     local previousMotion = nil
+    local previousControl = {
+      axis1Target = 0,
+      axis2Target = 0,
+      throttlePower = 0,
+    }
 
     while true do
       if active and deadline and frameIndex > 1 and os.clock() >= deadline then
@@ -971,9 +1017,10 @@ function flightControl.stabilize(config, options)
       end
 
       local state = readGimbal(gimbal)
-      local control = controller.sample(controllerContext)
+      local rawControl = controller.sample(controllerContext)
       local elapsed = os.clock() - startTime
-      local dt = previousMotion and (elapsed - previousMotion.elapsed) or nil
+      local dt = previousMotion and (elapsed - previousMotion.elapsed) or settings.interval
+      local control = smoothControl(controllerContext, rawControl, previousControl, dt)
       local mixed = mixerSignals(settings, state, config.level, control, previousMotion, dt)
       local killSwitch = readKillSwitch(settings)
       local frame = {
@@ -1035,6 +1082,11 @@ function flightControl.stabilize(config, options)
         elapsed = frame.elapsed,
         measured1 = mixed.measured1,
         measured2 = mixed.measured2,
+      }
+      previousControl = {
+        axis1Target = control.axis1Target,
+        axis2Target = control.axis2Target,
+        throttlePower = control.throttlePower,
       }
       frameIndex = frameIndex + 1
       nextFrameTime = nextFrameTime + settings.interval
