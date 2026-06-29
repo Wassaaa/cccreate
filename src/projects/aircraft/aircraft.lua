@@ -1,5 +1,6 @@
 local coords = require("lib.aircraft.coords")
 local actuatorTest = require("lib.aircraft.actuator_test")
+local controller = require("lib.aircraft.controller")
 local displayLoop = require("lib.aircraft.display_loop")
 local flightControl = require("lib.aircraft.flight_control")
 local scanner = require("lib.aircraft.scanner")
@@ -30,6 +31,7 @@ local DEFAULT_CONFIG = {
   actuatorReportPath = "/aircraft_actuator_test.txt",
   stabilizeReportPath = "/aircraft_stabilize.txt",
   displayReportPath = "/aircraft_displays.txt",
+  controllerReportPath = "/aircraft_controller.txt",
   stabilize = {
     interval = 0.1,
     seconds = 1,
@@ -54,6 +56,16 @@ local DEFAULT_CONFIG = {
     monitorScale = 0.5,
     monitorName = nil,
   },
+  controller = {
+    enabled = false,
+    threshold = 1,
+    throttlePower = 1,
+    axis1TargetDeg = 5,
+    axis2TargetDeg = 5,
+    axis1Sign = 1,
+    axis2Sign = 1,
+    bindings = controller.defaultBindings(-1, -1, -5, "up"),
+  },
   sendWebhook = true,
 }
 
@@ -70,11 +82,18 @@ local function usage()
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
   print("aircraft config hud <true|false>")
+  print("aircraft config controller <true|false>")
+  print("aircraft config controller-layout <x> <y> <z> [side]")
+  print("aircraft config controller-bind <key> <x> <y> <z> [side]")
+  print("aircraft config controller-tuning <throttlePower> <axis1TargetDeg> [axis2TargetDeg]")
+  print("aircraft config controller-signs <-1|1> <-1|1>")
+  print("aircraft config controller-threshold <0-15>")
   print("aircraft brake [role|all] [--apply]")
+  print("aircraft controller [--seconds n] [--interval n]")
   print("aircraft displays [--seconds n] [--interval n]")
   print("aircraft level-set")
   print("aircraft level-zero")
-  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n] [--no-hud] [--nixies]")
+  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n] [--controller] [--no-hud] [--nixies]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
   print("aircraft help")
   print("")
@@ -357,6 +376,49 @@ local function parseBoolean(value)
   error("boolean value must be true or false", 0)
 end
 
+local function normalizeRedstoneSide(side)
+  local normalized = string.lower(tostring(side or "up"))
+  if normalized == "top" then
+    normalized = "up"
+  elseif normalized == "bottom" then
+    normalized = "down"
+  end
+
+  if normalized == "up"
+      or normalized == "down"
+      or normalized == "north"
+      or normalized == "south"
+      or normalized == "east"
+      or normalized == "west" then
+    return normalized
+  end
+
+  error("side must be up, down, north, south, east, or west", 0)
+end
+
+local function validControllerKey(key)
+  return key == "w"
+    or key == "a"
+    or key == "s"
+    or key == "d"
+    or key == "space"
+    or key == "shift"
+end
+
+local function bindingText(binding)
+  if type(binding) ~= "table" then
+    return "nil"
+  end
+
+  return tostring(binding.x)
+    .. ","
+    .. tostring(binding.y)
+    .. ","
+    .. tostring(binding.z)
+    .. " "
+    .. tostring(binding.side)
+end
+
 local function printConfig(config, source)
   print("aircraft config from " .. tostring(source))
   print("  frontAxis=" .. tostring(config.frontAxis))
@@ -378,6 +440,22 @@ local function printConfig(config, source)
   print("  hud.enabled=" .. tostring(config.hud and config.hud.enabled))
   print("  hud.interval=" .. tostring(config.hud and config.hud.interval))
   print("  hud.monitorName=" .. tostring(config.hud and config.hud.monitorName))
+  print("  controller.enabled=" .. tostring(config.controller and config.controller.enabled))
+  print("  controller.threshold=" .. tostring(config.controller and config.controller.threshold))
+  print("  controller.throttlePower=" .. tostring(config.controller and config.controller.throttlePower))
+  print("  controller.axis1TargetDeg=" .. tostring(config.controller and config.controller.axis1TargetDeg))
+  print("  controller.axis2TargetDeg=" .. tostring(config.controller and config.controller.axis2TargetDeg))
+  print("  controller.axis1Sign=" .. tostring(config.controller and config.controller.axis1Sign))
+  print("  controller.axis2Sign=" .. tostring(config.controller and config.controller.axis2Sign))
+  if config.controller and config.controller.bindings then
+    print("  controller.bindings:")
+    print("    shift=" .. bindingText(config.controller.bindings.shift))
+    print("    a=" .. bindingText(config.controller.bindings.a))
+    print("    s=" .. bindingText(config.controller.bindings.s))
+    print("    d=" .. bindingText(config.controller.bindings.d))
+    print("    space=" .. bindingText(config.controller.bindings.space))
+    print("    w=" .. bindingText(config.controller.bindings.w))
+  end
   if config.level and config.level.gravity then
     print("  level.gravity=" .. textutils.serialize(config.level.gravity))
   else
@@ -486,6 +564,77 @@ local function runConfig()
     saveConfig(config)
     print("Saved hud.enabled=" .. tostring(config.hud.enabled) .. " to " .. CONFIG_PATH)
     return
+  elseif subcommand == "controller" then
+    config.controller = config.controller or {}
+    config.controller.enabled = parseBoolean(args[3])
+    saveConfig(config)
+    print("Saved controller.enabled=" .. tostring(config.controller.enabled) .. " to " .. CONFIG_PATH)
+    return
+  elseif subcommand == "controller-layout" then
+    local x = parseInteger(args[3], "x")
+    local y = parseInteger(args[4], "y")
+    local z = parseInteger(args[5], "z")
+    local side = normalizeRedstoneSide(args[6] or "up")
+
+    config.controller = config.controller or {}
+    config.controller.bindings = controller.defaultBindings(x, y, z, side)
+    saveConfig(config)
+    print("Saved controller layout to " .. CONFIG_PATH)
+    print("  shift=" .. bindingText(config.controller.bindings.shift))
+    print("  w=" .. bindingText(config.controller.bindings.w))
+    return
+  elseif subcommand == "controller-bind" then
+    local key = string.lower(tostring(args[3] or ""))
+    if not validControllerKey(key) then
+      error("controller key must be w, a, s, d, space, or shift", 0)
+    end
+
+    config.controller = config.controller or {}
+    config.controller.bindings = config.controller.bindings or {}
+    config.controller.bindings[key] = {
+      x = parseInteger(args[4], "x"),
+      y = parseInteger(args[5], "y"),
+      z = parseInteger(args[6], "z"),
+      side = normalizeRedstoneSide(args[7] or "up"),
+    }
+    saveConfig(config)
+    print("Saved controller." .. key .. "=" .. bindingText(config.controller.bindings[key]) .. " to " .. CONFIG_PATH)
+    return
+  elseif subcommand == "controller-tuning" then
+    local throttlePower = parseNumber(args[3], "throttlePower")
+    local axis1TargetDeg = parseNumber(args[4], "axis1TargetDeg")
+    local axis2TargetDeg = parseNumber(args[5] or args[4], "axis2TargetDeg")
+
+    config.controller = config.controller or {}
+    config.controller.throttlePower = throttlePower
+    config.controller.axis1TargetDeg = axis1TargetDeg
+    config.controller.axis2TargetDeg = axis2TargetDeg
+    saveConfig(config)
+    print("Saved controller tuning to " .. CONFIG_PATH)
+    print("  throttlePower=" .. tostring(throttlePower))
+    print("  axis1TargetDeg=" .. tostring(axis1TargetDeg))
+    print("  axis2TargetDeg=" .. tostring(axis2TargetDeg))
+    return
+  elseif subcommand == "controller-signs" then
+    config.controller = config.controller or {}
+    config.controller.axis1Sign = parseSign(args[3], "axis1Sign")
+    config.controller.axis2Sign = parseSign(args[4], "axis2Sign")
+    saveConfig(config)
+    print("Saved controller signs to " .. CONFIG_PATH)
+    print("  axis1Sign=" .. tostring(config.controller.axis1Sign))
+    print("  axis2Sign=" .. tostring(config.controller.axis2Sign))
+    return
+  elseif subcommand == "controller-threshold" then
+    local threshold = parseNumber(args[3], "threshold")
+    if threshold < 0 or threshold > 15 then
+      error("threshold must be from 0 to 15", 0)
+    end
+
+    config.controller = config.controller or {}
+    config.controller.threshold = threshold
+    saveConfig(config)
+    print("Saved controller.threshold=" .. tostring(threshold) .. " to " .. CONFIG_PATH)
+    return
   end
 
   error("Unknown aircraft config command: " .. tostring(subcommand), 0)
@@ -513,6 +662,12 @@ local function parseCommandOptions(startIndex)
         error("--base-power needs a number", 0)
       end
       i = i + 2
+    elseif arg == "--controller" then
+      options.controller = true
+      i = i + 1
+    elseif arg == "--no-controller" then
+      options.controller = false
+      i = i + 1
     elseif arg == "--no-display" then
       options.display = false
       i = i + 1
@@ -656,6 +811,13 @@ local function runDisplays()
   displayLoop.run(config, options)
 end
 
+local function runController()
+  local config = loadConfig()
+  local options = parseCommandOptions(2)
+
+  controller.probe(config, options)
+end
+
 local function runLevelSet()
   local config = loadConfig()
   local report = flightControl.levelSet(config)
@@ -718,6 +880,12 @@ elseif command == "displays" then
   if not ok then
     print("aircraft displays failed: " .. tostring(result))
     error("aircraft displays failed", 0)
+  end
+elseif command == "controller" then
+  local ok, result = pcall(runController)
+  if not ok then
+    print("aircraft controller failed: " .. tostring(result))
+    error("aircraft controller failed", 0)
   end
 elseif command == "level-set" then
   local ok, result = pcall(runLevelSet)

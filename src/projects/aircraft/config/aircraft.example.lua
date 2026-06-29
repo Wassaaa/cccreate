@@ -47,11 +47,32 @@ return {
     monitorScale = 0.5,
     monitorName = nil,
   },
+  controller = {
+    enabled = false,
+    threshold = 1,
+    throttlePower = 1,
+    axis1TargetDeg = 5,
+    axis2TargetDeg = 5,
+    axis1Sign = 1,
+    axis2Sign = 1,
+    -- Default Create controller link layout:
+    -- shift A S D space on the bottom row, W one block above S.
+    -- Each coord points at the block under the Redstone Link; read its up face.
+    bindings = {
+      shift = { x = -1, y = -1, z = -5, side = "up" },
+      a = { x = 0, y = -1, z = -5, side = "up" },
+      s = { x = 1, y = -1, z = -5, side = "up" },
+      d = { x = 2, y = -1, z = -5, side = "up" },
+      space = { x = 3, y = -1, z = -5, side = "up" },
+      w = { x = 1, y = -1, z = -6, side = "up" },
+    },
+  },
 
   reportPath = "/aircraft_scan.txt",
   statusReportPath = "/aircraft_status.txt",
   actuatorReportPath = "/aircraft_actuator_test.txt",
   stabilizeReportPath = "/aircraft_stabilize.txt",
   displayReportPath = "/aircraft_displays.txt",
+  controllerReportPath = "/aircraft_controller.txt",
   sendWebhook = true,
 }

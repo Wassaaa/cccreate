@@ -1,4 +1,5 @@
 local coords = require("lib.aircraft.coords")
+local controller = require("lib.aircraft.controller")
 local displays = require("lib.aircraft.displays")
 local hud = require("lib.aircraft.hud")
 local reporting = require("lib.aircraft.reporting")
@@ -457,7 +458,9 @@ local function stabilizeConfig(config, options)
   }
 end
 
-local function mixerSignals(settings, state, level)
+local function mixerSignals(settings, state, level, control)
+  control = control or {}
+
   local rawRate1 = numberAt(state.angularRates, 1)
   local rawRate2 = numberAt(state.angularRates, 2)
   local currentTilt = gravityTilt(state.gravity)
@@ -465,19 +468,22 @@ local function mixerSignals(settings, state, level)
   local rawError1 = currentTilt.axis1 - neutralTilt.axis1
   local rawError2 = currentTilt.axis2 - neutralTilt.axis2
 
-  local error1 = wrapRadians(rawError1) * settings.axis1Sign
-  local error2 = wrapRadians(rawError2) * settings.axis2Sign
+  local target1 = tonumber(control.axis1Target) or 0
+  local target2 = tonumber(control.axis2Target) or 0
+  local error1 = wrapRadians(rawError1) * settings.axis1Sign - target1
+  local error2 = wrapRadians(rawError2) * settings.axis2Sign - target2
   local rate1 = rawRate1 * settings.axis1Sign
   local rate2 = rawRate2 * settings.axis2Sign
   local rawCorrection1 = -(settings.axis1Kp * error1 + settings.axis1Kd * rate1)
   local rawCorrection2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2)
   local correction1 = clamp(rawCorrection1, -settings.maxCorrection, settings.maxCorrection)
   local correction2 = clamp(rawCorrection2, -settings.maxCorrection, settings.maxCorrection)
+  local basePower = settings.basePower + (tonumber(control.throttlePower) or 0)
   local power = {
-    front_left = settings.basePower + correction1 - correction2,
-    front_right = settings.basePower - correction1 - correction2,
-    rear_left = settings.basePower + correction1 + correction2,
-    rear_right = settings.basePower - correction1 + correction2,
+    front_left = basePower + correction1 - correction2,
+    front_right = basePower - correction1 - correction2,
+    rear_left = basePower + correction1 + correction2,
+    rear_right = basePower - correction1 + correction2,
   }
   local signals = {}
 
@@ -499,6 +505,8 @@ local function mixerSignals(settings, state, level)
     neutralTilt = neutralTilt,
     rawError1 = rawError1,
     rawError2 = rawError2,
+    target1 = target1,
+    target2 = target2,
     error1 = error1,
     error2 = error2,
     rawCorrection1 = rawCorrection1,
@@ -506,6 +514,8 @@ local function mixerSignals(settings, state, level)
     correction1 = correction1,
     correction2 = correction2,
     correctionLimited = correction1 ~= rawCorrection1 or correction2 ~= rawCorrection2,
+    basePower = basePower,
+    control = copyPlain(control),
     power = power,
     signals = signals,
   }
@@ -622,6 +632,7 @@ function flightControl.stabilize(config, options)
   local devices = wrapScalarDevices(scan, router)
   local rotorDevices, rotorErrors = wrapOptionalRoleDevices(scan, router, "rotorBearing")
   local settings = stabilizeConfig(config, options)
+  local controllerContext = controller.open(config, options)
 
   local active = options.apply == true and config.dryRun == false
   local hudContext = hud.open(config, options, router, scan)
@@ -647,6 +658,7 @@ function flightControl.stabilize(config, options)
     coord = gimbal.coord,
   }
   report.hud = hud.describe(hudContext)
+  report.controller = controller.describe(controllerContext)
   report.nixies = displays.describe(nixieContext)
   report.rotorTelemetry = {
     errors = copyPlain(rotorErrors),
@@ -698,11 +710,13 @@ function flightControl.stabilize(config, options)
       end
 
       local state = readGimbal(gimbal)
-      local mixed = mixerSignals(settings, state, config.level)
+      local control = controller.sample(controllerContext)
+      local mixed = mixerSignals(settings, state, config.level, control)
       local frame = {
         index = frameIndex,
         elapsed = os.clock() - startTime,
         state = state,
+        controller = control,
         mixed = mixed,
       }
       local attitudeExceeded = math.abs(mixed.error1) > settings.maxAttitudeDelta
