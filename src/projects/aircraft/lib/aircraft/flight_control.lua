@@ -467,6 +467,7 @@ local function stabilizeConfig(config, options)
     axis2Sign = tonumber(options.axis2Sign) or tonumber(defaults.axis2Sign) or 1,
     axis1RateSign = tonumber(options.axis1RateSign) or tonumber(defaults.axis1RateSign) or -1,
     axis2RateSign = tonumber(options.axis2RateSign) or tonumber(defaults.axis2RateSign) or -1,
+    rateSource = "measured_tilt_delta",
     axis1Trim = tonumber(options.axis1Trim) or tonumber(defaults.axis1Trim) or 0,
     axis2Trim = tonumber(options.axis2Trim) or tonumber(defaults.axis2Trim) or 0,
     maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 1.5,
@@ -536,7 +537,7 @@ local function readKillSwitch(settings)
   }
 end
 
-local function mixerSignals(settings, state, level, control)
+local function mixerSignals(settings, state, level, control, previousMotion, dt)
   control = control or {}
 
   local rawRate1 = numberAt(state.angularRates, 1)
@@ -545,15 +546,23 @@ local function mixerSignals(settings, state, level, control)
   local neutralTilt = gravityTilt(level.gravity)
   local rawError1 = currentTilt.axis1 - neutralTilt.axis1
   local rawError2 = currentTilt.axis2 - neutralTilt.axis2
+  local measured1 = wrapRadians(rawError1) * settings.axis1Sign
+  local measured2 = wrapRadians(rawError2) * settings.axis2Sign
 
   local target1 = tonumber(control.axis1Target) or 0
   local target2 = tonumber(control.axis2Target) or 0
   local controlPower1 = tonumber(control.axis1Power) or 0
   local controlPower2 = tonumber(control.axis2Power) or 0
-  local error1 = wrapRadians(rawError1) * settings.axis1Sign - target1
-  local error2 = wrapRadians(rawError2) * settings.axis2Sign - target2
-  local rate1 = rawRate1 * settings.axis1Sign * settings.axis1RateSign
-  local rate2 = rawRate2 * settings.axis2Sign * settings.axis2RateSign
+  local error1 = measured1 - target1
+  local error2 = measured2 - target2
+  local rate1 = 0
+  local rate2 = 0
+
+  if previousMotion and dt and dt > 0 then
+    rate1 = wrapRadians(measured1 - previousMotion.measured1) / dt
+    rate2 = wrapRadians(measured2 - previousMotion.measured2) / dt
+  end
+
   local rawCorrection1 = -(settings.axis1Kp * error1 + settings.axis1Kd * rate1) + settings.axis1Trim + controlPower1
   local rawCorrection2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2) + settings.axis2Trim + controlPower2
   local correction1 = clamp(rawCorrection1, -settings.maxCorrection, settings.maxCorrection)
@@ -585,6 +594,8 @@ local function mixerSignals(settings, state, level, control)
     neutralTilt = neutralTilt,
     rawError1 = rawError1,
     rawError2 = rawError2,
+    measured1 = measured1,
+    measured2 = measured2,
     target1 = target1,
     target2 = target2,
     controlPower1 = controlPower1,
@@ -702,6 +713,8 @@ local function compactMixedFrame(mixed)
     rawRate2 = mixed.rawRate2,
     rawError1 = mixed.rawError1,
     rawError2 = mixed.rawError2,
+    measured1 = mixed.measured1,
+    measured2 = mixed.measured2,
     target1 = mixed.target1,
     target2 = mixed.target2,
     controlPower1 = mixed.controlPower1,
@@ -871,6 +884,7 @@ function flightControl.stabilize(config, options)
     end
     local nextFrameTime = startTime
     local frameIndex = 1
+    local previousMotion = nil
 
     while true do
       if active and deadline and frameIndex > 1 and os.clock() >= deadline then
@@ -880,11 +894,13 @@ function flightControl.stabilize(config, options)
 
       local state = readGimbal(gimbal)
       local control = controller.sample(controllerContext)
-      local mixed = mixerSignals(settings, state, config.level, control)
+      local elapsed = os.clock() - startTime
+      local dt = previousMotion and (elapsed - previousMotion.elapsed) or nil
+      local mixed = mixerSignals(settings, state, config.level, control, previousMotion, dt)
       local killSwitch = readKillSwitch(settings)
       local frame = {
         index = frameIndex,
-        elapsed = os.clock() - startTime,
+        elapsed = elapsed,
         state = state,
         killSwitch = killSwitch,
         controller = control,
@@ -937,6 +953,11 @@ function flightControl.stabilize(config, options)
         break
       end
 
+      previousMotion = {
+        elapsed = frame.elapsed,
+        measured1 = mixed.measured1,
+        measured2 = mixed.measured2,
+      }
       frameIndex = frameIndex + 1
       nextFrameTime = nextFrameTime + settings.interval
 
