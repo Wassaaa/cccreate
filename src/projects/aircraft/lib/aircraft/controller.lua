@@ -277,8 +277,24 @@ function controller.sample(context)
 
   local reads = {}
   for _, name in ipairs(INPUT_ORDER) do
-    reads[name] = readBinding(context, context.settings.bindings[name])
+    reads[name] = {
+      ok = false,
+      signal = 0,
+      value = 0,
+      pressed = false,
+      error = "not sampled",
+    }
   end
+
+  local tasks = {}
+  for _, inputName in ipairs(INPUT_ORDER) do
+    local name = inputName
+    table.insert(tasks, function()
+      reads[name] = readBinding(context, context.settings.bindings[name])
+    end)
+  end
+
+  parallel.waitForAll(unpack(tasks))
 
   local throttle = inputValue(reads.space) - inputValue(reads.shift)
   local axis1 = (inputValue(reads.d) - inputValue(reads.a)) * context.settings.axis1Sign
