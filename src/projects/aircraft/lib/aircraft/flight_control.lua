@@ -616,6 +616,23 @@ local function smoothControl(context, control, previousControl, dt)
   return result
 end
 
+local function targetAssistPower(controlPower, error, target)
+  controlPower = tonumber(controlPower) or 0
+  error = tonumber(error) or 0
+  target = tonumber(target) or 0
+
+  if math.abs(target) < 0.0001 then
+    return controlPower
+  end
+
+  if controlPower * error >= 0 then
+    return 0
+  end
+
+  local scale = clamp(math.abs(error) / math.abs(target), 0, 1)
+  return controlPower * scale
+end
+
 local function mixerSignals(settings, state, level, control, previousMotion, dt, signalResiduals)
   control = control or {}
 
@@ -652,10 +669,12 @@ local function mixerSignals(settings, state, level, control, previousMotion, dt,
 
   local target1 = tonumber(control.axis1Target) or 0
   local target2 = tonumber(control.axis2Target) or 0
-  local controlPower1 = tonumber(control.axis1Power) or 0
-  local controlPower2 = tonumber(control.axis2Power) or 0
+  local rawControlPower1 = tonumber(control.axis1Power) or 0
+  local rawControlPower2 = tonumber(control.axis2Power) or 0
   local error1 = measured1 - target1
   local error2 = measured2 - target2
+  local controlPower1 = targetAssistPower(rawControlPower1, error1, target1)
+  local controlPower2 = targetAssistPower(rawControlPower2, error2, target2)
   local rate1 = 0
   local rate2 = 0
 
@@ -716,6 +735,8 @@ local function mixerSignals(settings, state, level, control, previousMotion, dt,
     measured2 = measured2,
     target1 = target1,
     target2 = target2,
+    rawControlPower1 = rawControlPower1,
+    rawControlPower2 = rawControlPower2,
     controlPower1 = controlPower1,
     controlPower2 = controlPower2,
     error1 = error1,
@@ -849,6 +870,8 @@ local function compactMixedFrame(mixed)
     measured2 = mixed.measured2,
     target1 = mixed.target1,
     target2 = mixed.target2,
+    rawControlPower1 = mixed.rawControlPower1,
+    rawControlPower2 = mixed.rawControlPower2,
     controlPower1 = mixed.controlPower1,
     controlPower2 = mixed.controlPower2,
     error1 = mixed.error1,
