@@ -572,6 +572,78 @@ local function readRotorTelemetry(rotorDevices)
   return result
 end
 
+local function pressedControls(control)
+  local pressed = {}
+
+  for _, name in ipairs({ "shift", "space", "w", "a", "s", "d" }) do
+    local read = control and control.reads and control.reads[name]
+    if read and read.pressed then
+      table.insert(pressed, name)
+    end
+  end
+
+  return pressed
+end
+
+local function compactControllerFrame(control)
+  if not control then
+    return nil
+  end
+
+  return {
+    enabled = control.enabled == true,
+    throttle = control.throttle,
+    throttlePower = control.throttlePower,
+    axis1 = control.axis1,
+    axis2 = control.axis2,
+    axis1Target = control.axis1Target,
+    axis2Target = control.axis2Target,
+    pressed = pressedControls(control),
+  }
+end
+
+local function compactMixedFrame(mixed)
+  if not mixed then
+    return nil
+  end
+
+  return {
+    angle1 = mixed.angle1,
+    angle2 = mixed.angle2,
+    rate1 = mixed.rate1,
+    rate2 = mixed.rate2,
+    rawRate1 = mixed.rawRate1,
+    rawRate2 = mixed.rawRate2,
+    rawError1 = mixed.rawError1,
+    rawError2 = mixed.rawError2,
+    target1 = mixed.target1,
+    target2 = mixed.target2,
+    error1 = mixed.error1,
+    error2 = mixed.error2,
+    rawCorrection1 = mixed.rawCorrection1,
+    rawCorrection2 = mixed.rawCorrection2,
+    correction1 = mixed.correction1,
+    correction2 = mixed.correction2,
+    correctionLimited = mixed.correctionLimited == true,
+    basePower = mixed.basePower,
+    power = copyPlain(mixed.power),
+    signals = copyPlain(mixed.signals),
+  }
+end
+
+local function compactStabilizeFrame(frame)
+  return {
+    index = frame.index,
+    elapsed = frame.elapsed,
+    dryRun = frame.dryRun == true,
+    aborted = frame.aborted == true,
+    abortReason = frame.abortReason,
+    controller = compactControllerFrame(frame.controller),
+    mixed = compactMixedFrame(frame.mixed),
+    telemetry = copyPlain(frame.telemetry),
+  }
+end
+
 function flightControl.levelSet(config)
   local scan, router, routerName = loadContext(config)
   local gimbal = findGimbal(scan, router)
@@ -738,7 +810,7 @@ function flightControl.stabilize(config, options)
         frame.telemetry = readRotorTelemetry(rotorDevices)
       end
       frame.hud = hud.update(hudContext, frame, settings, active, attitudeExceeded)
-      table.insert(report.frames, frame)
+      table.insert(report.frames, compactStabilizeFrame(frame))
 
       if attitudeExceeded then
         break

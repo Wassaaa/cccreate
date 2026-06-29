@@ -11,6 +11,12 @@ local function loadConfig()
 end
 
 function reporter.saveLocal(report, path)
+  local ok, serializedOrError = pcall(textutils.serialize, report)
+  if not ok then
+    print("Could not serialize report for " .. path .. ": " .. tostring(serializedOrError))
+    return false
+  end
+
   local handle = fs.open(path, "w")
 
   if not handle then
@@ -18,8 +24,16 @@ function reporter.saveLocal(report, path)
     return false
   end
 
-  handle.write(textutils.serialize(report))
+  local writeOk, writeError = pcall(handle.write, serializedOrError)
   handle.close()
+
+  if not writeOk then
+    if fs.exists(path) then
+      pcall(fs.delete, path)
+    end
+    print("Could not save report to " .. path .. ": " .. tostring(writeError))
+    return false
+  end
 
   print("Saved local report to " .. path)
   return true
