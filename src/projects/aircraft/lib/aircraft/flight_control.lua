@@ -507,7 +507,7 @@ local function stabilizeConfig(config, options)
     axis2Sign = tonumber(options.axis2Sign) or tonumber(defaults.axis2Sign) or 1,
     axis1RateSign = tonumber(options.axis1RateSign) or tonumber(defaults.axis1RateSign) or -1,
     axis2RateSign = tonumber(options.axis2RateSign) or tonumber(defaults.axis2RateSign) or -1,
-    rateSource = "measured_tilt_delta",
+    rateSource = tostring(defaults.rateSource or "gimbal_angular_rate"),
     axis1Trim = tonumber(options.axis1Trim) or tonumber(defaults.axis1Trim) or 0,
     axis2Trim = tonumber(options.axis2Trim) or tonumber(defaults.axis2Trim) or 0,
     maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 1.5,
@@ -678,7 +678,10 @@ local function mixerSignals(settings, state, level, control, previousMotion, dt,
   local rate1 = 0
   local rate2 = 0
 
-  if previousMotion and dt and dt > 0 then
+  if settings.rateSource == "gimbal_angular_rate" then
+    rate1 = rawRate1
+    rate2 = rawRate2
+  elseif previousMotion and dt and dt > 0 then
     rate1 = wrapRadians(measured1 - previousMotion.measured1) / dt
     rate2 = wrapRadians(measured2 - previousMotion.measured2) / dt
   end
@@ -713,6 +716,7 @@ local function mixerSignals(settings, state, level, control, previousMotion, dt,
     angle2 = currentTilt.axis2,
     rate1 = rate1,
     rate2 = rate2,
+    rateSource = settings.rateSource,
     rawRate1 = rawRate1,
     rawRate2 = rawRate2,
     neutral1 = neutralTilt.axis1,
@@ -862,6 +866,7 @@ local function compactMixedFrame(mixed)
     directDiff2 = mixed.directDiff2,
     rate1 = mixed.rate1,
     rate2 = mixed.rate2,
+    rateSource = mixed.rateSource,
     rawRate1 = mixed.rawRate1,
     rawRate2 = mixed.rawRate2,
     rawError1 = mixed.rawError1,

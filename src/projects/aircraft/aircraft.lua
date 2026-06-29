@@ -44,6 +44,7 @@ local DEFAULT_CONFIG = {
     axis2Sign = 1,
     axis1RateSign = -1,
     axis2RateSign = -1,
+    rateSource = "gimbal_angular_rate",
     axis1Trim = 0,
     axis2Trim = 0,
     maxCorrection = 1.5,
@@ -473,6 +474,7 @@ local function printConfig(config, source)
   print("  stabilize.axis2Sign=" .. tostring(config.stabilize.axis2Sign))
   print("  stabilize.axis1RateSign=" .. tostring(config.stabilize.axis1RateSign))
   print("  stabilize.axis2RateSign=" .. tostring(config.stabilize.axis2RateSign))
+  print("  stabilize.rateSource=" .. tostring(config.stabilize.rateSource))
   print("  stabilize.axis1Kp=" .. tostring(config.stabilize.axis1Kp))
   print("  stabilize.axis1Kd=" .. tostring(config.stabilize.axis1Kd))
   print("  stabilize.axis2Kp=" .. tostring(config.stabilize.axis2Kp))

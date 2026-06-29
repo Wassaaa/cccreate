@@ -35,6 +35,7 @@ return {
     axis2Sign = 1,
     axis1RateSign = -1,
     axis2RateSign = -1,
+    rateSource = "gimbal_angular_rate",
     axis1Trim = 0,
     axis2Trim = 0,
     maxCorrection = 1.5,
