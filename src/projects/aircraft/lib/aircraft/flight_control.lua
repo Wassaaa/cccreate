@@ -386,8 +386,19 @@ local function baseReport(kind, config, scan, routerName)
 end
 
 local function readGimbal(gimbal)
-  local rates, rateError = callGetter(gimbal.object, "getAngularRates")
-  local gravity, gravityError = callGetter(gimbal.object, "getGravity")
+  local rates = nil
+  local rateError = nil
+  local gravity = nil
+  local gravityError = nil
+
+  parallel.waitForAll(
+    function()
+      rates, rateError = callGetter(gimbal.object, "getAngularRates")
+    end,
+    function()
+      gravity, gravityError = callGetter(gimbal.object, "getGravity")
+    end
+  )
 
   if rateError then
     error("gimbal getAngularRates failed: " .. tostring(rateError), 0)
@@ -739,7 +750,7 @@ function flightControl.stabilize(config, options)
   report.timing = {
     requestedSeconds = settings.seconds,
     interval = settings.interval,
-    mode = "os_clock",
+    mode = "scheduled_os_clock",
   }
 
   if options.apply == true and not active then
@@ -773,6 +784,7 @@ function flightControl.stabilize(config, options)
   local function runLoop()
     local startTime = os.clock()
     local deadline = startTime + settings.seconds
+    local nextFrameTime = startTime
     local frameIndex = 1
 
     while true do
@@ -820,14 +832,19 @@ function flightControl.stabilize(config, options)
         break
       end
 
+      frameIndex = frameIndex + 1
+      nextFrameTime = nextFrameTime + settings.interval
+
       local remaining = deadline - os.clock()
       if remaining <= 0 then
         report.timing.stopReason = "duration_clock"
         break
       end
 
-      sleep(math.min(settings.interval, remaining))
-      frameIndex = frameIndex + 1
+      local delay = math.min(remaining, nextFrameTime - os.clock())
+      if delay > 0 then
+        sleep(delay)
+      end
     end
 
     report.timing.elapsed = os.clock() - startTime
