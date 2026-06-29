@@ -42,6 +42,8 @@ local DEFAULT_CONFIG = {
     axis2Kd = 0.2,
     axis1Sign = -1,
     axis2Sign = 1,
+    axis1Trim = 0,
+    axis2Trim = 0,
     maxCorrection = 1.5,
     brakeOnExit = true,
   },
@@ -78,6 +80,7 @@ local function usage()
   print("aircraft config max-signal <0-15>")
   print("aircraft config stabilize-signs <-1|1> <-1|1>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
+  print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
@@ -93,7 +96,7 @@ local function usage()
   print("aircraft displays [--seconds n] [--interval n]")
   print("aircraft level-set")
   print("aircraft level-zero")
-  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n] [--controller] [--no-hud] [--nixies]")
+  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--no-hud] [--nixies]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
   print("aircraft help")
   print("")
@@ -433,6 +436,8 @@ local function printConfig(config, source)
   print("  stabilize.axis1Kd=" .. tostring(config.stabilize.axis1Kd))
   print("  stabilize.axis2Kp=" .. tostring(config.stabilize.axis2Kp))
   print("  stabilize.axis2Kd=" .. tostring(config.stabilize.axis2Kd))
+  print("  stabilize.axis1Trim=" .. tostring(config.stabilize.axis1Trim))
+  print("  stabilize.axis2Trim=" .. tostring(config.stabilize.axis2Trim))
   print("  stabilize.maxCorrection=" .. tostring(config.stabilize.maxCorrection))
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
   print("  display.stabilizeEnabled=" .. tostring(config.display and config.display.stabilizeEnabled))
@@ -519,6 +524,14 @@ local function runConfig()
     print("Saved stabilize gains to " .. CONFIG_PATH)
     print("  axis1Kp=" .. tostring(config.stabilize.axis1Kp) .. " axis1Kd=" .. tostring(config.stabilize.axis1Kd))
     print("  axis2Kp=" .. tostring(config.stabilize.axis2Kp) .. " axis2Kd=" .. tostring(config.stabilize.axis2Kd))
+    return
+  elseif subcommand == "stabilize-trim" then
+    config.stabilize.axis1Trim = parseNumber(args[3], "axis1Trim")
+    config.stabilize.axis2Trim = parseNumber(args[4], "axis2Trim")
+    saveConfig(config)
+    print("Saved stabilize trim to " .. CONFIG_PATH)
+    print("  axis1Trim=" .. tostring(config.stabilize.axis1Trim))
+    print("  axis2Trim=" .. tostring(config.stabilize.axis2Trim))
     return
   elseif subcommand == "stabilize-limits" then
     local maxCorrection = parseNumber(args[3], "maxCorrection")
@@ -751,6 +764,18 @@ local function parseCommandOptions(startIndex)
       i = i + 2
     elseif arg == "--axis2-sign" then
       options.axis2Sign = parseSign(args[i + 1], "--axis2-sign")
+      i = i + 2
+    elseif arg == "--axis1-trim" then
+      options.axis1Trim = tonumber(args[i + 1])
+      if not options.axis1Trim then
+        error("--axis1-trim needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--axis2-trim" then
+      options.axis2Trim = tonumber(args[i + 1])
+      if not options.axis2Trim then
+        error("--axis2-trim needs a number", 0)
+      end
       i = i + 2
     elseif arg == "--max-correction" then
       options.maxCorrection = tonumber(args[i + 1])

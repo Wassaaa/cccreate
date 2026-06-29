@@ -459,6 +459,8 @@ local function stabilizeConfig(config, options)
     axis2Kd = tonumber(options.axis2Kd) or tonumber(options.kd) or tonumber(defaults.axis2Kd) or 0.2,
     axis1Sign = tonumber(options.axis1Sign) or tonumber(defaults.axis1Sign) or -1,
     axis2Sign = tonumber(options.axis2Sign) or tonumber(defaults.axis2Sign) or 1,
+    axis1Trim = tonumber(options.axis1Trim) or tonumber(defaults.axis1Trim) or 0,
+    axis2Trim = tonumber(options.axis2Trim) or tonumber(defaults.axis2Trim) or 0,
     maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 1.5,
     maxAttitudeDelta = tonumber(options.maxAttitudeDelta) or tonumber(defaults.maxAttitudeDelta)
       or tonumber(config.maxAttitudeDelta)
@@ -485,8 +487,8 @@ local function mixerSignals(settings, state, level, control)
   local error2 = wrapRadians(rawError2) * settings.axis2Sign - target2
   local rate1 = rawRate1 * settings.axis1Sign
   local rate2 = rawRate2 * settings.axis2Sign
-  local rawCorrection1 = -(settings.axis1Kp * error1 + settings.axis1Kd * rate1)
-  local rawCorrection2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2)
+  local rawCorrection1 = -(settings.axis1Kp * error1 + settings.axis1Kd * rate1) + settings.axis1Trim
+  local rawCorrection2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2) + settings.axis2Trim
   local correction1 = clamp(rawCorrection1, -settings.maxCorrection, settings.maxCorrection)
   local correction2 = clamp(rawCorrection2, -settings.maxCorrection, settings.maxCorrection)
   local basePower = settings.basePower + (tonumber(control.throttlePower) or 0)
@@ -522,6 +524,8 @@ local function mixerSignals(settings, state, level, control)
     error2 = error2,
     rawCorrection1 = rawCorrection1,
     rawCorrection2 = rawCorrection2,
+    trim1 = settings.axis1Trim,
+    trim2 = settings.axis2Trim,
     correction1 = correction1,
     correction2 = correction2,
     correctionLimited = correction1 ~= rawCorrection1 or correction2 ~= rawCorrection2,

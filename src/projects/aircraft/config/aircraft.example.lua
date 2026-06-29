@@ -33,6 +33,8 @@ return {
     axis2Kd = 0.2,
     axis1Sign = -1,
     axis2Sign = 1,
+    axis1Trim = 0,
+    axis2Trim = 0,
     maxCorrection = 1.5,
     brakeOnExit = true,
   },
