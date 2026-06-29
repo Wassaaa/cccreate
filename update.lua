@@ -153,6 +153,11 @@ local function isBinary(path)
     or lower:match("%.nbt$") ~= nil
 end
 
+local function shouldInstall(path)
+  local name = fs.getName(path)
+  return name ~= "AGENTS.md"
+end
+
 local function relativeInstallPath(sourceRoot, sourcePath)
   if sourcePath == sourceRoot then
     return ""
@@ -169,12 +174,14 @@ local function collectFiles(sourceRoot, sourcePath, results)
       collectFiles(sourceRoot, entry.path, results)
     elseif entry.type == "file" then
       local targetPath = relativeInstallPath(sourceRoot, entry.path)
-      table.insert(results, {
-        sourcePath = entry.path,
-        targetPath = targetPath,
-        url = rawRoot .. entry.path,
-        binary = isBinary(entry.path),
-      })
+      if shouldInstall(targetPath) then
+        table.insert(results, {
+          sourcePath = entry.path,
+          targetPath = targetPath,
+          url = rawRoot .. entry.path,
+          binary = isBinary(entry.path),
+        })
+      end
     end
   end
 
