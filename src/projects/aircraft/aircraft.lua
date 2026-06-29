@@ -59,6 +59,11 @@ local DEFAULT_CONFIG = {
     monitorScale = 0.5,
     monitorName = nil,
   },
+  killSwitch = {
+    enabled = false,
+    side = "front",
+    activeHigh = true,
+  },
   controller = {
     enabled = false,
     threshold = 1,
@@ -88,6 +93,7 @@ local function usage()
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
   print("aircraft config hud <true|false>")
+  print("aircraft config killswitch <true|false> [front|back|left|right|top|bottom] [activeHigh true|false]")
   print("aircraft config controller <true|false>")
   print("aircraft config controller-layout <x> <y> <z> [side]")
   print("aircraft config controller-bind <key> <x> <y> <z> [side]")
@@ -99,7 +105,7 @@ local function usage()
   print("aircraft displays [--seconds n] [--interval n]")
   print("aircraft level-set")
   print("aircraft level-zero")
-  print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--no-hud] [--nixies]")
+  print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
   print("aircraft help")
   print("")
@@ -404,6 +410,26 @@ local function normalizeRedstoneSide(side)
   error("side must be up, down, north, south, east, or west", 0)
 end
 
+local function normalizeComputerSide(side)
+  local normalized = string.lower(tostring(side or "front"))
+  if normalized == "up" then
+    normalized = "top"
+  elseif normalized == "down" then
+    normalized = "bottom"
+  end
+
+  if normalized == "front"
+      or normalized == "back"
+      or normalized == "left"
+      or normalized == "right"
+      or normalized == "top"
+      or normalized == "bottom" then
+    return normalized
+  end
+
+  error("side must be front, back, left, right, top, or bottom", 0)
+end
+
 local function validControllerKey(key)
   return key == "w"
     or key == "a"
@@ -450,6 +476,9 @@ local function printConfig(config, source)
   print("  hud.enabled=" .. tostring(config.hud and config.hud.enabled))
   print("  hud.interval=" .. tostring(config.hud and config.hud.interval))
   print("  hud.monitorName=" .. tostring(config.hud and config.hud.monitorName))
+  print("  killSwitch.enabled=" .. tostring(config.killSwitch and config.killSwitch.enabled))
+  print("  killSwitch.side=" .. tostring(config.killSwitch and config.killSwitch.side))
+  print("  killSwitch.activeHigh=" .. tostring(config.killSwitch and config.killSwitch.activeHigh))
   print("  controller.enabled=" .. tostring(config.controller and config.controller.enabled))
   print("  controller.threshold=" .. tostring(config.controller and config.controller.threshold))
   print("  controller.throttlePower=" .. tostring(config.controller and config.controller.throttlePower))
@@ -584,6 +613,23 @@ local function runConfig()
     saveConfig(config)
     print("Saved hud.enabled=" .. tostring(config.hud.enabled) .. " to " .. CONFIG_PATH)
     return
+  elseif subcommand == "killswitch" then
+    config.killSwitch = config.killSwitch or {}
+    config.killSwitch.enabled = parseBoolean(args[3])
+    if args[4] then
+      config.killSwitch.side = normalizeComputerSide(args[4])
+    end
+    if args[5] then
+      config.killSwitch.activeHigh = parseBoolean(args[5])
+    elseif config.killSwitch.activeHigh == nil then
+      config.killSwitch.activeHigh = true
+    end
+    saveConfig(config)
+    print("Saved kill switch to " .. CONFIG_PATH)
+    print("  enabled=" .. tostring(config.killSwitch.enabled))
+    print("  side=" .. tostring(config.killSwitch.side))
+    print("  activeHigh=" .. tostring(config.killSwitch.activeHigh))
+    return
   elseif subcommand == "controller" then
     config.controller = config.controller or {}
     config.controller.enabled = parseBoolean(args[3])
@@ -697,6 +743,12 @@ local function parseCommandOptions(startIndex)
       i = i + 1
     elseif arg == "--no-controller" then
       options.controller = false
+      i = i + 1
+    elseif arg == "--killswitch" then
+      options.killSwitch = true
+      i = i + 1
+    elseif arg == "--no-killswitch" then
+      options.killSwitch = false
       i = i + 1
     elseif arg == "--no-display" then
       options.display = false

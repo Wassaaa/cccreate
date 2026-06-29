@@ -199,10 +199,10 @@ local function roleValues(values, digits)
 end
 
 local function statusText(frame, mixed, settings)
-  if mixed.correctionLimited then
-    return "correction capped"
-  elseif frame.abortReason then
+  if frame.abortReason then
     return frame.abortReason
+  elseif mixed.correctionLimited then
+    return "correction capped"
   end
 
   return "maxCorr " .. fixed(settings.maxCorrection, 2)

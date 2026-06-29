@@ -441,10 +441,15 @@ end
 local function stabilizeConfig(config, options)
   local defaults = config.stabilize or {}
   local display = config.display or {}
+  local killSwitch = config.killSwitch or {}
   local nixiesEnabled = display.stabilizeEnabled == true
+  local killSwitchEnabled = killSwitch.enabled == true
 
   if options.nixies ~= nil then
     nixiesEnabled = options.nixies == true
+  end
+  if options.killSwitch ~= nil then
+    killSwitchEnabled = options.killSwitch == true
   end
 
   return {
@@ -470,8 +475,62 @@ local function stabilizeConfig(config, options)
       or 2,
     brakeOnExit = defaults.brakeOnExit ~= false,
     reportFrameLimit = tonumber(options.reportFrameLimit) or tonumber(defaults.reportFrameLimit) or 600,
+    killSwitch = {
+      enabled = killSwitchEnabled,
+      side = tostring(killSwitch.side or "front"),
+      activeHigh = killSwitch.activeHigh ~= false,
+    },
     nixiesEnabled = nixiesEnabled,
     nixieInterval = tonumber(options.nixieInterval) or tonumber(display.stabilizeInterval) or 1,
+  }
+end
+
+local function readKillSwitch(settings)
+  local killSwitch = settings.killSwitch or {}
+  if not killSwitch.enabled then
+    return {
+      enabled = false,
+      triggered = false,
+    }
+  end
+
+  local side = tostring(killSwitch.side or "front")
+  if type(redstone) ~= "table" or type(redstone.getInput) ~= "function" then
+    return {
+      enabled = true,
+      side = side,
+      activeHigh = killSwitch.activeHigh ~= false,
+      ok = false,
+      input = nil,
+      triggered = true,
+      error = "redstone.getInput unavailable",
+    }
+  end
+
+  local ok, inputOrError = pcall(redstone.getInput, side)
+  if not ok then
+    return {
+      enabled = true,
+      side = side,
+      activeHigh = killSwitch.activeHigh ~= false,
+      ok = false,
+      input = nil,
+      triggered = true,
+      error = tostring(inputOrError),
+    }
+  end
+
+  local input = inputOrError == true
+  local activeHigh = killSwitch.activeHigh ~= false
+  local triggered = input == activeHigh
+
+  return {
+    enabled = true,
+    side = side,
+    activeHigh = activeHigh,
+    ok = true,
+    input = input,
+    triggered = triggered,
   }
 end
 
@@ -665,6 +724,7 @@ local function compactStabilizeFrame(frame)
     dryRun = frame.dryRun == true,
     aborted = frame.aborted == true,
     abortReason = frame.abortReason,
+    killSwitch = copyPlain(frame.killSwitch),
     controller = compactControllerFrame(frame.controller),
     mixed = compactMixedFrame(frame.mixed),
     telemetry = copyPlain(frame.telemetry),
@@ -759,6 +819,7 @@ function flightControl.stabilize(config, options)
   }
   report.hud = hud.describe(hudContext)
   report.controller = controller.describe(controllerContext)
+  report.killSwitch = copyPlain(settings.killSwitch)
   report.nixies = displays.describe(nixieContext)
   report.rotorTelemetry = {
     errors = copyPlain(rotorErrors),
@@ -815,17 +876,28 @@ function flightControl.stabilize(config, options)
       local state = readGimbal(gimbal)
       local control = controller.sample(controllerContext)
       local mixed = mixerSignals(settings, state, config.level, control)
+      local killSwitch = readKillSwitch(settings)
       local frame = {
         index = frameIndex,
         elapsed = os.clock() - startTime,
         state = state,
+        killSwitch = killSwitch,
         controller = control,
         mixed = mixed,
       }
       local attitudeExceeded = math.abs(mixed.error1) > settings.maxAttitudeDelta
         or math.abs(mixed.error2) > settings.maxAttitudeDelta
 
-      if attitudeExceeded then
+      if killSwitch.triggered then
+        frame.aborted = true
+        if killSwitch.ok == false then
+          frame.abortReason = "kill switch read failed"
+        else
+          frame.abortReason = "kill switch active"
+        end
+        report.aborted = true
+        report.abortReason = frame.abortReason
+      elseif attitudeExceeded then
         frame.aborted = true
         frame.abortReason = "attitude error exceeded maxAttitudeDelta"
         report.aborted = true
@@ -836,11 +908,12 @@ function flightControl.stabilize(config, options)
         frame.dryRun = true
       end
 
-      frame.nixies = updateNixies(frame, attitudeExceeded)
-      if hud.shouldUpdate(hudContext, frame, attitudeExceeded) then
+      local forceDisplay = attitudeExceeded or killSwitch.triggered
+      frame.nixies = updateNixies(frame, forceDisplay)
+      if hud.shouldUpdate(hudContext, frame, forceDisplay) then
         frame.telemetry = readRotorTelemetry(rotorDevices)
       end
-      frame.hud = hud.update(hudContext, frame, settings, active, attitudeExceeded)
+      frame.hud = hud.update(hudContext, frame, settings, active, forceDisplay)
       if settings.reportFrameLimit == 0 then
         report.timing.framesDropped = (report.timing.framesDropped or 0) + 1
       else
@@ -851,7 +924,7 @@ function flightControl.stabilize(config, options)
         end
       end
 
-      if attitudeExceeded then
+      if attitudeExceeded or killSwitch.triggered then
         break
       end
 

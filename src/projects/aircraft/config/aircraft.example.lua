@@ -50,6 +50,11 @@ return {
     monitorScale = 0.5,
     monitorName = nil,
   },
+  killSwitch = {
+    enabled = false,
+    side = "front",
+    activeHigh = true,
+  },
   controller = {
     enabled = false,
     threshold = 1,
