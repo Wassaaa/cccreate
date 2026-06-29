@@ -38,6 +38,7 @@ return {
     axis1Trim = 0,
     axis2Trim = 0,
     maxCorrection = 1.5,
+    signalDither = true,
     brakeOnExit = true,
     reportFrameLimit = 600,
   },

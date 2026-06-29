@@ -47,6 +47,7 @@ local DEFAULT_CONFIG = {
     axis1Trim = 0,
     axis2Trim = 0,
     maxCorrection = 1.5,
+    signalDither = true,
     brakeOnExit = true,
     reportFrameLimit = 600,
   },
@@ -95,6 +96,7 @@ local function usage()
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
+  print("aircraft config stabilize-dither <true|false>")
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
   print("aircraft config hud <true|false>")
@@ -478,6 +480,7 @@ local function printConfig(config, source)
   print("  stabilize.axis1Trim=" .. tostring(config.stabilize.axis1Trim))
   print("  stabilize.axis2Trim=" .. tostring(config.stabilize.axis2Trim))
   print("  stabilize.maxCorrection=" .. tostring(config.stabilize.maxCorrection))
+  print("  stabilize.signalDither=" .. tostring(config.stabilize.signalDither))
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
   print("  display.stabilizeEnabled=" .. tostring(config.display and config.display.stabilizeEnabled))
   print("  display.stabilizeInterval=" .. tostring(config.display and config.display.stabilizeInterval))
@@ -604,6 +607,11 @@ local function runConfig()
     print("Saved stabilize limits to " .. CONFIG_PATH)
     print("  maxCorrection=" .. tostring(config.stabilize.maxCorrection))
     print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
+    return
+  elseif subcommand == "stabilize-dither" then
+    config.stabilize.signalDither = parseBoolean(args[3])
+    saveConfig(config)
+    print("Saved stabilize.signalDither=" .. tostring(config.stabilize.signalDither) .. " to " .. CONFIG_PATH)
     return
   elseif subcommand == "display" then
     config.display = config.display or {}

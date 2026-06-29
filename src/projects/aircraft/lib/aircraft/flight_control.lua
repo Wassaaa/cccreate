@@ -48,8 +48,21 @@ local function clamp(value, minValue, maxValue)
   return value
 end
 
-local function quantizeSignal(value, maxSignal)
-  return clamp(math.floor((tonumber(value) or 0) + 0.5), 0, maxSignal)
+local function quantizeSignal(value, maxSignal, residuals, key)
+  local clamped = clamp(tonumber(value) or 0, 0, maxSignal)
+  local adjusted = clamped
+
+  if residuals and key then
+    adjusted = adjusted + (tonumber(residuals[key]) or 0)
+  end
+
+  local signal = clamp(math.floor(adjusted + 0.5), 0, maxSignal)
+
+  if residuals and key then
+    residuals[key] = adjusted - signal
+  end
+
+  return signal
 end
 
 local function atan2(y, x)
@@ -498,6 +511,7 @@ local function stabilizeConfig(config, options)
     axis1Trim = tonumber(options.axis1Trim) or tonumber(defaults.axis1Trim) or 0,
     axis2Trim = tonumber(options.axis2Trim) or tonumber(defaults.axis2Trim) or 0,
     maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 1.5,
+    signalDither = defaults.signalDither ~= false,
     maxAttitudeDelta = tonumber(options.maxAttitudeDelta)
       or (tonumber(options.maxAttitudeDeg) and tonumber(options.maxAttitudeDeg) * math.pi / 180)
       or tonumber(defaults.maxAttitudeDelta)
@@ -602,7 +616,7 @@ local function smoothControl(context, control, previousControl, dt)
   return result
 end
 
-local function mixerSignals(settings, state, level, control, previousMotion, dt)
+local function mixerSignals(settings, state, level, control, previousMotion, dt, signalResiduals)
   control = control or {}
 
   local rawRate1 = numberAt(state.angularRates, 3)
@@ -662,10 +676,17 @@ local function mixerSignals(settings, state, level, control, previousMotion, dt)
     rear_right = basePower - correction1 + correction2,
   }
   local signals = {}
+  local desiredSignals = {}
 
   for role, value in pairs(power) do
     local clampedPower = clamp(value, 0, settings.maxSignal)
-    signals[role] = quantizeSignal(settings.brakeSignal - clampedPower, settings.maxSignal)
+    desiredSignals[role] = clamp(settings.brakeSignal - clampedPower, 0, settings.maxSignal)
+    signals[role] = quantizeSignal(
+      desiredSignals[role],
+      settings.maxSignal,
+      settings.signalDither and signalResiduals or nil,
+      role
+    )
   end
 
   return {
@@ -709,6 +730,7 @@ local function mixerSignals(settings, state, level, control, previousMotion, dt)
     basePower = basePower,
     control = copyPlain(control),
     power = power,
+    desiredSignals = desiredSignals,
     signals = signals,
   }
 end
@@ -838,6 +860,7 @@ local function compactMixedFrame(mixed)
     correctionLimited = mixed.correctionLimited == true,
     basePower = mixed.basePower,
     power = copyPlain(mixed.power),
+    desiredSignals = copyPlain(mixed.desiredSignals),
     signals = copyPlain(mixed.signals),
   }
 end
@@ -1004,6 +1027,7 @@ function flightControl.stabilize(config, options)
     local nextFrameTime = startTime
     local frameIndex = 1
     local previousMotion = nil
+    local signalResiduals = {}
     local previousControl = {
       axis1Target = 0,
       axis2Target = 0,
@@ -1021,7 +1045,7 @@ function flightControl.stabilize(config, options)
       local elapsed = os.clock() - startTime
       local dt = previousMotion and (elapsed - previousMotion.elapsed) or settings.interval
       local control = smoothControl(controllerContext, rawControl, previousControl, dt)
-      local mixed = mixerSignals(settings, state, config.level, control, previousMotion, dt)
+      local mixed = mixerSignals(settings, state, config.level, control, previousMotion, dt, signalResiduals)
       local killSwitch = readKillSwitch(settings)
       local frame = {
         index = frameIndex,
