@@ -170,12 +170,12 @@ function controller.defaultBindings(originX, originY, originZ, side)
   local face = normalizeSide(side or "up")
 
   return {
-    shift = { x = x, y = y, z = z, side = face },
-    a = { x = x + 1, y = y, z = z, side = face },
+    space = { x = x, y = y, z = z, side = face },
+    d = { x = x + 1, y = y, z = z, side = face },
     s = { x = x + 2, y = y, z = z, side = face },
-    d = { x = x + 3, y = y, z = z, side = face },
-    space = { x = x + 4, y = y, z = z, side = face },
-    w = { x = x + 2, y = y, z = z - 1, side = face },
+    a = { x = x + 3, y = y, z = z, side = face },
+    shift = { x = x + 4, y = y, z = z, side = face },
+    w = { x = x + 2, y = y, z = z + 1, side = face },
   }
 end
 

@@ -55,16 +55,16 @@ return {
     axis2TargetDeg = 5,
     axis1Sign = 1,
     axis2Sign = 1,
-    -- Default Create controller link layout:
-    -- shift A S D space on the bottom row, W one block above S.
+    -- Default Create controller link layout from the first configured block:
+    -- space D S A shift on the router X row, W one block opposite the first probe.
     -- Each coord points at the block under the Redstone Link; read its up face.
     bindings = {
-      shift = { x = -1, y = -1, z = -5, side = "up" },
-      a = { x = 0, y = -1, z = -5, side = "up" },
+      space = { x = -1, y = -1, z = -5, side = "up" },
+      d = { x = 0, y = -1, z = -5, side = "up" },
       s = { x = 1, y = -1, z = -5, side = "up" },
-      d = { x = 2, y = -1, z = -5, side = "up" },
-      space = { x = 3, y = -1, z = -5, side = "up" },
-      w = { x = 1, y = -1, z = -6, side = "up" },
+      a = { x = 2, y = -1, z = -5, side = "up" },
+      shift = { x = 3, y = -1, z = -5, side = "up" },
+      w = { x = 1, y = -1, z = -4, side = "up" },
     },
   },
 
