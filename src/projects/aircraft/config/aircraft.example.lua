@@ -64,7 +64,6 @@ return {
     -- redstone_router reads the existing Create controller link layout.
     -- keyboard consumes normal CraftOS key/key_up events from an onboard
     -- keyboard or Create: Avionics Linked Typewriter.
-    -- modem receives key state from /control_remote on another computer.
     type = "redstone_router",
     threshold = 1,
     throttlePower = 1,
@@ -74,10 +73,6 @@ return {
     axis2Power = 0,
     targetSlewDegPerSecond = 8,
     throttleSlewPowerPerSecond = 4,
-    protocol = "cc_control",
-    senderId = nil,
-    timeout = 0.75,
-    modemSide = nil,
     -- Default Create controller link layout from the bottom-left shift key:
     -- keyboard view is W over shift A S D space.
     -- Each coord points at the block under the Redstone Link; read its up face.

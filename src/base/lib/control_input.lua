@@ -17,8 +17,6 @@ local TYPE_ALIASES = {
   keyboard = "keyboard",
   typewriter = "keyboard",
   linked_typewriter = "keyboard",
-  modem = "modem",
-  rednet = "modem",
 }
 
 local function copyPlain(value, depth)

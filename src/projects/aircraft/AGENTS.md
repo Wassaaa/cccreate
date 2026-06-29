@@ -42,15 +42,14 @@ This project installs with `update aircraft`. Its files land at the ComputerCraf
 
 ## Controller Inputs
 
-- Controller support goes through the shared `/lib/control_input.lua` layer. Current backends are `redstone_router`, `keyboard`, and `modem`.
+- Controller support goes through the shared `/lib/control_input.lua` layer. Current backends are `redstone_router` and `keyboard`.
 - The `redstone_router` backend reads Redstone Link receiver blocks by relative coordinate.
 - Controller placement is config-driven, not scan-driven. Use:
-  - `aircraft config controller-type <redstone_router|keyboard|modem>`
+  - `aircraft config controller-type <redstone_router|keyboard>`
   - `aircraft config controller-layout <shiftX> <shiftY> <shiftZ> [side]`
   - `aircraft config controller-bind <key> <x> <y> <z> [side]`
 - `controller-layout` uses the bottom-left `shift` coordinate, then lays out `shift A S D space` to aircraft right and `W` one row toward aircraft front. It uses configured axes first, then scan axes, then defaults to `front=+Z` and `left=+X`.
 - The `keyboard` backend consumes CraftOS `key` and `key_up` events from an onboard keyboard or Create: Avionics Linked Typewriter.
-- The `modem` backend receives rednet key state from `/control_remote` and clears held remote keys after its timeout.
 - The controller `k` input is reserved for the aircraft kill switch. It must not be mixed into movement axes.
 - Physical kill switches can use local computer-side redstone or a redstone-router relative coordinate via `aircraft config killswitch-router <x> <y> <z> [side] [activeHigh]`.
 

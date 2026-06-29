@@ -172,7 +172,7 @@ local function configSections(config)
 
   local controller = {}
   add(controller, config, "controller.enabled", "Default controller enable flag. A run can still use --controller or --no-controller.", "aircraft config controller true")
-  add(controller, config, "controller.type", "Controller input backend: redstone_router, keyboard, or modem.", "aircraft config controller-type keyboard")
+  add(controller, config, "controller.type", "Controller input backend: redstone_router or keyboard.", "aircraft config controller-type keyboard")
   add(controller, config, "controller.threshold", "Minimum redstone value counted as a pressed controller input.", "aircraft config controller-threshold 1")
   add(controller, config, "controller.throttlePower", "Extra power while holding space, and negative extra power while holding shift.", "aircraft config controller-tuning <throttlePower> <axis1TargetDeg> <axis2TargetDeg> <axis1Power> <axis2Power>")
   add(controller, config, "controller.axis1TargetDeg", "Requested roll target in degrees while holding A/D.")
@@ -181,11 +181,6 @@ local function configSections(config)
   add(controller, config, "controller.axis2Power", "Optional direct pitch power mixed in while steering. 0 means steering only changes the attitude target.")
   add(controller, config, "controller.targetSlewDegPerSecond", "How quickly requested pitch/roll targets move toward held controller inputs.", "aircraft config controller-response <targetSlewDegPerSecond> <throttleSlewPowerPerSecond>")
   add(controller, config, "controller.throttleSlewPowerPerSecond", "How quickly space/shift throttle power ramps up or returns to base.")
-  add(controller, config, "controller.protocol", "Rednet protocol used by the modem controller backend.", "aircraft config controller-modem cc_control any 0.75")
-  add(controller, config, "controller.senderId", "Optional remote computer ID trusted by the modem backend. nil accepts any sender.")
-  add(controller, config, "controller.timeout", "Seconds before modem-held keys are cleared after no remote state arrives.")
-  add(controller, config, "controller.modemSide", "Optional modem peripheral name/side to open for rednet. nil opens all local modems.")
-
   local bindings = {}
   for _, key in ipairs(BINDING_ORDER) do
     local value = bindingText(config.controller and config.controller.bindings and config.controller.bindings[key])
