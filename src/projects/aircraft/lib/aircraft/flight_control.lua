@@ -502,6 +502,7 @@ local function stabilizeConfig(config, options)
     axis2Trim = tonumber(options.axis2Trim) or tonumber(defaults.axis2Trim) or 0,
     maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 1.5,
     desaturate = defaults.desaturate ~= false,
+    desaturateHeadroom = tonumber(defaults.desaturateHeadroom) or 0.75,
     tiltCompensation = defaults.tiltCompensation ~= false,
     tiltCompensationGain = tonumber(defaults.tiltCompensationGain) or 1,
     tiltCompensationMaxPower = tonumber(defaults.tiltCompensationMaxPower) or 2,
@@ -828,17 +829,42 @@ local function rangeOfPower(power)
   return minValue or 0, maxValue or 0
 end
 
-local function desaturatePower(power, maxPower, enabled)
+local function desaturatePower(power, maxPower, enabled, headroom)
   local inputMin, inputMax = rangeOfPower(power)
+  local rawInputMin = inputMin
+  local rawInputMax = inputMax
+  local margin = clamp(tonumber(headroom) or 0, 0, math.max(0, maxPower / 2 - 0.01))
+  local minAllowed = margin
+  local maxAllowed = maxPower - margin
+  local available = math.max(0.01, maxAllowed - minAllowed)
+  local span = inputMax - inputMin
+  local adjusted = {}
+  local scaled = false
+  local scale = 1
+
+  if enabled ~= false and span > available then
+    scaled = true
+    scale = available / span
+    local center = (inputMin + inputMax) / 2
+    for _, role in ipairs(ROLE_ORDER) do
+      adjusted[role] = center + ((tonumber(power[role]) or 0) - center) * scale
+    end
+    inputMin, inputMax = rangeOfPower(adjusted)
+  else
+    for _, role in ipairs(ROLE_ORDER) do
+      adjusted[role] = tonumber(power[role]) or 0
+    end
+  end
+
   local shift = 0
 
   if enabled ~= false then
-    if inputMin < 0 then
-      shift = -inputMin
+    if inputMin < minAllowed then
+      shift = minAllowed - inputMin
     end
 
-    if inputMax + shift > maxPower then
-      shift = shift - (inputMax + shift - maxPower)
+    if inputMax + shift > maxAllowed then
+      shift = shift - (inputMax + shift - maxAllowed)
     end
   end
 
@@ -846,7 +872,7 @@ local function desaturatePower(power, maxPower, enabled)
   local saturated = false
 
   for _, role in ipairs(ROLE_ORDER) do
-    local shifted = (tonumber(power[role]) or 0) + shift
+    local shifted = (tonumber(adjusted[role]) or 0) + shift
     local clamped = clamp(shifted, 0, maxPower)
     result[role] = clamped
     if math.abs(clamped - shifted) > 0.000001 then
@@ -857,16 +883,23 @@ local function desaturatePower(power, maxPower, enabled)
   local outputMin, outputMax = rangeOfPower(result)
   return result, {
     enabled = enabled ~= false,
+    headroom = margin,
+    minAllowed = minAllowed,
+    maxAllowed = maxAllowed,
+    scaled = scaled,
+    scale = scale,
     shift = shift,
-    inputMin = inputMin,
-    inputMax = inputMax,
+    inputMin = rawInputMin,
+    inputMax = rawInputMax,
+    adjustedMin = inputMin,
+    adjustedMax = inputMax,
     outputMin = outputMin,
     outputMax = outputMax,
     saturated = saturated,
   }
 end
 
-local function tiltCompensationPower(settings, measured1, measured2, basePower)
+local function tiltCompensationPower(settings, target1, target2, basePower)
   if settings.tiltCompensation == false then
     return 0, {
       enabled = false,
@@ -874,7 +907,7 @@ local function tiltCompensationPower(settings, measured1, measured2, basePower)
   end
 
   local base = math.max(0, tonumber(basePower) or 0)
-  local tilt = math.sqrt((tonumber(measured1) or 0) ^ 2 + (tonumber(measured2) or 0) ^ 2)
+  local tilt = math.sqrt((tonumber(target1) or 0) ^ 2 + (tonumber(target2) or 0) ^ 2)
   local limitedTilt = clamp(tilt, 0, math.pi / 2 - 0.01)
   local cosTilt = math.max(0.1, math.cos(limitedTilt))
   local gain = tonumber(settings.tiltCompensationGain) or 1
@@ -884,6 +917,7 @@ local function tiltCompensationPower(settings, measured1, measured2, basePower)
 
   return power, {
     enabled = true,
+    source = "target",
     tilt = tilt,
     cosTilt = cosTilt,
     gain = gain,
@@ -924,8 +958,8 @@ local function mixerSignals(settings, state, control, signalResiduals)
   local basePowerBeforeTilt = settings.basePower + (tonumber(control.throttlePower) or 0)
   local tiltCompensation, tiltCompensationDetails = tiltCompensationPower(
     settings,
-    measured1,
-    measured2,
+    target1,
+    target2,
     basePowerBeforeTilt
   )
   local basePower = basePowerBeforeTilt + tiltCompensation
@@ -935,7 +969,12 @@ local function mixerSignals(settings, state, control, signalResiduals)
     rear_left = basePower + correction1 + correction2,
     rear_right = basePower - correction1 + correction2,
   }
-  local power, desaturation = desaturatePower(rawPower, settings.maxSignal, settings.desaturate)
+  local power, desaturation = desaturatePower(
+    rawPower,
+    settings.maxSignal,
+    settings.desaturate,
+    settings.desaturateHeadroom
+  )
   local signals = {}
   local desiredSignals = {}
 

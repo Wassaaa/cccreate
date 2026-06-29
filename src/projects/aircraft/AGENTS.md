@@ -39,8 +39,8 @@ This project installs with `update aircraft`. Its files land at the ComputerCraf
 - Do not add yaw correction to the four vertical-rotor mixer. Testing showed diagonal rotor thrust and handedness changes do not create useful yaw in the current simulation.
 - Future heading/yaw control should use dedicated horizontal/vector actuators, then wire controller keys to that actuator backend.
 - Propeller bearing handedness may still be read with `getThrustHandedness()` for diagnostics. Do not write `setThrustHandedness()` from this module unless a future actuator design has a proven need.
-- The mixer may desaturate rotor powers before clipping, shifting the whole power set to preserve pitch/roll correction near 0 or max redstone power.
-- Tilt compensation is collective-only: it adds bounded base power while pitch/roll tilt reduces vertical lift. It is not real altitude hold.
+- The mixer may desaturate rotor powers before clipping, shifting/scaling the power set to preserve pitch/roll correction while leaving headroom near 0 or max redstone power.
+- Tilt compensation is collective-only: it adds bounded base power for the requested pitch/roll target, not accidental measured tumble. It is not real altitude hold.
 
 ## Controller Inputs
 

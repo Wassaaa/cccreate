@@ -166,8 +166,9 @@ local function configSections(config)
   add(stabilize, config, "stabilize.axis1Trim", "Constant roll correction bias added every frame. Usually keep near 0 and fix balance physically when possible.", "aircraft config stabilize-trim 0 0")
   add(stabilize, config, "stabilize.axis2Trim", "Constant pitch correction bias added every frame. Usually keep near 0 and fix balance physically when possible.")
   add(stabilize, config, "stabilize.maxCorrection", "Maximum stabilizer correction power per axis before mixing into the four rotors.", "aircraft config stabilize-limits 1.5 0.785")
-  add(stabilize, config, "stabilize.desaturate", "When true, shifts all rotor powers together before clipping so pitch/roll correction survives low or high collective.", "aircraft config stabilize-desaturate true")
-  add(stabilize, config, "stabilize.tiltCompensation", "When true, adds bounded collective power while tilted to offset vertical lift lost to pitch/roll.", "aircraft config stabilize-tilt-comp true 1 2")
+  add(stabilize, config, "stabilize.desaturate", "When true, shifts/scales rotor powers before clipping so pitch/roll correction survives low or high collective.", "aircraft config stabilize-desaturate true 0.75")
+  add(stabilize, config, "stabilize.desaturateHeadroom", "Power margin kept away from 0 and max while desaturating, so redstone rounding does not turn a rotor fully off or full on.")
+  add(stabilize, config, "stabilize.tiltCompensation", "When true, adds bounded collective power for requested pitch/roll target to offset vertical lift lost to steering.", "aircraft config stabilize-tilt-comp true 1 2")
   add(stabilize, config, "stabilize.tiltCompensationGain", "Multiplier for tilt-compensating collective power.")
   add(stabilize, config, "stabilize.tiltCompensationMaxPower", "Maximum extra power tilt compensation may add.")
   add(stabilize, config, "stabilize.signalDither", "Spreads fractional desired signals over time so redstone integer outputs average closer to the float target.", "aircraft config stabilize-dither true")
@@ -337,7 +338,9 @@ local function frameStats(report)
     if mixed.correctionLimited then
       stats.correctionLimited = stats.correctionLimited + 1
     end
-    if mixed.desaturation and math.abs(tonumber(mixed.desaturation.shift) or 0) > 0.0001 then
+    if mixed.desaturation
+        and (math.abs(tonumber(mixed.desaturation.shift) or 0) > 0.0001
+          or mixed.desaturation.scaled == true) then
       stats.desaturatedFrames = stats.desaturatedFrames + 1
     end
     if math.abs(tonumber(mixed.tiltCompensationPower) or 0) > 0.0001 then
@@ -446,7 +449,8 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(stabilizerRows, "maxCorrection", settings.maxCorrection, "Per-axis correction cap used by the stabilizer.")
   addTextRow(stabilizerRows, "correctionLimitedFrames", stats.correctionLimited, "How often the stabilizer hit maxCorrection.")
   addTextRow(stabilizerRows, "desaturate", settings.desaturate, "Whether the mixer shifts all rotor powers before clipping.")
-  addTextRow(stabilizerRows, "desaturatedFrames", stats.desaturatedFrames, "Frames where the mixer shifted collective to preserve pitch/roll correction.")
+  addTextRow(stabilizerRows, "desaturateHeadroom", settings.desaturateHeadroom, "Power margin reserved before redstone rounding.")
+  addTextRow(stabilizerRows, "desaturatedFrames", stats.desaturatedFrames, "Frames where the mixer shifted or scaled powers to preserve pitch/roll correction.")
   addTextRow(stabilizerRows, "tiltCompensation", settings.tiltCompensation, "Whether tilt-based collective compensation was enabled.")
   addTextRow(stabilizerRows, "tiltCompensatedFrames", stats.tiltedCompensatedFrames, "Frames where tilt compensation added collective power.")
   addTextRow(stabilizerRows, "finalTiltCompPower", finalMixed.tiltCompensationPower, "Last extra power added by tilt compensation.")

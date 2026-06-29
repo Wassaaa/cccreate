@@ -34,10 +34,12 @@ return {
     axis2Trim = 0,
     maxCorrection = 1.5,
     -- Desaturation shifts all rotor powers together when one corner would
-    -- clip below 0 or above max, preserving pitch/roll authority when possible.
+    -- approach 0 or max, preserving pitch/roll authority while leaving
+    -- a little room for redstone rounding.
     desaturate = true,
-    -- Tilt compensation adds bounded collective power while tilted, roughly
-    -- offsetting the vertical lift lost to pitch/roll.
+    desaturateHeadroom = 0.75,
+    -- Tilt compensation adds bounded collective power for the requested
+    -- pitch/roll target, roughly offsetting vertical lift lost to steering.
     tiltCompensation = true,
     tiltCompensationGain = 1,
     tiltCompensationMaxPower = 2,

@@ -32,6 +32,7 @@ local ORDERS = {
     "axis2Trim",
     "maxCorrection",
     "desaturate",
+    "desaturateHeadroom",
     "tiltCompensation",
     "tiltCompensationGain",
     "tiltCompensationMaxPower",

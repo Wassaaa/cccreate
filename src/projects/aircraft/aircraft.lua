@@ -40,6 +40,7 @@ local DEFAULT_CONFIG = {
     axis2Trim = 0,
     maxCorrection = 1.5,
     desaturate = true,
+    desaturateHeadroom = 0.75,
     tiltCompensation = true,
     tiltCompensationGain = 1,
     tiltCompensationMaxPower = 2,
@@ -94,7 +95,7 @@ local function usage()
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
-  print("aircraft config stabilize-desaturate <true|false>")
+  print("aircraft config stabilize-desaturate <true|false> [headroomPower]")
   print("aircraft config stabilize-tilt-comp <true|false> [gain] [maxPower]")
   print("aircraft config stabilize-dither <true|false>")
   print("aircraft config display <true|false>")
@@ -540,6 +541,7 @@ local function printConfig(config, source)
   print("  stabilize.axis2Trim=" .. tostring(config.stabilize.axis2Trim))
   print("  stabilize.maxCorrection=" .. tostring(config.stabilize.maxCorrection))
   print("  stabilize.desaturate=" .. tostring(config.stabilize.desaturate))
+  print("  stabilize.desaturateHeadroom=" .. tostring(config.stabilize.desaturateHeadroom))
   print("  stabilize.tiltCompensation=" .. tostring(config.stabilize.tiltCompensation))
   print("  stabilize.tiltCompensationGain=" .. tostring(config.stabilize.tiltCompensationGain))
   print("  stabilize.tiltCompensationMaxPower=" .. tostring(config.stabilize.tiltCompensationMaxPower))
@@ -679,8 +681,18 @@ local function runConfig()
     return
   elseif subcommand == "stabilize-desaturate" then
     config.stabilize.desaturate = parseBoolean(args[3])
+    if args[4] then
+      config.stabilize.desaturateHeadroom = parseNumber(args[4], "headroomPower")
+      if config.stabilize.desaturateHeadroom < 0 then
+        error("headroomPower must be non-negative", 0)
+      end
+    elseif config.stabilize.desaturateHeadroom == nil then
+      config.stabilize.desaturateHeadroom = 0.75
+    end
     saveConfig(config)
-    print("Saved stabilize.desaturate=" .. tostring(config.stabilize.desaturate) .. " to " .. CONFIG_PATH)
+    print("Saved stabilize desaturation to " .. CONFIG_PATH)
+    print("  desaturate=" .. tostring(config.stabilize.desaturate))
+    print("  desaturateHeadroom=" .. tostring(config.stabilize.desaturateHeadroom))
     return
   elseif subcommand == "stabilize-tilt-comp" then
     config.stabilize.tiltCompensation = parseBoolean(args[3])
