@@ -10,6 +10,7 @@ local INPUT_ORDER = {
   "d",
   "space",
   "w",
+  "k",
 }
 
 local SIDE_ALIASES = {
@@ -511,6 +512,7 @@ local function drawProbeDisplay(target, frame, context, seconds)
   drawButton(target, center, topY + 2, "s", reads.s)
   drawButton(target, center + 8, topY + 2, "d", reads.d)
   drawButton(target, center + 18, topY + 2, "space", reads.space)
+  drawButton(target, center + 18, topY + 4, "k", reads.k)
 
   setColor(target, colors and colors.white)
   writeCentered(

@@ -21,6 +21,7 @@ local BINDING_ORDER = {
   "s",
   "d",
   "space",
+  "k",
 }
 
 local function copyPlain(value, depth)
@@ -206,9 +207,13 @@ local function configSections(config)
   add(display, config, "hud.monitorName", "Optional fixed monitor peripheral name. nil means auto-detect.")
 
   local kill = {}
-  add(kill, config, "killSwitch.enabled", "Whether stabilize checks a computer-side redstone kill switch.", "aircraft config killswitch true front true")
-  add(kill, config, "killSwitch.side", "Computer side read for the kill switch.")
+  add(kill, config, "killSwitch.enabled", "Whether stabilize checks configured kill-switch sources.", "aircraft config killswitch true front true")
+  add(kill, config, "killSwitch.source", "Physical kill-switch source: side, router, or controller for key-only.", "aircraft config killswitch-router <x> <y> <z> up true")
+  add(kill, config, "killSwitch.side", "Computer side read for source=side.")
   add(kill, config, "killSwitch.activeHigh", "If true, signal on means stop. If false, signal off means stop.")
+  add(kill, config, "killSwitch.keyEnabled", "Whether controller key input can trip the kill switch.", "aircraft config killswitch-key true k")
+  add(kill, config, "killSwitch.key", "Controller key name used for the kill switch.")
+  add(kill, config, "killSwitch.binding", "Redstone-router coordinate and side for source=router.")
 
   local reports = {}
   add(reports, config, "reportPath", "Local scan cache path used by later aircraft commands.")
@@ -443,6 +448,7 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(controllerRows, "controller.type", report.controller and report.controller.type, "Input backend used by this run.")
   addTextRow(controllerRows, "controllerActiveFrames", stats.controllerActiveFrames, "Frames where controller or recovery input requested a target/throttle/power.")
   addTextRow(controllerRows, "pressedKeys", pressedText(stats.pressed), "Controller keys seen in kept frames.")
+  addTextRow(controllerRows, "killSwitchTriggeredBy", report.abortReason == "kill switch active" and (stats.final and stats.final.killSwitch and stats.final.killSwitch.triggeredBy) or "n/a", "Kill-switch source that stopped the run, if any.")
   addTextRow(controllerRows, "recoveryPulseSeconds", recoveryTest.pulseSeconds, "Recovery-test pulse duration, if this was aircraft recover.")
   addTextRow(controllerRows, "recoveryAxis1Target", degText(recoveryTest.axis1Target), "Synthetic roll target used during the recovery pulse.")
   addTextRow(controllerRows, "recoveryAxis2Target", degText(recoveryTest.axis2Target), "Synthetic pitch target used during the recovery pulse.")

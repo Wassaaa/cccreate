@@ -53,11 +53,11 @@ local ORDERS = {
     "keyMap",
     "bindings",
   },
-  bindings = { "shift", "a", "s", "d", "space", "w" },
+  bindings = { "shift", "a", "s", "d", "space", "w", "k" },
   binding = { "x", "y", "z", "side" },
   display = { "enabled", "stabilizeEnabled", "stabilizeInterval" },
   hud = { "enabled", "interval", "monitorScale", "monitorName" },
-  killSwitch = { "enabled", "side", "activeHigh" },
+  killSwitch = { "enabled", "source", "side", "activeHigh", "keyEnabled", "key", "binding" },
 }
 
 local function copyPlain(value, depth)

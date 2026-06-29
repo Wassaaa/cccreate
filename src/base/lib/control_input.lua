@@ -7,6 +7,7 @@ local DEFAULT_INPUTS = {
   "d",
   "space",
   "w",
+  "k",
 }
 
 local TYPE_ALIASES = {

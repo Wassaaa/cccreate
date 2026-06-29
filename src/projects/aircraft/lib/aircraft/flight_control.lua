@@ -100,6 +100,16 @@ local function isRouterType(types)
   return false
 end
 
+local function isRedstoneRouterType(types)
+  for _, typeName in ipairs(types or {}) do
+    if string.find(string.lower(tostring(typeName)), "redstone_router", 1, true) then
+      return true
+    end
+  end
+
+  return false
+end
+
 local function hasCategory(entry, category)
   for _, value in ipairs(entry and entry.categories or {}) do
     if value == category then
@@ -124,6 +134,26 @@ local function findRouter()
 
   local router = peripheral.find("peripheral_router")
   if router and type(router.wrap) == "function" then
+    return router, nil
+  end
+
+  return nil, nil
+end
+
+local function findRedstoneRouter()
+  for _, peripheralName in ipairs(peripheral.getNames()) do
+    local types = safePeripheralTypes(peripheralName)
+
+    if isRedstoneRouterType(types) then
+      local wrapped = peripheral.wrap(peripheralName)
+      if wrapped and type(wrapped.getRedstone) == "function" then
+        return wrapped, peripheralName
+      end
+    end
+  end
+
+  local router = peripheral.find("redstone_router")
+  if router and type(router.getRedstone) == "function" then
     return router, nil
   end
 
@@ -481,29 +511,58 @@ local function stabilizeConfig(config, options)
     reportFrameLimit = tonumber(options.reportFrameLimit) or tonumber(defaults.reportFrameLimit) or 600,
     killSwitch = {
       enabled = killSwitchEnabled,
+      source = tostring(killSwitch.source or (killSwitch.binding and "router" or "side")),
       side = tostring(killSwitch.side or "front"),
       activeHigh = killSwitch.activeHigh ~= false,
+      keyEnabled = killSwitch.keyEnabled ~= false,
+      key = tostring(killSwitch.key or "k"),
+      binding = copyPlain(killSwitch.binding),
     },
     nixiesEnabled = nixiesEnabled,
     nixieInterval = tonumber(options.nixieInterval) or tonumber(display.stabilizeInterval) or 1,
   }
 end
 
-local function readKillSwitch(settings)
-  local killSwitch = settings.killSwitch or {}
-  if not killSwitch.enabled then
-    return {
-      enabled = false,
-      triggered = false,
-    }
+local function normalizeRouterSide(side)
+  local value = string.lower(tostring(side or "up"))
+  if value == "top" then
+    return "up"
+  elseif value == "bottom" then
+    return "down"
   end
 
+  return value
+end
+
+local function normalizeRouterBinding(binding)
+  if type(binding) ~= "table" then
+    return nil
+  end
+
+  return {
+    x = tonumber(binding.x) or 0,
+    y = tonumber(binding.y) or 0,
+    z = tonumber(binding.z) or 0,
+    side = normalizeRouterSide(binding.side),
+  }
+end
+
+local function redstoneValue(input)
+  if input == true then
+    return true
+  elseif input == false or input == nil then
+    return false
+  end
+
+  return (tonumber(input) or 0) > 0
+end
+
+local function readLocalKillSwitch(killSwitch)
   local side = tostring(killSwitch.side or "front")
   if type(redstone) ~= "table" or type(redstone.getInput) ~= "function" then
     return {
-      enabled = true,
+      source = "side",
       side = side,
-      activeHigh = killSwitch.activeHigh ~= false,
       ok = false,
       input = nil,
       triggered = true,
@@ -514,9 +573,8 @@ local function readKillSwitch(settings)
   local ok, inputOrError = pcall(redstone.getInput, side)
   if not ok then
     return {
-      enabled = true,
+      source = "side",
       side = side,
-      activeHigh = killSwitch.activeHigh ~= false,
       ok = false,
       input = nil,
       triggered = true,
@@ -525,17 +583,124 @@ local function readKillSwitch(settings)
   end
 
   local input = inputOrError == true
-  local activeHigh = killSwitch.activeHigh ~= false
-  local triggered = input == activeHigh
-
   return {
-    enabled = true,
+    source = "side",
     side = side,
-    activeHigh = activeHigh,
     ok = true,
     input = input,
-    triggered = triggered,
+    triggered = input == (killSwitch.activeHigh ~= false),
   }
+end
+
+local function readRouterKillSwitch(killSwitch, router, routerName)
+  local binding = normalizeRouterBinding(killSwitch.binding)
+  if not binding then
+    return {
+      source = "router",
+      ok = false,
+      triggered = true,
+      error = "missing router kill switch binding",
+    }
+  end
+
+  if not router then
+    return {
+      source = "router",
+      binding = binding,
+      ok = false,
+      triggered = true,
+      error = "No redstone_router with getRedstone(x, y, z, side) found",
+    }
+  end
+
+  local ok, inputOrError = pcall(router.getRedstone, binding.x, binding.y, binding.z, binding.side)
+  if not ok then
+    return {
+      source = "router",
+      routerName = routerName,
+      binding = binding,
+      ok = false,
+      triggered = true,
+      error = tostring(inputOrError),
+    }
+  end
+
+  local input = redstoneValue(inputOrError)
+  return {
+    source = "router",
+    routerName = routerName,
+    binding = binding,
+    ok = true,
+    input = input,
+    rawInput = inputOrError,
+    triggered = input == (killSwitch.activeHigh ~= false),
+  }
+end
+
+local function readKeyKillSwitch(killSwitch, control)
+  local key = tostring(killSwitch.key or "k")
+  local read = control and control.reads and control.reads[key]
+  local pressed = read and read.pressed == true
+
+  return {
+    source = "controller_key",
+    key = key,
+    ok = true,
+    pressed = pressed,
+    triggered = pressed,
+    read = copyPlain(read),
+  }
+end
+
+local function readKillSwitch(settings, control, router, routerName)
+  local killSwitch = settings.killSwitch or {}
+  if not killSwitch.enabled then
+    return {
+      enabled = false,
+      triggered = false,
+    }
+  end
+
+  local source = tostring(killSwitch.source or "side")
+  local result = {
+    enabled = true,
+    source = source,
+    side = killSwitch.side,
+    binding = copyPlain(killSwitch.binding),
+    activeHigh = killSwitch.activeHigh ~= false,
+    keyEnabled = killSwitch.keyEnabled ~= false,
+    key = killSwitch.key or "k",
+    ok = true,
+    triggered = false,
+    checks = {},
+  }
+
+  local function addCheck(check)
+    table.insert(result.checks, check)
+    if check.ok == false then
+      result.ok = false
+      result.triggered = true
+      result.error = result.error or check.error
+      result.triggeredBy = result.triggeredBy or check.source
+    elseif check.triggered then
+      result.triggered = true
+      result.triggeredBy = result.triggeredBy or check.source
+    end
+  end
+
+  if killSwitch.keyEnabled ~= false then
+    addCheck(readKeyKillSwitch(killSwitch, control))
+  end
+
+  if source == "router" then
+    addCheck(readRouterKillSwitch(killSwitch, router, routerName))
+  elseif source == "controller" or source == "key" then
+    -- Key-only kill switch. Nothing else to read.
+  else
+    addCheck(readLocalKillSwitch(killSwitch))
+  end
+
+  return result
 end
 
 local function slewValue(current, target, maxDelta)
@@ -775,7 +940,7 @@ end
 local function pressedControls(control)
   local pressed = {}
 
-  for _, name in ipairs({ "shift", "space", "w", "a", "s", "d" }) do
+  for _, name in ipairs({ "shift", "space", "w", "a", "s", "d", "k" }) do
     local read = control and control.reads and control.reads[name]
     if read and read.pressed then
       table.insert(pressed, name)
@@ -911,6 +1076,12 @@ function flightControl.stabilize(config, options)
   local devices = wrapScalarDevices(scan, router)
   local rotorDevices, rotorErrors = wrapOptionalRoleDevices(scan, router, "rotorBearing")
   local settings = stabilizeConfig(config, options)
+  local killSwitchRouter, killSwitchRouterName = nil, nil
+  if settings.killSwitch
+      and settings.killSwitch.enabled
+      and settings.killSwitch.source == "router" then
+    killSwitchRouter, killSwitchRouterName = findRedstoneRouter()
+  end
   local controllerContext = controller.open(config, options)
   local testControlContext = recoveryContext(options.recoveryTest)
 
@@ -945,6 +1116,9 @@ function flightControl.stabilize(config, options)
   report.controller = controller.describe(controllerContext)
   report.recoveryTest = copyPlain(options.recoveryTest)
   report.killSwitch = copyPlain(settings.killSwitch)
+  if killSwitchRouterName then
+    report.killSwitch.routerName = killSwitchRouterName
+  end
   report.nixies = displays.describe(nixieContext)
   report.rotorTelemetry = {
     errors = copyPlain(rotorErrors),
@@ -1015,7 +1189,7 @@ function flightControl.stabilize(config, options)
       local controlContext = options.recoveryTest and testControlContext or controllerContext
       local control = smoothControl(controlContext, rawControl, previousControl, dt)
       local mixed = mixerSignals(settings, state, control, signalResiduals)
-      local killSwitch = readKillSwitch(settings)
+      local killSwitch = readKillSwitch(settings, control, killSwitchRouter, killSwitchRouterName)
       local frame = {
         index = frameIndex,
         elapsed = elapsed,

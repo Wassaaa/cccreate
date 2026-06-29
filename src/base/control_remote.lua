@@ -7,6 +7,7 @@ local INPUT_ORDER = {
   "s",
   "d",
   "space",
+  "k",
 }
 
 local GLFW_CODES = {
@@ -15,6 +16,7 @@ local GLFW_CODES = {
   [68] = "d",
   [83] = "s",
   [87] = "w",
+  [75] = "k",
   [340] = "shift",
   [344] = "shift",
 }
@@ -159,6 +161,7 @@ local function keyCodes()
   addKeyConstant(codes, "a", "a")
   addKeyConstant(codes, "s", "s")
   addKeyConstant(codes, "d", "d")
+  addKeyConstant(codes, "k", "k")
   addKeyConstant(codes, "space", "space")
   addKeyConstant(codes, "leftShift", "shift")
   addKeyConstant(codes, "rightShift", "shift")
@@ -221,7 +224,7 @@ local function draw(pressed, seq, opened)
   print("modems=" .. table.concat(opened, ","))
   print("seq=" .. tostring(seq))
   print("")
-  print("Hold W/A/S/D, Space, Shift. Ctrl+T exits.")
+  print("Hold W/A/S/D, Space, Shift. K is kill switch. Ctrl+T exits.")
   print("")
 
   for _, key in ipairs(INPUT_ORDER) do

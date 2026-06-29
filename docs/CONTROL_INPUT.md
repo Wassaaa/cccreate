@@ -8,6 +8,7 @@ Current logical inputs:
 
 ```text
 w a s d space shift
+k
 ```
 
 Current backends:
@@ -65,6 +66,40 @@ state arrives before `controller.timeout`.
 
 This timeout is deliberate. It prevents a stuck movement key if the remote
 computer unloads, loses modem contact, or exits without sending key-up events.
+
+## Kill Switch
+
+Aircraft stabilization can stop from a physical redstone kill switch or from the
+controller `K` key. The `K` key is enabled by default when `killSwitch.enabled`
+is true and works with the `keyboard` and `modem` controller backends.
+
+Local computer-side redstone:
+
+```text
+aircraft config killswitch true front true
+```
+
+Redstone router relative coordinate:
+
+```text
+aircraft config killswitch-router <x> <y> <z> [side] [activeHigh true|false]
+```
+
+Example:
+
+```text
+aircraft config killswitch-router 4 0 -2 up true
+```
+
+Controller key:
+
+```text
+aircraft config killswitch-key true k
+```
+
+The physical kill switch fails closed. If the configured local side or router
+read cannot be checked during stabilization, the aircraft stops instead of
+continuing without a verified kill switch.
 
 ## Program Integration
 

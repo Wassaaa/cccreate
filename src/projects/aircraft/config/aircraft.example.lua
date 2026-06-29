@@ -50,8 +50,14 @@ return {
   },
   killSwitch = {
     enabled = false,
+    -- source="side" reads a local computer redstone side.
+    -- source="router" reads binding through a redstone_router coordinate.
+    source = "side",
     side = "front",
     activeHigh = true,
+    keyEnabled = true,
+    key = "k",
+    binding = nil,
   },
   controller = {
     enabled = false,

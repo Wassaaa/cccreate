@@ -56,8 +56,12 @@ local DEFAULT_CONFIG = {
   },
   killSwitch = {
     enabled = false,
+    source = "side",
     side = "front",
     activeHigh = true,
+    keyEnabled = true,
+    key = "k",
+    binding = nil,
   },
   controller = {
     enabled = false,
@@ -93,6 +97,8 @@ local function usage()
   print("aircraft config stabilize-nixies <true|false> [interval]")
   print("aircraft config hud <true|false>")
   print("aircraft config killswitch <true|false> [front|back|left|right|top|bottom] [activeHigh true|false]")
+  print("aircraft config killswitch-router <x> <y> <z> [side] [activeHigh true|false]")
+  print("aircraft config killswitch-key <true|false> [key]")
   print("aircraft config controller <true|false>")
   print("aircraft config controller-type <redstone_router|keyboard|modem>")
   print("aircraft config controller-modem [protocol] [senderId|any] [timeout] [modemSide]")
@@ -484,6 +490,7 @@ local function validControllerKey(key)
     or key == "d"
     or key == "space"
     or key == "shift"
+    or key == "k"
 end
 
 local function bindingText(binding)
@@ -523,8 +530,12 @@ local function printConfig(config, source)
   print("  hud.interval=" .. tostring(config.hud and config.hud.interval))
   print("  hud.monitorName=" .. tostring(config.hud and config.hud.monitorName))
   print("  killSwitch.enabled=" .. tostring(config.killSwitch and config.killSwitch.enabled))
+  print("  killSwitch.source=" .. tostring(config.killSwitch and config.killSwitch.source))
   print("  killSwitch.side=" .. tostring(config.killSwitch and config.killSwitch.side))
   print("  killSwitch.activeHigh=" .. tostring(config.killSwitch and config.killSwitch.activeHigh))
+  print("  killSwitch.keyEnabled=" .. tostring(config.killSwitch and config.killSwitch.keyEnabled))
+  print("  killSwitch.key=" .. tostring(config.killSwitch and config.killSwitch.key))
+  print("  killSwitch.binding=" .. bindingText(config.killSwitch and config.killSwitch.binding))
   print("  controller.enabled=" .. tostring(config.controller and config.controller.enabled))
   print("  controller.type=" .. tostring(config.controller and config.controller.type))
   print("  controller.threshold=" .. tostring(config.controller and config.controller.threshold))
@@ -547,6 +558,7 @@ local function printConfig(config, source)
     print("    d=" .. bindingText(config.controller.bindings.d))
     print("    space=" .. bindingText(config.controller.bindings.space))
     print("    w=" .. bindingText(config.controller.bindings.w))
+    print("    k=" .. bindingText(config.controller.bindings.k))
   end
 end
 
@@ -681,6 +693,7 @@ local function runConfig()
   elseif subcommand == "killswitch" then
     config.killSwitch = config.killSwitch or {}
     config.killSwitch.enabled = parseBoolean(args[3])
+    config.killSwitch.source = "side"
     if args[4] then
       config.killSwitch.side = normalizeComputerSide(args[4])
     end
@@ -692,8 +705,47 @@ local function runConfig()
     saveConfig(config)
     print("Saved kill switch to " .. CONFIG_PATH)
     print("  enabled=" .. tostring(config.killSwitch.enabled))
+    print("  source=" .. tostring(config.killSwitch.source))
     print("  side=" .. tostring(config.killSwitch.side))
     print("  activeHigh=" .. tostring(config.killSwitch.activeHigh))
+    return
+  elseif subcommand == "killswitch-router" then
+    config.killSwitch = config.killSwitch or {}
+    config.killSwitch.enabled = true
+    config.killSwitch.source = "router"
+    config.killSwitch.binding = {
+      x = parseInteger(args[3], "x"),
+      y = parseInteger(args[4], "y"),
+      z = parseInteger(args[5], "z"),
+      side = normalizeRedstoneSide(args[6] or "up"),
+    }
+
+    if args[7] then
+      config.killSwitch.activeHigh = parseBoolean(args[7])
+    elseif config.killSwitch.activeHigh == nil then
+      config.killSwitch.activeHigh = true
+    end
+
+    saveConfig(config)
+    print("Saved router kill switch to " .. CONFIG_PATH)
+    print("  enabled=" .. tostring(config.killSwitch.enabled))
+    print("  source=" .. tostring(config.killSwitch.source))
+    print("  binding=" .. bindingText(config.killSwitch.binding))
+    print("  activeHigh=" .. tostring(config.killSwitch.activeHigh))
+    return
+  elseif subcommand == "killswitch-key" then
+    config.killSwitch = config.killSwitch or {}
+    config.killSwitch.keyEnabled = parseBoolean(args[3])
+    if args[4] then
+      config.killSwitch.key = string.lower(tostring(args[4]))
+    elseif not config.killSwitch.key then
+      config.killSwitch.key = "k"
+    end
+
+    saveConfig(config)
+    print("Saved kill switch key to " .. CONFIG_PATH)
+    print("  keyEnabled=" .. tostring(config.killSwitch.keyEnabled))
+    print("  key=" .. tostring(config.killSwitch.key))
     return
   elseif subcommand == "controller" then
     config.controller = config.controller or {}
@@ -764,7 +816,7 @@ local function runConfig()
   elseif subcommand == "controller-bind" then
     local key = string.lower(tostring(args[3] or ""))
     if not validControllerKey(key) then
-      error("controller key must be w, a, s, d, space, or shift", 0)
+      error("controller key must be w, a, s, d, space, shift, or k", 0)
     end
 
     config.controller = config.controller or {}
