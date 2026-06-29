@@ -115,6 +115,7 @@ local function usage()
   print("aircraft level-set")
   print("aircraft level-zero")
   print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
+  print("aircraft recover [--apply] [--seconds n] [--base-power n] [--axis1-target-deg n] [--axis2-target-deg n] [--axis1-power n] [--axis2-power n] [--pulse-seconds n]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
   print("aircraft help")
   print("")
@@ -924,6 +925,48 @@ local function parseCommandOptions(startIndex)
         error("--report-frames needs a non-negative number", 0)
       end
       i = i + 2
+    elseif arg == "--axis1-target-deg" then
+      options.axis1TargetDeg = tonumber(args[i + 1])
+      if not options.axis1TargetDeg then
+        error("--axis1-target-deg needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--axis2-target-deg" then
+      options.axis2TargetDeg = tonumber(args[i + 1])
+      if not options.axis2TargetDeg then
+        error("--axis2-target-deg needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--axis1-power" then
+      options.axis1Power = tonumber(args[i + 1])
+      if not options.axis1Power then
+        error("--axis1-power needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--axis2-power" then
+      options.axis2Power = tonumber(args[i + 1])
+      if not options.axis2Power then
+        error("--axis2-power needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--pulse-seconds" then
+      options.pulseSeconds = tonumber(args[i + 1])
+      if not options.pulseSeconds or options.pulseSeconds <= 0 then
+        error("--pulse-seconds needs a positive number", 0)
+      end
+      i = i + 2
+    elseif arg == "--target-slew-deg" then
+      options.targetSlewDegPerSecond = tonumber(args[i + 1])
+      if not options.targetSlewDegPerSecond or options.targetSlewDegPerSecond < 0 then
+        error("--target-slew-deg needs a non-negative number", 0)
+      end
+      i = i + 2
+    elseif arg == "--throttle-slew" then
+      options.throttleSlewPowerPerSecond = tonumber(args[i + 1])
+      if not options.throttleSlewPowerPerSecond or options.throttleSlewPowerPerSecond < 0 then
+        error("--throttle-slew needs a non-negative number", 0)
+      end
+      i = i + 2
     else
       error("Unknown aircraft option: " .. tostring(arg), 0)
     end
@@ -1003,6 +1046,33 @@ local function runStabilize()
   flightControl.stabilize(config, options)
 end
 
+local function runRecover()
+  local config = loadConfig()
+  local options = parseCommandOptions(2)
+  local degToRad = math.pi / 180
+  local axis1TargetDeg = tonumber(options.axis1TargetDeg) or 0
+  local axis2TargetDeg = tonumber(options.axis2TargetDeg) or 0
+  local axis1Power = tonumber(options.axis1Power) or 0
+  local axis2Power = tonumber(options.axis2Power) or 0
+
+  if axis1TargetDeg == 0 and axis2TargetDeg == 0 and axis1Power == 0 and axis2Power == 0 then
+    error("recover needs at least one of --axis1-target-deg, --axis2-target-deg, --axis1-power, or --axis2-power", 0)
+  end
+
+  options.controller = false
+  options.recoveryTest = {
+    pulseSeconds = tonumber(options.pulseSeconds) or 1.5,
+    axis1Target = axis1TargetDeg * degToRad,
+    axis2Target = axis2TargetDeg * degToRad,
+    axis1Power = axis1Power,
+    axis2Power = axis2Power,
+    targetSlewDegPerSecond = tonumber(options.targetSlewDegPerSecond) or 30,
+    throttleSlewPowerPerSecond = tonumber(options.throttleSlewPowerPerSecond) or 8,
+  }
+
+  flightControl.stabilize(config, options)
+end
+
 if command == "help" or command == "--help" or command == "-h" then
   usage()
 elseif command == "scan" then
@@ -1064,6 +1134,12 @@ elseif command == "stabilize" then
   if not ok then
     print("aircraft stabilize failed: " .. tostring(result))
     error("aircraft stabilize failed", 0)
+  end
+elseif command == "recover" then
+  local ok, result = pcall(runRecover)
+  if not ok then
+    print("aircraft recover failed: " .. tostring(result))
+    error("aircraft recover failed", 0)
   end
 else
   usage()

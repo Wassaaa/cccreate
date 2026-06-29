@@ -616,6 +616,41 @@ local function smoothControl(context, control, previousControl, dt)
   return result
 end
 
+local function recoveryControl(test, elapsed)
+  if type(test) ~= "table" then
+    return nil
+  end
+
+  local pulseSeconds = tonumber(test.pulseSeconds) or 1
+  local active = elapsed < pulseSeconds
+
+  return {
+    enabled = true,
+    synthetic = true,
+    pulseActive = active,
+    pulseSeconds = pulseSeconds,
+    axis1 = active and (tonumber(test.axis1) or 0) or 0,
+    axis2 = active and (tonumber(test.axis2) or 0) or 0,
+    throttle = active and (tonumber(test.throttle) or 0) or 0,
+    throttlePower = active and (tonumber(test.throttlePower) or 0) or 0,
+    axis1Target = active and (tonumber(test.axis1Target) or 0) or 0,
+    axis2Target = active and (tonumber(test.axis2Target) or 0) or 0,
+    axis1Power = active and (tonumber(test.axis1Power) or 0) or 0,
+    axis2Power = active and (tonumber(test.axis2Power) or 0) or 0,
+    reads = {},
+  }
+end
+
+local function recoveryContext(test)
+  return {
+    enabled = true,
+    settings = {
+      targetSlewDegPerSecond = tonumber(test and test.targetSlewDegPerSecond) or 30,
+      throttleSlewPowerPerSecond = tonumber(test and test.throttleSlewPowerPerSecond) or 8,
+    },
+  }
+end
+
 local function targetAssistPower(controlPower, error, target)
   controlPower = tonumber(controlPower) or 0
   error = tonumber(error) or 0
@@ -831,6 +866,9 @@ local function compactControllerFrame(control)
 
   return {
     enabled = control.enabled == true,
+    synthetic = control.synthetic == true,
+    pulseActive = control.pulseActive == true,
+    pulseSeconds = control.pulseSeconds,
     throttle = control.throttle,
     throttlePower = control.throttlePower,
     axis1 = control.axis1,
@@ -907,6 +945,50 @@ local function compactStabilizeFrame(frame)
   }
 end
 
+local function recoverySummary(report)
+  local test = report.recoveryTest
+  local frames = report.frames
+
+  if type(test) ~= "table" or type(frames) ~= "table" then
+    return nil
+  end
+
+  local pulseSeconds = tonumber(test.pulseSeconds) or 0
+  local peakAxis1 = 0
+  local peakAxis2 = 0
+  local peakAfterPulseAxis1 = 0
+  local peakAfterPulseAxis2 = 0
+  local last = nil
+
+  for _, frame in ipairs(frames) do
+    local mixed = frame.mixed or {}
+    local axis1 = math.abs(tonumber(mixed.measured1) or 0)
+    local axis2 = math.abs(tonumber(mixed.measured2) or 0)
+    peakAxis1 = math.max(peakAxis1, axis1)
+    peakAxis2 = math.max(peakAxis2, axis2)
+
+    if (tonumber(frame.elapsed) or 0) >= pulseSeconds then
+      peakAfterPulseAxis1 = math.max(peakAfterPulseAxis1, axis1)
+      peakAfterPulseAxis2 = math.max(peakAfterPulseAxis2, axis2)
+    end
+
+    last = frame
+  end
+
+  local lastMixed = last and last.mixed or {}
+
+  return {
+    peakAxis1 = peakAxis1,
+    peakAxis2 = peakAxis2,
+    peakAfterPulseAxis1 = peakAfterPulseAxis1,
+    peakAfterPulseAxis2 = peakAfterPulseAxis2,
+    finalAxis1 = lastMixed.measured1,
+    finalAxis2 = lastMixed.measured2,
+    finalRate1 = lastMixed.rate1,
+    finalRate2 = lastMixed.rate2,
+  }
+end
+
 function flightControl.levelSet(config)
   local scan, router, routerName = loadContext(config)
   local gimbal = findGimbal(scan, router)
@@ -977,6 +1059,7 @@ function flightControl.stabilize(config, options)
   local rotorDevices, rotorErrors = wrapOptionalRoleDevices(scan, router, "rotorBearing")
   local settings = stabilizeConfig(config, options)
   local controllerContext = controller.open(config, options)
+  local testControlContext = recoveryContext(options.recoveryTest)
 
   local active = options.apply == true and config.dryRun == false
   local hudContext = hud.open(config, options, router, scan)
@@ -1004,6 +1087,7 @@ function flightControl.stabilize(config, options)
   }
   report.hud = hud.describe(hudContext)
   report.controller = controller.describe(controllerContext)
+  report.recoveryTest = copyPlain(options.recoveryTest)
   report.killSwitch = copyPlain(settings.killSwitch)
   report.nixies = displays.describe(nixieContext)
   report.rotorTelemetry = {
@@ -1069,10 +1153,11 @@ function flightControl.stabilize(config, options)
       end
 
       local state = readGimbal(gimbal)
-      local rawControl = controller.sample(controllerContext)
       local elapsed = os.clock() - startTime
       local dt = previousMotion and (elapsed - previousMotion.elapsed) or settings.interval
-      local control = smoothControl(controllerContext, rawControl, previousControl, dt)
+      local rawControl = recoveryControl(options.recoveryTest, elapsed) or controller.sample(controllerContext)
+      local controlContext = options.recoveryTest and testControlContext or controllerContext
+      local control = smoothControl(controlContext, rawControl, previousControl, dt)
       local mixed = mixerSignals(settings, state, config.level, control, previousMotion, dt, signalResiduals)
       local killSwitch = readKillSwitch(settings)
       local frame = {
@@ -1183,6 +1268,8 @@ function flightControl.stabilize(config, options)
     report.error = tostring(result)
     report.timing.stopReason = "error"
   end
+
+  report.recoverySummary = recoverySummary(report)
 
   local path = saveAndSend(config, report)
   print("Aircraft stabilize report: " .. path)
