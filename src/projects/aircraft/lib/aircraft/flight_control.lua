@@ -863,7 +863,10 @@ function flightControl.stabilize(config, options)
 
   local function runLoop()
     local startTime = os.clock()
-    local deadline = settings.forever and nil or startTime + settings.seconds
+    local deadline = nil
+    if not settings.forever then
+      deadline = startTime + settings.seconds
+    end
     local nextFrameTime = startTime
     local frameIndex = 1
 
