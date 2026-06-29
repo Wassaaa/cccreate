@@ -10,6 +10,7 @@ local ROOT_ORDER = {
   "maxAttitudeDelta",
   "statusReadLimit",
   "stabilize",
+  "rotors",
   "controller",
   "display",
   "hud",
@@ -30,11 +31,20 @@ local ORDERS = {
     "axis2Kd",
     "axis1Trim",
     "axis2Trim",
+    "yawKd",
+    "yawTrim",
+    "yawSign",
     "maxCorrection",
+    "maxYawCorrection",
     "signalDither",
     "brakeOnExit",
     "reportFrameLimit",
   },
+  rotors = {
+    "applyHandednessOnStabilize",
+    "handedness",
+  },
+  rotorHandedness = { "front_left", "front_right", "rear_left", "rear_right" },
   controller = {
     "enabled",
     "threshold",
@@ -43,11 +53,12 @@ local ORDERS = {
     "axis2TargetDeg",
     "axis1Power",
     "axis2Power",
+    "yawPower",
     "targetSlewDegPerSecond",
     "throttleSlewPowerPerSecond",
     "bindings",
   },
-  bindings = { "space", "d", "s", "a", "shift", "w" },
+  bindings = { "space", "d", "s", "a", "shift", "q", "w", "e" },
   binding = { "x", "y", "z", "side" },
   display = { "enabled", "stabilizeEnabled", "stabilizeInterval" },
   hud = { "enabled", "interval", "monitorScale", "monitorName" },
@@ -127,6 +138,8 @@ function configModel.normalize(config)
   set(result, "maxAttitudeDelta", config.maxAttitudeDelta)
   set(result, "statusReadLimit", config.statusReadLimit)
   result.stabilize = pick(config.stabilize, ORDERS.stabilize)
+  result.rotors = pick(config.rotors, ORDERS.rotors)
+  result.rotors.handedness = pick(config.rotors and config.rotors.handedness, ORDERS.rotorHandedness)
   result.controller = pick(config.controller, ORDERS.controller)
   result.controller.bindings = normalizeBindings(config.controller and config.controller.bindings)
   result.display = pick(config.display, ORDERS.display)
@@ -177,6 +190,8 @@ end
 local function childPath(path, key)
   if path == "controller" and key == "bindings" then
     return "bindings"
+  elseif path == "rotors" and key == "handedness" then
+    return "rotorHandedness"
   elseif path == "bindings" then
     return "binding"
   elseif path == "" then

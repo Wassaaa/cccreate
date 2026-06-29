@@ -537,6 +537,18 @@ local function displayPriority(entry)
   return 4
 end
 
+local function sampleValue(entry, method)
+  local sample = entry
+    and entry.samples
+    and entry.samples[method]
+
+  if type(sample) == "table" and sample.ok then
+    return sample.value
+  end
+
+  return nil
+end
+
 local function assignRoles(entries, frontVector, leftVector)
   local roles = {}
 
@@ -560,6 +572,7 @@ local function assignRoles(entries, frontVector, leftVector)
       leftScore = leftScore,
       methodCount = entry.methodCount,
       categories = copyList(entry.categories),
+      thrustHandedness = sampleValue(entry, "getThrustHandedness"),
     }
   end
 

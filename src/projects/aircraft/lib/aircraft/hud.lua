@@ -201,6 +201,8 @@ end
 local function statusText(frame, mixed, settings)
   if frame.abortReason then
     return frame.abortReason
+  elseif mixed.yawCorrectionLimited then
+    return "yaw correction capped"
   elseif mixed.correctionLimited then
     return "correction capped"
   end
@@ -216,14 +218,23 @@ local function timeText(frame, settings)
   return "t " .. fixed(frame.elapsed, 1) .. "/" .. fixed(settings.seconds, 1) .. "s"
 end
 
-local function telemetryNumber(telemetry, role, key)
+local function telemetryValue(telemetry, role, key)
   local read = telemetry
     and telemetry.roles
     and telemetry.roles[role]
     and telemetry.roles[role][key]
 
-  if type(read) == "table" and read.ok and type(read.value) == "number" then
+  if type(read) == "table" and read.ok then
     return read.value
+  end
+
+  return nil
+end
+
+local function telemetryNumber(telemetry, role, key)
+  local value = telemetryValue(telemetry, role, key)
+  if type(value) == "number" then
+    return value
   end
 
   return nil
@@ -233,8 +244,10 @@ local function roleText(role, mixed, telemetry)
   local signal = mixed.signals and mixed.signals[role]
   local power = mixed.power and mixed.power[role]
   local rotorThrust = telemetryNumber(telemetry, role, "rotorThrust")
+  local handedness = telemetryValue(telemetry, role, "thrustHandedness")
   local powerText = "?"
   local thrustText = ""
+  local handText = ""
 
   if type(power) == "number" then
     powerText = fixed(power, 1)
@@ -243,10 +256,13 @@ local function roleText(role, mixed, telemetry)
   if type(rotorThrust) == "number" then
     thrustText = " th " .. compactNumber(rotorThrust)
   end
+  if type(handedness) == "string" then
+    handText = " " .. string.sub(handedness, 1, 1) .. "h"
+  end
 
   return {
     ROLE_LABELS[role] .. " sig " .. tostring(signal or "?"),
-    "pwr " .. powerText .. thrustText,
+    "pwr " .. powerText .. thrustText .. handText,
   }
 end
 
@@ -263,8 +279,8 @@ local function drawCompact(target, frame, settings, active, status, width)
   writeLine(target, 1, "AIRCRAFT STABILIZE " .. status, width)
   writeLine(target, 2, timeText(frame, settings) .. " base " .. fixed(settings.basePower, 1), width)
   writeLine(target, 3, "err A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1) .. " deg", width)
-  writeLine(target, 4, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
-  writeLine(target, 5, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
+  writeLine(target, 4, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2) .. " Y=" .. signed(mixed.yawRate, 2), width)
+  writeLine(target, 5, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2) .. " Y=" .. signed(mixed.correctionYaw, 2), width)
   writeLine(target, 6, "signal " .. roleValues(mixed.signals), width)
   writeLine(target, 7, "power  " .. roleValues(mixed.power, 1), width)
   writeLine(target, 8, statusText(frame, mixed, settings), width)
@@ -288,8 +304,8 @@ local function drawCornerLayout(target, frame, settings, status, width, height)
 
   if centerY + 3 < bottomY then
     writeCentered(target, centerY, "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1), width)
-    writeCentered(target, centerY + 1, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
-    writeCentered(target, centerY + 2, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
+    writeCentered(target, centerY + 1, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2) .. " Y=" .. signed(mixed.yawRate, 2), width)
+    writeCentered(target, centerY + 2, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2) .. " Y=" .. signed(mixed.correctionYaw, 2), width)
   end
 
   writeCentered(target, height, statusText(frame, mixed, settings), width)

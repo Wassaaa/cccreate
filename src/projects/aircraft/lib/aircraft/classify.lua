@@ -17,6 +17,7 @@ local SAMPLE_METHODS = {
   "getTransmissionMode",
   "getPower",
   "getThrust",
+  "getThrustHandedness",
   "getTargetThrust",
   "getCurrentThrustPN",
   "getCurrentThrustKN",
@@ -146,6 +147,7 @@ function classify.classifyMethods(methods)
         "setPowerNormalized",
         "setThrust",
         "setThrustNormalized",
+        "setThrustHandedness",
         "setSpeed",
         "setShiftLevel",
         "setTargetSpeed",
@@ -173,11 +175,13 @@ function classify.classifyMethods(methods)
     add("vectorActuator", "vector target/readout methods")
   end
 
-  if methodNameContains(methods, { "propeller", "bearing", "sail", "airflow" })
+  if methodNameContains(methods, { "propeller", "bearing", "sail", "airflow", "handedness" })
       or containsAny(methodSet, {
         "getAirflowMs",
         "getSailCount",
         "getSailPower",
+        "getThrustHandedness",
+        "setThrustHandedness",
         "setTargetAngle",
         "getTargetAngle",
         "getAngle",

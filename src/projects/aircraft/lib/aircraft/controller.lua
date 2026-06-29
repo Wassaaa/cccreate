@@ -4,9 +4,11 @@ local controller = {}
 
 local INPUT_ORDER = {
   "shift",
+  "q",
   "a",
   "s",
   "d",
+  "e",
   "space",
   "w",
 }
@@ -139,29 +141,95 @@ local function normalizeBinding(binding)
   }
 end
 
+local function offsetBinding(anchor, center, target)
+  if not anchor or not center or not target then
+    return nil
+  end
+
+  return {
+    x = anchor.x + (target.x - center.x),
+    y = anchor.y + (target.y - center.y),
+    z = anchor.z + (target.z - center.z),
+    side = anchor.side,
+  }
+end
+
+local function adjacentBinding(anchor, deltaX)
+  if not anchor then
+    return nil
+  end
+
+  return {
+    x = anchor.x + deltaX,
+    y = anchor.y,
+    z = anchor.z,
+    side = anchor.side,
+  }
+end
+
+function controller.completeKeyboardBindings(bindings, missing)
+  if type(bindings) ~= "table" then
+    return bindings
+  end
+
+  missing = missing or {}
+
+  local w = normalizeBinding(bindings.w)
+  if not w then
+    return bindings
+  end
+
+  local s = normalizeBinding(bindings.s)
+  local a = normalizeBinding(bindings.a)
+  local d = normalizeBinding(bindings.d)
+
+  if missing.q == true or bindings.q == nil then
+    bindings.q = offsetBinding(w, s, a) or adjacentBinding(w, 1)
+  end
+
+  if missing.e == true or bindings.e == nil then
+    bindings.e = offsetBinding(w, s, d) or adjacentBinding(w, -1)
+  end
+
+  return bindings
+end
+
 local function controllerConfig(config)
   return config.controller or {}
+end
+
+local function numberOr(value, fallback)
+  local number = tonumber(value)
+  if number ~= nil then
+    return number
+  end
+
+  return fallback
 end
 
 local function settingsFrom(config, options)
   local cfg = controllerConfig(config)
   local enabled = cfg.enabled == true
+  local bindings = copyPlain(cfg.bindings or {})
 
   if options.controller ~= nil then
     enabled = options.controller == true
   end
 
+  controller.completeKeyboardBindings(bindings)
+
   return {
     enabled = enabled,
-    threshold = tonumber(cfg.threshold) or 1,
-    throttlePower = tonumber(cfg.throttlePower) or 1,
-    axis1TargetDeg = tonumber(cfg.axis1TargetDeg) or 5,
-    axis2TargetDeg = tonumber(cfg.axis2TargetDeg) or tonumber(cfg.axis1TargetDeg) or 5,
-    axis1Power = tonumber(cfg.axis1Power) or 0,
-    axis2Power = tonumber(cfg.axis2Power) or tonumber(cfg.axis1Power) or 0,
-    targetSlewDegPerSecond = tonumber(cfg.targetSlewDegPerSecond) or 8,
-    throttleSlewPowerPerSecond = tonumber(cfg.throttleSlewPowerPerSecond) or 4,
-    bindings = cfg.bindings or {},
+    threshold = numberOr(cfg.threshold, 1),
+    throttlePower = numberOr(cfg.throttlePower, 1),
+    axis1TargetDeg = numberOr(cfg.axis1TargetDeg, 5),
+    axis2TargetDeg = numberOr(cfg.axis2TargetDeg, numberOr(cfg.axis1TargetDeg, 5)),
+    axis1Power = numberOr(cfg.axis1Power, 0),
+    axis2Power = numberOr(cfg.axis2Power, numberOr(cfg.axis1Power, 0)),
+    yawPower = numberOr(cfg.yawPower, 1),
+    targetSlewDegPerSecond = numberOr(cfg.targetSlewDegPerSecond, 8),
+    throttleSlewPowerPerSecond = numberOr(cfg.throttleSlewPowerPerSecond, 4),
+    bindings = bindings,
   }
 end
 
@@ -177,7 +245,9 @@ function controller.defaultBindings(originX, originY, originZ, side)
     s = { x = x + 2, y = y, z = z, side = face },
     a = { x = x + 3, y = y, z = z, side = face },
     shift = { x = x + 4, y = y, z = z, side = face },
+    e = { x = x + 1, y = y, z = z + 1, side = face },
     w = { x = x + 2, y = y, z = z + 1, side = face },
+    q = { x = x + 3, y = y, z = z + 1, side = face },
   }
 end
 
@@ -275,6 +345,8 @@ function controller.sample(context)
       axis2Target = 0,
       axis1Power = 0,
       axis2Power = 0,
+      yaw = 0,
+      yawPower = 0,
       reads = {},
     }
   end
@@ -303,6 +375,7 @@ function controller.sample(context)
   local throttle = inputValue(reads.space) - inputValue(reads.shift)
   local axis1 = inputValue(reads.d) - inputValue(reads.a)
   local axis2 = inputValue(reads.w) - inputValue(reads.s)
+  local yaw = inputValue(reads.e) - inputValue(reads.q)
   local degToRad = math.pi / 180
 
   return {
@@ -312,10 +385,12 @@ function controller.sample(context)
     throttlePower = throttle * context.settings.throttlePower,
     axis1 = axis1,
     axis2 = axis2,
+    yaw = yaw,
     axis1Target = axis1 * context.settings.axis1TargetDeg * degToRad,
     axis2Target = axis2 * context.settings.axis2TargetDeg * degToRad,
     axis1Power = axis1 * context.settings.axis1Power,
     axis2Power = axis2 * context.settings.axis2Power,
+    yawPower = yaw * context.settings.yawPower,
     reads = reads,
   }
 end
@@ -517,7 +592,9 @@ local function drawProbeDisplay(target, frame, context, seconds)
 
   local center = math.max(16, math.floor(width / 2))
   local topY = math.max(4, math.floor(height / 2) - 4)
+  drawButton(target, center - 12, topY, "q", reads.q)
   drawButton(target, center - 4, topY, "w", reads.w)
+  drawButton(target, center + 4, topY, "e", reads.e)
   drawButton(target, center - 23, topY + 2, "shift", reads.shift)
   drawButton(target, center - 8, topY + 2, "a", reads.a)
   drawButton(target, center, topY + 2, "s", reads.s)
@@ -528,7 +605,10 @@ local function drawProbeDisplay(target, frame, context, seconds)
   writeCentered(
     target,
     topY + 5,
-    "thr " .. signed(frame.input.throttle) .. "  axis1 " .. signed(frame.input.axis1) .. "  axis2 " .. signed(frame.input.axis2),
+    "thr " .. signed(frame.input.throttle)
+      .. "  axis1 " .. signed(frame.input.axis1)
+      .. "  axis2 " .. signed(frame.input.axis2)
+      .. "  yaw " .. signed(frame.input.yaw),
     width
   )
   writeCentered(target, topY + 7, ". off   number pressed   err bad coord/API", width)
