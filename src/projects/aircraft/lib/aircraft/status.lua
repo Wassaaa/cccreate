@@ -387,7 +387,7 @@ function status.run(config)
   local report = status.collect(config)
   local path = config.statusReportPath or "/aircraft_status.txt"
 
-  reporting.save(report, path)
+  reporting.save(report, path, config)
   if config.sendWebhook ~= false then
     reporting.send(report)
   end

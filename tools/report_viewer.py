@@ -659,7 +659,7 @@ HTML = r"""<!doctype html>
 
       els.tabs.innerHTML = reportTabs.map((tab) => {
         const active = tab === state.activeTab ? " active" : "";
-        return `<button class="tab${active}" data-tab="${tab}">${escapeHtml(tabLabel(tab))}</button>`;
+        return `<button class="tab${active}" data-tab="${tab}">${escapeHtml(tabLabel(report, tab))}</button>`;
       }).join("");
 
       for (const button of els.tabs.querySelectorAll("button[data-tab]")) {
@@ -667,6 +667,12 @@ HTML = r"""<!doctype html>
           state.activeTab = button.dataset.tab;
           render();
         });
+      }
+
+      const customTab = customTabForReport(report, state.activeTab);
+      if (customTab) {
+        els.view.innerHTML = renderCustomTab(customTab);
+        return;
       }
 
       if (state.activeTab === "overview") els.view.innerHTML = renderOverview(report);
@@ -704,8 +710,34 @@ HTML = r"""<!doctype html>
       return asArray(report?.inventory).length > 0 || hasObjectValues(report?.args);
     }
 
+    function customTabs(report) {
+      return asArray(report?.human?.tabs).filter((tab) => tab && tab.id);
+    }
+
+    function customTabId(tab) {
+      return `custom:${tab.id}`;
+    }
+
+    function customTabForReport(report, tabId) {
+      if (!String(tabId || "").startsWith("custom:")) return null;
+      const id = String(tabId).slice("custom:".length);
+      return customTabs(report).find((tab) => String(tab.id) === id) || null;
+    }
+
     function tabsForReport(report) {
       if (report?.kind === "router_stack") return stackTabs;
+
+      const custom = customTabs(report);
+      if (custom.length > 0) {
+        const reportTabs = custom.map(customTabId);
+        if (hasRouterCoordinates(report)) reportTabs.push("map");
+        if (hasOutputContent(report)) reportTabs.push("output");
+        if (asArray(report?.peripherals).length > 0) reportTabs.push("peripherals");
+        if (hasInventoryContent(report)) reportTabs.push("inventory");
+        if (asArray(report?.files).length > 0) reportTabs.push("files");
+        reportTabs.push("raw");
+        return reportTabs;
+      }
 
       const reportTabs = ["overview"];
       if (hasRouterCoordinates(report)) reportTabs.push("map");
@@ -717,7 +749,10 @@ HTML = r"""<!doctype html>
       return reportTabs;
     }
 
-    function tabLabel(tab) {
+    function tabLabel(report, tab) {
+      const custom = customTabForReport(report, tab);
+      if (custom) return custom.label || custom.title || custom.id;
+
       return {
         overview: "Overview",
         moves: "Moves",
@@ -751,7 +786,10 @@ HTML = r"""<!doctype html>
         `).join("");
       }
 
-      const values = [
+      const humanMetrics = asArray(report?.human?.metrics).slice(0, 5);
+      const values = humanMetrics.length > 0
+        ? humanMetrics.map((metric) => [metric.label || metric.key || "", metric.value ?? metric.displayValue ?? ""])
+        : [
         ["Kind", report.kind || "unknown"],
         ["Result", report.ok === undefined ? "n/a" : report.ok ? "ok" : "failed"],
         ["Computer", report.computerId ?? "n/a"],
@@ -809,6 +847,61 @@ HTML = r"""<!doctype html>
       }
 
       return blocks.join("");
+    }
+
+    function renderCustomRows(rows) {
+      const data = asArray(rows);
+      if (data.length === 0) return '<div class="empty">No rows in this section.</div>';
+
+      const hasCommand = data.some((row) => row.command);
+      return `
+        <table>
+          <thead>
+            <tr>
+              <th>Setting</th>
+              <th>Value</th>
+              <th>Meaning</th>
+              ${hasCommand ? "<th>Command</th>" : ""}
+            </tr>
+          </thead>
+          <tbody>
+            ${data.map((row) => `
+              <tr>
+                <td class="mono">${escapeHtml(row.key || row.label || "")}</td>
+                <td>${escapeHtml(row.displayValue ?? row.value ?? "")}</td>
+                <td>${escapeHtml(row.explanation || "")}</td>
+                ${hasCommand ? `<td class="mono">${escapeHtml(row.command || "")}</td>` : ""}
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderCustomSection(section) {
+      return `
+        <section class="block">
+          <h2>${escapeHtml(section.title || "Section")}</h2>
+          ${section.note ? `<p>${escapeHtml(section.note)}</p>` : ""}
+          ${section.text ? `<pre>${escapeHtml(section.text)}</pre>` : renderCustomRows(section.rows)}
+        </section>
+      `;
+    }
+
+    function renderCustomTab(tab) {
+      const sections = asArray(tab.sections);
+      const heading = `
+        <section class="block">
+          <h2>${escapeHtml(tab.title || tab.label || tab.id || "Report")}</h2>
+          ${tab.note ? `<p>${escapeHtml(tab.note)}</p>` : ""}
+        </section>
+      `;
+
+      if (sections.length === 0) {
+        return heading + '<div class="empty">This custom tab has no sections.</div>';
+      }
+
+      return heading + sections.map(renderCustomSection).join("");
     }
 
     function renderStackOverview(report) {

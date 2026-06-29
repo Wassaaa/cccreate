@@ -274,7 +274,7 @@ end
 local function saveAndSend(config, report)
   local path = config.actuatorReportPath or "/aircraft_actuator_test.txt"
 
-  reporting.save(report, path)
+  reporting.save(report, path, config)
   if config.sendWebhook ~= false then
     reporting.send(report)
   end

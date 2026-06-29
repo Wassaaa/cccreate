@@ -597,7 +597,7 @@ function controller.probe(config, options)
   until os.clock() >= deadline
 
   local path = config.controllerReportPath or "/aircraft_controller.txt"
-  reporting.save(report, path)
+  reporting.save(report, path, config)
   if config.sendWebhook ~= false then
     reporting.send(report)
   end

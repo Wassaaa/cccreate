@@ -90,5 +90,6 @@ return {
   stabilizeReportPath = "/aircraft_stabilize.txt",
   displayReportPath = "/aircraft_displays.txt",
   controllerReportPath = "/aircraft_controller.txt",
+  configReportPath = "/aircraft_config.txt",
   sendWebhook = true,
 }

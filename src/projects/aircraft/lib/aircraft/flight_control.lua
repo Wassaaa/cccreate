@@ -375,7 +375,7 @@ end
 local function saveAndSend(config, report)
   local path = config.stabilizeReportPath or "/aircraft_stabilize.txt"
 
-  reporting.save(report, path)
+  reporting.save(report, path, config)
   if config.sendWebhook ~= false then
     reporting.send(report)
   end

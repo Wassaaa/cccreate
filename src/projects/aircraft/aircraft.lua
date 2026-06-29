@@ -32,6 +32,7 @@ local DEFAULT_CONFIG = {
   stabilizeReportPath = "/aircraft_stabilize.txt",
   displayReportPath = "/aircraft_displays.txt",
   controllerReportPath = "/aircraft_controller.txt",
+  configReportPath = "/aircraft_config.txt",
   stabilize = {
     interval = 0.1,
     seconds = 1,
@@ -376,7 +377,7 @@ local function runScan()
   local report = scanner.scan(config)
   local path = config.reportPath or "/aircraft_scan.txt"
 
-  reporting.save(report, path)
+  reporting.save(report, path, config, { configSource = source })
   if config.sendWebhook ~= false then
     reporting.send(report)
   end
@@ -520,12 +521,34 @@ local function printConfig(config, source)
   end
 end
 
+local function runConfigShow(config, source)
+  printConfig(config, source)
+
+  local report = {
+    kind = "aircraft_config",
+    command = "aircraft config show",
+    createdAt = os.date("%Y-%m-%d %H:%M:%S"),
+    computerId = os.getComputerID(),
+    label = os.getComputerLabel(),
+    configSource = source,
+    configSnapshot = copyTable(config),
+  }
+  local path = config.configReportPath or "/aircraft_config.txt"
+
+  reporting.save(report, path, config, { configSource = source })
+  if config.sendWebhook ~= false then
+    reporting.send(report)
+  end
+
+  print("Config report: " .. path)
+end
+
 local function runConfig()
   local config, source = loadConfig()
   local subcommand = args[2] or "show"
 
   if subcommand == "show" then
-    printConfig(config, source)
+    runConfigShow(config, source)
     return
   elseif subcommand == "axes" then
     local front = coords.parseAxis(args[3])

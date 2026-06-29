@@ -197,7 +197,7 @@ end
 local function saveAndSend(config, report)
   local path = config.displayReportPath or "/aircraft_displays.txt"
 
-  reporting.save(report, path)
+  reporting.save(report, path, config)
   if config.sendWebhook ~= false then
     reporting.send(report)
   end
