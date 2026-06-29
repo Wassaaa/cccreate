@@ -15,12 +15,12 @@ local ROLE_LABELS = {
 }
 
 local BINDING_ORDER = {
-  "shift",
   "space",
-  "w",
-  "a",
-  "s",
   "d",
+  "s",
+  "a",
+  "shift",
+  "w",
 }
 
 local function copyPlain(value, depth)
@@ -166,9 +166,6 @@ local function configSections(config)
   add(stabilize, config, "stabilize.axis2Kd", "Pitch damping gain. Uses gimbal angular rate to resist pitch rotation.")
   add(stabilize, config, "stabilize.axis1Sign", "Roll sign mapping between gimbal error and aircraft correction direction.", "aircraft config stabilize-signs -1 1")
   add(stabilize, config, "stabilize.axis2Sign", "Pitch sign mapping between gimbal error and aircraft correction direction.")
-  add(stabilize, config, "stabilize.axis1RateSign", "Stored compatibility knob for older rate-sign experiments. Current gimbal-rate damping does not multiply by this value.", "aircraft config stabilize-rate-signs -1 -1")
-  add(stabilize, config, "stabilize.axis2RateSign", "Stored compatibility knob for older rate-sign experiments. Current gimbal-rate damping does not multiply by this value.")
-  add(stabilize, config, "stabilize.rateSource", "Rate source for D damping. gimbal_angular_rate uses the gimbal's own angular-rate getter.")
   add(stabilize, config, "stabilize.axis1Trim", "Constant roll correction bias added every frame. Usually keep near 0 and fix balance physically when possible.", "aircraft config stabilize-trim 0 0")
   add(stabilize, config, "stabilize.axis2Trim", "Constant pitch correction bias added every frame. Usually keep near 0 and fix balance physically when possible.")
   add(stabilize, config, "stabilize.maxCorrection", "Maximum stabilizer correction power per axis before mixing into the four rotors.", "aircraft config stabilize-limits 1.5 0.785")
@@ -443,7 +440,7 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(stabilizerRows, "maxCorrection", settings.maxCorrection, "Per-axis correction cap used by the stabilizer.")
   addTextRow(stabilizerRows, "correctionLimitedFrames", stats.correctionLimited, "How often the stabilizer hit maxCorrection.")
   addTextRow(stabilizerRows, "maxAttitudeDelta", degText(settings.maxAttitudeDelta), "Angle error abort threshold for this run.")
-  addTextRow(stabilizerRows, "rateSource", settings.rateSource, "Rate source used for damping.")
+  addTextRow(stabilizerRows, "rateGetter", "getAngularRatesRad", "Gimbal getter used for damping.")
   addTextRow(stabilizerRows, "signalRanges", rangeText(stats.signalRanges), "Integer redstone signal ranges sent to the four transmissions.")
   addTextRow(stabilizerRows, "powerRanges", rangeText(stats.powerRanges), "Mixed power demand ranges before inverted signal conversion.")
 

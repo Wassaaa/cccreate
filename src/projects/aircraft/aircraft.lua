@@ -1,6 +1,7 @@
 local coords = require("lib.aircraft.coords")
 local actuatorTest = require("lib.aircraft.actuator_test")
 local controller = require("lib.aircraft.controller")
+local configModel = require("lib.aircraft.config_model")
 local displayLoop = require("lib.aircraft.display_loop")
 local flightControl = require("lib.aircraft.flight_control")
 local scanner = require("lib.aircraft.scanner")
@@ -43,9 +44,6 @@ local DEFAULT_CONFIG = {
     axis2Kd = 0.2,
     axis1Sign = -1,
     axis2Sign = 1,
-    axis1RateSign = -1,
-    axis2RateSign = -1,
-    rateSource = "gimbal_angular_rate",
     axis1Trim = 0,
     axis2Trim = 0,
     maxCorrection = 1.5,
@@ -94,7 +92,6 @@ local function usage()
   print("aircraft config dry-run <true|false>")
   print("aircraft config max-signal <0-15>")
   print("aircraft config stabilize-signs <-1|1> <-1|1>")
-  print("aircraft config stabilize-rate-signs <-1|1> <-1|1>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
@@ -183,10 +180,10 @@ local function loadConfig()
     end
 
     mergeInto(config, fileConfig)
-    return config, CONFIG_PATH
+    return configModel.normalize(config), CONFIG_PATH
   end
 
-  return config, "built-in defaults"
+  return configModel.normalize(config), "built-in defaults"
 end
 
 local function saveConfig(config)
@@ -200,9 +197,7 @@ local function saveConfig(config)
     error("Could not write " .. CONFIG_PATH, 0)
   end
 
-  handle.write("return ")
-  handle.write(textutils.serialize(config))
-  handle.write("\n")
+  handle.write(configModel.serialize(config))
   handle.close()
 end
 
@@ -474,9 +469,6 @@ local function printConfig(config, source)
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
   print("  stabilize.axis1Sign=" .. tostring(config.stabilize.axis1Sign))
   print("  stabilize.axis2Sign=" .. tostring(config.stabilize.axis2Sign))
-  print("  stabilize.axis1RateSign=" .. tostring(config.stabilize.axis1RateSign))
-  print("  stabilize.axis2RateSign=" .. tostring(config.stabilize.axis2RateSign))
-  print("  stabilize.rateSource=" .. tostring(config.stabilize.rateSource))
   print("  stabilize.axis1Kp=" .. tostring(config.stabilize.axis1Kp))
   print("  stabilize.axis1Kd=" .. tostring(config.stabilize.axis1Kd))
   print("  stabilize.axis2Kp=" .. tostring(config.stabilize.axis2Kp))
@@ -531,7 +523,7 @@ local function runConfigShow(config, source)
     computerId = os.getComputerID(),
     label = os.getComputerLabel(),
     configSource = source,
-    configSnapshot = copyTable(config),
+    configSnapshot = configModel.copy(configModel.normalize(config)),
   }
   local path = config.configReportPath or "/aircraft_config.txt"
 
@@ -589,14 +581,6 @@ local function runConfig()
     print("Saved stabilize signs to " .. CONFIG_PATH)
     print("  axis1Sign=" .. tostring(config.stabilize.axis1Sign))
     print("  axis2Sign=" .. tostring(config.stabilize.axis2Sign))
-    return
-  elseif subcommand == "stabilize-rate-signs" then
-    config.stabilize.axis1RateSign = parseSign(args[3], "axis1RateSign")
-    config.stabilize.axis2RateSign = parseSign(args[4], "axis2RateSign")
-    saveConfig(config)
-    print("Saved stabilize rate signs to " .. CONFIG_PATH)
-    print("  axis1RateSign=" .. tostring(config.stabilize.axis1RateSign))
-    print("  axis2RateSign=" .. tostring(config.stabilize.axis2RateSign))
     return
   elseif subcommand == "stabilize-gains" then
     config.stabilize.axis1Kp = parseNumber(args[3], "axis1Kp")
@@ -905,12 +889,6 @@ local function parseCommandOptions(startIndex)
       i = i + 2
     elseif arg == "--axis2-sign" then
       options.axis2Sign = parseSign(args[i + 1], "--axis2-sign")
-      i = i + 2
-    elseif arg == "--axis1-rate-sign" then
-      options.axis1RateSign = parseSign(args[i + 1], "--axis1-rate-sign")
-      i = i + 2
-    elseif arg == "--axis2-rate-sign" then
-      options.axis2RateSign = parseSign(args[i + 1], "--axis2-rate-sign")
       i = i + 2
     elseif arg == "--axis1-trim" then
       options.axis1Trim = tonumber(args[i + 1])
