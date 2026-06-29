@@ -22,7 +22,6 @@ return {
   brakeSignal = 15,
   maxAttitudeDelta = 2,
   statusReadLimit = 8,
-  level = nil,
   stabilize = {
     interval = 0.1,
     seconds = 1,

@@ -104,8 +104,6 @@ local function usage()
   print("aircraft brake [role|all] [--apply]")
   print("aircraft controller [--seconds n] [--interval n]")
   print("aircraft displays [--seconds n] [--interval n]")
-  print("aircraft level-set")
-  print("aircraft level-zero")
   print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
   print("aircraft recover [--apply] [--seconds n] [--base-power n] [--axis1-target-deg n] [--axis2-target-deg n] [--axis1-power n] [--axis2-power n] [--pulse-seconds n]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
@@ -486,11 +484,6 @@ local function printConfig(config, source)
     print("    d=" .. bindingText(config.controller.bindings.d))
     print("    space=" .. bindingText(config.controller.bindings.space))
     print("    w=" .. bindingText(config.controller.bindings.w))
-  end
-  if config.level and config.level.angles then
-    print("  level.angles=" .. textutils.serialize(config.level.angles))
-  else
-    print("  level.angles=nil")
   end
 end
 
@@ -980,24 +973,6 @@ local function runController()
   controller.probe(config, options)
 end
 
-local function runLevelSet()
-  local config = loadConfig()
-  local report = flightControl.levelSet(config)
-
-  config.level = report.level
-  saveConfig(config)
-  print("Saved level-set to " .. CONFIG_PATH)
-end
-
-local function runLevelZero()
-  local config = loadConfig()
-  local report = flightControl.levelZero(config)
-
-  config.level = report.level
-  saveConfig(config)
-  print("Saved world-level zero to " .. CONFIG_PATH)
-end
-
 local function runStabilize()
   local config = loadConfig()
   local options = parseCommandOptions(2)
@@ -1075,18 +1050,6 @@ elseif command == "controller" then
   if not ok then
     print("aircraft controller failed: " .. tostring(result))
     error("aircraft controller failed", 0)
-  end
-elseif command == "level-set" then
-  local ok, result = pcall(runLevelSet)
-  if not ok then
-    print("aircraft level-set failed: " .. tostring(result))
-    error("aircraft level-set failed", 0)
-  end
-elseif command == "level-zero" then
-  local ok, result = pcall(runLevelZero)
-  if not ok then
-    print("aircraft level-zero failed: " .. tostring(result))
-    error("aircraft level-zero failed", 0)
   end
 elseif command == "stabilize" then
   local ok, result = pcall(runStabilize)

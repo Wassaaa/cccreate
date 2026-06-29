@@ -153,8 +153,6 @@ local function configSections(config)
   local orientation = {}
   add(orientation, config, "frontAxis", "Manual aircraft-front axis. nil lets scan infer it from side peripherals near the computer.", "aircraft config axes +Z +X")
   add(orientation, config, "leftAxis", "Manual aircraft-left axis. This combines with frontAxis to map front_left/front_right/rear_left/rear_right.")
-  add(orientation, config, "level.mode", "Saved level reference mode. world_zero means the stabilizer targets normal Minecraft level.")
-  add(orientation, config, "level.angles", "Saved neutral gimbal {pitch, roll} angles in radians.")
 
   local stabilize = {}
   add(stabilize, config, "stabilize.interval", "Requested control-loop interval in seconds. Lower is faster but costs more peripheral work.")

@@ -14,7 +14,6 @@ local ROOT_ORDER = {
   "display",
   "hud",
   "killSwitch",
-  "level",
   "reportPath",
   "statusReportPath",
   "actuatorReportPath",
@@ -59,8 +58,6 @@ local ORDERS = {
   display = { "enabled", "stabilizeEnabled", "stabilizeInterval" },
   hud = { "enabled", "interval", "monitorScale", "monitorName" },
   killSwitch = { "enabled", "side", "activeHigh" },
-  level = { "mode", "createdAt", "angles", "attitude" },
-  attitude = { "axis1", "axis2", "pitch", "roll" },
 }
 
 local function copyPlain(value, depth)
@@ -123,28 +120,6 @@ local function normalizeBindings(bindings)
   return result
 end
 
-local function normalizeLevel(level)
-  if type(level) ~= "table" then
-    return nil
-  end
-
-  local result = {}
-  set(result, "mode", level.mode)
-  set(result, "createdAt", level.createdAt)
-  set(result, "angles", level.angles)
-
-  local attitude = pick(level.attitude, ORDERS.attitude)
-  if hasAny(attitude) then
-    result.attitude = attitude
-  end
-
-  if hasAny(result) then
-    return result
-  end
-
-  return nil
-end
-
 function configModel.normalize(config)
   config = config or {}
 
@@ -163,7 +138,6 @@ function configModel.normalize(config)
   result.display = pick(config.display, ORDERS.display)
   result.hud = pick(config.hud, ORDERS.hud)
   result.killSwitch = pick(config.killSwitch, ORDERS.killSwitch)
-  set(result, "level", normalizeLevel(config.level))
   set(result, "reportPath", config.reportPath)
   set(result, "statusReportPath", config.statusReportPath)
   set(result, "actuatorReportPath", config.actuatorReportPath)
@@ -217,8 +191,6 @@ local function childPath(path, key)
     return "bindings"
   elseif path == "bindings" then
     return "binding"
-  elseif path == "level" and key == "attitude" then
-    return "attitude"
   elseif path == "" then
     return key
   end

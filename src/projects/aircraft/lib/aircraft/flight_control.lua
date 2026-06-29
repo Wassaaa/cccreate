@@ -629,16 +629,15 @@ local function targetAssistPower(controlPower, error, target)
   return controlPower * scale
 end
 
-local function mixerSignals(settings, state, level, control, signalResiduals)
+local function mixerSignals(settings, state, control, signalResiduals)
   control = control or {}
 
   local currentTilt = attitudeAngles(state.angles)
-  local neutralTilt = attitudeAngles(level.angles)
   local rates = attitudeRates(state.angularRates)
   local rawRate1 = rates.axis1
   local rawRate2 = rates.axis2
-  local rawError1 = currentTilt.axis1 - neutralTilt.axis1
-  local rawError2 = currentTilt.axis2 - neutralTilt.axis2
+  local rawError1 = currentTilt.axis1
+  local rawError2 = currentTilt.axis2
   local measured1 = wrapRadians(rawError1)
   local measured2 = wrapRadians(rawError2)
 
@@ -685,10 +684,15 @@ local function mixerSignals(settings, state, level, control, signalResiduals)
     rate2 = rate2,
     rawRate1 = rawRate1,
     rawRate2 = rawRate2,
-    neutral1 = neutralTilt.axis1,
-    neutral2 = neutralTilt.axis2,
+    neutral1 = 0,
+    neutral2 = 0,
     currentTilt = currentTilt,
-    neutralTilt = neutralTilt,
+    neutralTilt = {
+      axis1 = 0,
+      axis2 = 0,
+      pitch = 0,
+      roll = 0,
+    },
     rawError1 = rawError1,
     rawError2 = rawError2,
     measured1 = measured1,
@@ -899,61 +903,7 @@ local function recoverySummary(report)
   }
 end
 
-function flightControl.levelSet(config)
-  local scan, router, routerName = loadContext(config)
-  local gimbal = findGimbal(scan, router)
-  local state = readGimbal(gimbal)
-  local report = baseReport("aircraft_level_set", config, scan, routerName)
-
-  report.gimbal = {
-    side = gimbal.side,
-    source = gimbal.source,
-    coord = gimbal.coord,
-  }
-  report.state = state
-  report.level = {
-    angles = copyPlain(state.angles),
-    attitude = attitudeAngles(state.angles),
-    mode = "sampled_angles",
-    createdAt = report.createdAt,
-  }
-
-  local path = saveAndSend(config, report)
-  print("Aircraft level report: " .. path)
-  print("level angles=" .. textutils.serialize(report.level.angles))
-
-  return report
-end
-
-function flightControl.levelZero(config)
-  local angles = { 0, 0 }
-  local createdAt = now()
-  local report = {
-    kind = "aircraft_level_zero",
-    createdAt = createdAt,
-    computerId = os.getComputerID(),
-    label = os.getComputerLabel(),
-    dryRun = config.dryRun ~= false,
-    level = {
-      angles = copyPlain(angles),
-      attitude = attitudeAngles(angles),
-      mode = "world_zero",
-      createdAt = createdAt,
-    },
-  }
-
-  local path = saveAndSend(config, report)
-  print("Aircraft world-level report: " .. path)
-  print("level angles=" .. textutils.serialize(report.level.angles))
-
-  return report
-end
-
 function flightControl.stabilize(config, options)
-  if type(config.level) ~= "table" or type(config.level.angles) ~= "table" then
-    error("No saved angle level. Run aircraft level-zero for world-level or level-set while the craft is level.", 0)
-  end
-
   local scan, router, routerName = loadContext(config)
   local gimbal = findGimbal(scan, router)
   local devices = wrapScalarDevices(scan, router)
@@ -980,7 +930,10 @@ function flightControl.stabilize(config, options)
     basePower = settings.basePower,
   }
   report.settings = copyPlain(settings)
-  report.level = copyPlain(config.level)
+  report.attitudeTarget = {
+    angles = { 0, 0 },
+    source = "gimbal_zero",
+  }
   report.gimbal = {
     side = gimbal.side,
     source = gimbal.source,
@@ -1059,7 +1012,7 @@ function flightControl.stabilize(config, options)
       local rawControl = recoveryControl(options.recoveryTest, elapsed) or controller.sample(controllerContext)
       local controlContext = options.recoveryTest and testControlContext or controllerContext
       local control = smoothControl(controlContext, rawControl, previousControl, dt)
-      local mixed = mixerSignals(settings, state, config.level, control, signalResiduals)
+      local mixed = mixerSignals(settings, state, control, signalResiduals)
       local killSwitch = readKillSwitch(settings)
       local frame = {
         index = frameIndex,
