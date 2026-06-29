@@ -14,13 +14,6 @@ local ROLE_ORDER = {
   "rear_right",
 }
 
-local DEFAULT_ROTOR_HANDEDNESS = {
-  front_left = "right_handed",
-  front_right = "left_handed",
-  rear_left = "left_handed",
-  rear_right = "right_handed",
-}
-
 local function now()
   return os.date("%Y-%m-%d %H:%M:%S")
 end
@@ -225,173 +218,6 @@ local function readOptionalGetter(object, method)
     ok = true,
     value = copyPlain(values),
   }
-end
-
-local function normalizeHandedness(value)
-  local normalized = string.lower(tostring(value or ""))
-  normalized = string.gsub(normalized, "-", "_")
-
-  if normalized == "right" or normalized == "right_handed" or normalized == "r" then
-    return "right_handed"
-  elseif normalized == "left" or normalized == "left_handed" or normalized == "l" then
-    return "left_handed"
-  elseif normalized == "toggle" then
-    return "toggle"
-  end
-
-  return nil
-end
-
-local function oppositeHandedness(value)
-  local normalized = normalizeHandedness(value)
-
-  if normalized == "right_handed" then
-    return "left_handed"
-  elseif normalized == "left_handed" then
-    return "right_handed"
-  end
-
-  return nil
-end
-
-local function scannedHandedness(scan)
-  local mapped = scan
-    and scan.orientation
-    and scan.orientation.roles
-    and scan.orientation.roles.rotorBearing
-  local result = {}
-  local sources = {}
-
-  for _, role in ipairs(ROLE_ORDER) do
-    local value = normalizeHandedness(mapped and mapped[role] and mapped[role].thrustHandedness)
-    if value then
-      result[role] = value
-      sources[role] = "scan"
-    end
-  end
-
-  return result, sources
-end
-
-local function baselineHandedness(config, scan)
-  local configured = config
-    and config.rotors
-    and config.rotors.handedness
-  local result, sources = scannedHandedness(scan)
-
-  for _, role in ipairs(ROLE_ORDER) do
-    local override = normalizeHandedness(configured and configured[role])
-    if override then
-      result[role] = override
-      sources[role] = "config"
-    end
-  end
-
-  return result, sources
-end
-
-local function readRotorHandedness(rotor)
-  if not rotor then
-    return nil
-  end
-
-  return readOptionalGetter(rotor.object, "getThrustHandedness")
-end
-
-local function currentHandednessValue(read)
-  if type(read) == "table" and read.ok then
-    return normalizeHandedness(read.value)
-  end
-
-  return nil
-end
-
-local function handednessPlan(rotorDevices, desired, target, value)
-  local plan = {}
-  local normalizedTarget = target and string.lower(tostring(target)) or "baseline"
-  normalizedTarget = string.gsub(normalizedTarget, "-", "_")
-  local normalizedValue = value and normalizeHandedness(value) or nil
-
-  if normalizedTarget == "" or normalizedTarget == "baseline" or normalizedTarget == "configured" then
-    for _, role in ipairs(ROLE_ORDER) do
-      plan[role] = normalizeHandedness(desired and desired[role])
-    end
-  elseif normalizedTarget == "diagonal" then
-    for _, role in ipairs(ROLE_ORDER) do
-      plan[role] = DEFAULT_ROTOR_HANDEDNESS[role]
-    end
-  elseif normalizedTarget == "all" then
-    if not normalizedValue then
-      error("rotor-handedness all needs right_handed, left_handed, or toggle", 0)
-    end
-    for _, role in ipairs(ROLE_ORDER) do
-      plan[role] = normalizedValue
-    end
-  else
-    local validRole = false
-    for _, role in ipairs(ROLE_ORDER) do
-      if normalizedTarget == role then
-        validRole = true
-      end
-    end
-    if not validRole then
-      error("rotor-handedness target must be a role, all, baseline, configured, or diagonal", 0)
-    end
-    if not normalizedValue then
-      error("rotor-handedness role target needs right_handed, left_handed, or toggle", 0)
-    end
-    plan[normalizedTarget] = normalizedValue
-  end
-
-  for _, role in ipairs(ROLE_ORDER) do
-    if plan[role] == "toggle" then
-      local current = currentHandednessValue(readRotorHandedness(rotorDevices and rotorDevices[role]))
-      local fallback = normalizeHandedness(desired and desired[role])
-      plan[role] = oppositeHandedness(current or fallback)
-
-      if not plan[role] then
-        error("cannot toggle " .. role .. " without a readable or baseline handedness", 0)
-      end
-    end
-  end
-
-  return plan
-end
-
-local function applyRotorHandedness(rotorDevices, desired, active)
-  local results = {}
-  local tasks = {}
-
-  for _, role in ipairs(ROLE_ORDER) do
-    local roleName = role
-    local target = normalizeHandedness(desired and desired[roleName])
-    results[roleName] = {
-      desired = target,
-      applied = false,
-    }
-
-    if target then
-      local rotor = rotorDevices and rotorDevices[roleName]
-      if not rotor then
-        results[roleName].error = "missing rotor role"
-      elseif not active then
-        results[roleName].dryRun = true
-      else
-        table.insert(tasks, function()
-          results[roleName].result = callSetter(rotor.object, "setThrustHandedness", target)
-          results[roleName].applied = results[roleName].result and results[roleName].result.ok == true
-        end)
-      end
-    else
-      results[roleName].skipped = "no scanned or overridden handedness"
-    end
-  end
-
-  if #tasks > 0 then
-    parallel.waitForAll(unpack(tasks))
-  end
-
-  return results
 end
 
 local function loadContext(config)
@@ -606,7 +432,6 @@ end
 
 local function attitudeRates(rates)
   local pitchRate = numberAt(rates, 1)
-  local yawRate = numberAt(rates, 2)
   local rollRate = numberAt(rates, 3)
 
   -- Do not mirror the angle negation here; -rollRate was anti-damping axis1.
@@ -614,7 +439,6 @@ local function attitudeRates(rates)
     axis1 = rollRate,
     axis2 = pitchRate,
     pitch = pitchRate,
-    yaw = yawRate,
     roll = rollRate,
   }
 end
@@ -646,14 +470,7 @@ local function stabilizeConfig(config, options)
     axis2Kd = tonumber(options.axis2Kd) or tonumber(options.kd) or tonumber(defaults.axis2Kd) or 0.2,
     axis1Trim = tonumber(options.axis1Trim) or tonumber(defaults.axis1Trim) or 0,
     axis2Trim = tonumber(options.axis2Trim) or tonumber(defaults.axis2Trim) or 0,
-    yawKd = tonumber(options.yawKd) or tonumber(defaults.yawKd) or 0.2,
-    yawTrim = tonumber(options.yawTrim) or tonumber(defaults.yawTrim) or 0,
-    yawSign = tonumber(options.yawSign) == -1 and -1 or 1,
     maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 1.5,
-    maxYawCorrection = tonumber(options.maxYawCorrection)
-      or tonumber(defaults.maxYawCorrection)
-      or tonumber(defaults.maxCorrection)
-      or 1.5,
     signalDither = defaults.signalDither ~= false,
     maxAttitudeDelta = tonumber(options.maxAttitudeDelta)
         or (tonumber(options.maxAttitudeDeg) and tonumber(options.maxAttitudeDeg) * math.pi / 180)
@@ -746,8 +563,6 @@ local function smoothControl(context, control, previousControl, dt)
   result.rawAxis1Target = tonumber(control.axis1Target) or 0
   result.rawAxis2Target = tonumber(control.axis2Target) or 0
   result.rawThrottlePower = tonumber(control.throttlePower) or 0
-  result.rawYawPower = tonumber(control.yawPower) or 0
-  result.rawYawRateTarget = tonumber(control.yawRateTarget) or 0
 
   if elapsed > 0 and previousControl then
     local targetStep = targetSlew * math.pi / 180 * elapsed
@@ -757,9 +572,6 @@ local function smoothControl(context, control, previousControl, dt)
     result.axis2Target = slewValue(previousControl.axis2Target, result.rawAxis2Target, targetStep)
     result.throttlePower = slewValue(previousControl.throttlePower, result.rawThrottlePower, throttleStep)
   end
-
-  result.yawPower = result.rawYawPower
-  result.yawRateTarget = result.rawYawRateTarget
 
   return result
 end
@@ -785,8 +597,6 @@ local function recoveryControl(test, elapsed)
     axis2Target = active and (tonumber(test.axis2Target) or 0) or 0,
     axis1Power = active and (tonumber(test.axis1Power) or 0) or 0,
     axis2Power = active and (tonumber(test.axis2Power) or 0) or 0,
-    yawPower = active and (tonumber(test.yawPower) or 0) or 0,
-    yawRateTarget = active and (tonumber(test.yawRateTarget) or 0) or 0,
     reads = {},
   }
 end
@@ -825,7 +635,6 @@ local function mixerSignals(settings, state, control, signalResiduals)
   local rates = attitudeRates(state.angularRates)
   local rawRate1 = rates.axis1
   local rawRate2 = rates.axis2
-  local rawYawRate = rates.yaw
   local rawError1 = currentTilt.axis1
   local rawError2 = currentTilt.axis2
   local measured1 = wrapRadians(rawError1)
@@ -835,11 +644,8 @@ local function mixerSignals(settings, state, control, signalResiduals)
   local target2 = tonumber(control.axis2Target) or 0
   local rawControlPower1 = tonumber(control.axis1Power) or 0
   local rawControlPower2 = tonumber(control.axis2Power) or 0
-  local rawYawPower = tonumber(control.yawPower) or 0
-  local yawRateTarget = tonumber(control.yawRateTarget) or 0
   local error1 = measured1 - target1
   local error2 = measured2 - target2
-  local yawRateError = rawYawRate - yawRateTarget
   local controlPower1 = targetAssistPower(rawControlPower1, error1, target1)
   local controlPower2 = targetAssistPower(rawControlPower2, error2, target2)
   local rate1 = rawRate1
@@ -847,16 +653,14 @@ local function mixerSignals(settings, state, control, signalResiduals)
 
   local rawCorrection1 = -(settings.axis1Kp * error1 + settings.axis1Kd * rate1) + settings.axis1Trim + controlPower1
   local rawCorrection2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2) + settings.axis2Trim + controlPower2
-  local rawCorrectionYaw = settings.yawSign * (rawYawPower - settings.yawKd * yawRateError) + settings.yawTrim
   local correction1 = clamp(rawCorrection1, -settings.maxCorrection, settings.maxCorrection)
   local correction2 = clamp(rawCorrection2, -settings.maxCorrection, settings.maxCorrection)
-  local correctionYaw = clamp(rawCorrectionYaw, -settings.maxYawCorrection, settings.maxYawCorrection)
   local basePower = settings.basePower + (tonumber(control.throttlePower) or 0)
   local power = {
-    front_left = basePower + correction1 - correction2 + correctionYaw,
-    front_right = basePower - correction1 - correction2 - correctionYaw,
-    rear_left = basePower + correction1 + correction2 - correctionYaw,
-    rear_right = basePower - correction1 + correction2 + correctionYaw,
+    front_left = basePower + correction1 - correction2,
+    front_right = basePower - correction1 - correction2,
+    rear_left = basePower + correction1 + correction2,
+    rear_right = basePower - correction1 + correction2,
   }
   local signals = {}
   local desiredSignals = {}
@@ -877,10 +681,8 @@ local function mixerSignals(settings, state, control, signalResiduals)
     angle2 = currentTilt.axis2,
     rate1 = rate1,
     rate2 = rate2,
-    yawRate = rawYawRate,
     rawRate1 = rawRate1,
     rawRate2 = rawRate2,
-    rawYawRate = rawYawRate,
     neutral1 = 0,
     neutral2 = 0,
     currentTilt = currentTilt,
@@ -898,27 +700,18 @@ local function mixerSignals(settings, state, control, signalResiduals)
     target2 = target2,
     rawControlPower1 = rawControlPower1,
     rawControlPower2 = rawControlPower2,
-    rawYawPower = rawYawPower,
     controlPower1 = controlPower1,
     controlPower2 = controlPower2,
-    yawRateTarget = yawRateTarget,
-    yawRateError = yawRateError,
     error1 = error1,
     error2 = error2,
     rawCorrection1 = rawCorrection1,
     rawCorrection2 = rawCorrection2,
-    rawCorrectionYaw = rawCorrectionYaw,
     trim1 = settings.axis1Trim,
     trim2 = settings.axis2Trim,
-    yawTrim = settings.yawTrim,
-    yawSign = settings.yawSign,
     correction1 = correction1,
     correction2 = correction2,
-    correctionYaw = correctionYaw,
     correctionLimited = correction1 ~= rawCorrection1
-      or correction2 ~= rawCorrection2
-      or correctionYaw ~= rawCorrectionYaw,
-    yawCorrectionLimited = correctionYaw ~= rawCorrectionYaw,
+      or correction2 ~= rawCorrection2,
     basePower = basePower,
     control = copyPlain(control),
     power = power,
@@ -982,7 +775,7 @@ end
 local function pressedControls(control)
   local pressed = {}
 
-  for _, name in ipairs({ "shift", "space", "q", "w", "e", "a", "s", "d" }) do
+  for _, name in ipairs({ "shift", "space", "w", "a", "s", "d" }) do
     local read = control and control.reads and control.reads[name]
     if read and read.pressed then
       table.insert(pressed, name)
@@ -1006,18 +799,13 @@ local function compactControllerFrame(control)
     throttlePower = control.throttlePower,
     axis1 = control.axis1,
     axis2 = control.axis2,
-    yaw = control.yaw,
     rawAxis1Target = control.rawAxis1Target,
     rawAxis2Target = control.rawAxis2Target,
     rawThrottlePower = control.rawThrottlePower,
-    rawYawPower = control.rawYawPower,
-    rawYawRateTarget = control.rawYawRateTarget,
     axis1Target = control.axis1Target,
     axis2Target = control.axis2Target,
     axis1Power = control.axis1Power,
     axis2Power = control.axis2Power,
-    yawPower = control.yawPower,
-    yawRateTarget = control.yawRateTarget,
     pressed = pressedControls(control),
   }
 end
@@ -1032,10 +820,8 @@ local function compactMixedFrame(mixed)
     angle2 = mixed.angle2,
     rate1 = mixed.rate1,
     rate2 = mixed.rate2,
-    yawRate = mixed.yawRate,
     rawRate1 = mixed.rawRate1,
     rawRate2 = mixed.rawRate2,
-    rawYawRate = mixed.rawYawRate,
     rawError1 = mixed.rawError1,
     rawError2 = mixed.rawError2,
     measured1 = mixed.measured1,
@@ -1044,21 +830,15 @@ local function compactMixedFrame(mixed)
     target2 = mixed.target2,
     rawControlPower1 = mixed.rawControlPower1,
     rawControlPower2 = mixed.rawControlPower2,
-    rawYawPower = mixed.rawYawPower,
     controlPower1 = mixed.controlPower1,
     controlPower2 = mixed.controlPower2,
-    yawRateTarget = mixed.yawRateTarget,
-    yawRateError = mixed.yawRateError,
     error1 = mixed.error1,
     error2 = mixed.error2,
     rawCorrection1 = mixed.rawCorrection1,
     rawCorrection2 = mixed.rawCorrection2,
-    rawCorrectionYaw = mixed.rawCorrectionYaw,
     correction1 = mixed.correction1,
     correction2 = mixed.correction2,
-    correctionYaw = mixed.correctionYaw,
     correctionLimited = mixed.correctionLimited == true,
-    yawCorrectionLimited = mixed.yawCorrectionLimited == true,
     basePower = mixed.basePower,
     power = copyPlain(mixed.power),
     desiredSignals = copyPlain(mixed.desiredSignals),
@@ -1132,8 +912,6 @@ function flightControl.stabilize(config, options)
   local settings = stabilizeConfig(config, options)
   local controllerContext = controller.open(config, options)
   local testControlContext = recoveryContext(options.recoveryTest)
-  local rotorHandedness, rotorHandednessSources = baselineHandedness(config, scan)
-  local applyHandednessOnStabilize = not (config.rotors and config.rotors.applyHandednessOnStabilize == false)
 
   local active = options.apply == true and config.dryRun == false
   local hudContext = hud.open(config, options, router, scan)
@@ -1170,12 +948,6 @@ function flightControl.stabilize(config, options)
   report.rotorTelemetry = {
     errors = copyPlain(rotorErrors),
   }
-  report.rotorHandedness = {
-    desired = copyPlain(rotorHandedness),
-    sources = copyPlain(rotorHandednessSources),
-    applyOnStabilize = applyHandednessOnStabilize,
-    applied = active and applyHandednessOnStabilize,
-  }
   report.frames = {}
   report.timing = {
     requestedSeconds = settings.seconds,
@@ -1187,10 +959,6 @@ function flightControl.stabilize(config, options)
 
   if options.apply == true and not active then
     report.blockedReason = "config.dryRun is true"
-  end
-
-  if applyHandednessOnStabilize then
-    report.rotorHandedness.results = applyRotorHandedness(rotorDevices, rotorHandedness, active)
   end
 
   local function updateNixies(frame, force)
@@ -1366,64 +1134,6 @@ function flightControl.stabilize(config, options)
   end
   if report.error then
     error(report.error, 0)
-  end
-
-  return report
-end
-
-function flightControl.rotorHandedness(config, options)
-  options = options or {}
-
-  local scan, router, routerName = loadContext(config)
-  local rotorDevices, rotorErrors = wrapOptionalRoleDevices(scan, router, "rotorBearing")
-  local baseline, baselineSources = baselineHandedness(config, scan)
-  local planned = handednessPlan(rotorDevices, baseline, options.target, options.handedness)
-  local active = options.apply == true and config.dryRun == false
-  local report = baseReport("aircraft_rotor_handedness", config, scan, routerName)
-
-  report.applied = active
-  report.request = {
-    apply = options.apply == true,
-    target = options.target or "baseline",
-    handedness = options.handedness,
-  }
-  report.baseline = copyPlain(baseline)
-  report.sources = copyPlain(baselineSources)
-  report.planned = copyPlain(planned)
-  report.rotorTelemetry = {
-    errors = copyPlain(rotorErrors),
-    before = readRotorTelemetry(rotorDevices),
-  }
-
-  if options.apply == true and not active then
-    report.blockedReason = "config.dryRun is true"
-  end
-
-  report.results = applyRotorHandedness(rotorDevices, planned, active)
-  report.rotorTelemetry.after = readRotorTelemetry(rotorDevices)
-
-  local path = "/aircraft_rotor_handedness.txt"
-  reporting.save(report, path, config, { localReport = false })
-  if config.sendWebhook ~= false then
-    reporting.send(report)
-  end
-
-  print("Aircraft rotor handedness report: " .. (config.sendWebhook ~= false and "webhook" or path))
-  print("applied=" .. tostring(report.applied))
-  for _, role in ipairs(ROLE_ORDER) do
-    local result = report.results and report.results[role] or {}
-    local errorText = result.error or (result.result and result.result.error)
-    print(
-      role
-        .. " desired="
-        .. tostring(result.desired or "nil")
-        .. " applied="
-        .. tostring(result.applied == true)
-        .. (errorText and (" error=" .. tostring(errorText)) or "")
-    )
-  end
-  if report.blockedReason then
-    print("blocked: " .. report.blockedReason)
   end
 
   return report

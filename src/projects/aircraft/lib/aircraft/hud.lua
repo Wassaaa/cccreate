@@ -201,8 +201,6 @@ end
 local function statusText(frame, mixed, settings)
   if frame.abortReason then
     return frame.abortReason
-  elseif mixed.yawCorrectionLimited then
-    return "yaw correction capped"
   elseif mixed.correctionLimited then
     return "correction capped"
   end
@@ -279,8 +277,8 @@ local function drawCompact(target, frame, settings, active, status, width)
   writeLine(target, 1, "AIRCRAFT STABILIZE " .. status, width)
   writeLine(target, 2, timeText(frame, settings) .. " base " .. fixed(settings.basePower, 1), width)
   writeLine(target, 3, "err A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1) .. " deg", width)
-  writeLine(target, 4, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2) .. " Y=" .. signed(mixed.yawRate, 2), width)
-  writeLine(target, 5, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2) .. " Y=" .. signed(mixed.correctionYaw, 2), width)
+  writeLine(target, 4, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
+  writeLine(target, 5, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
   writeLine(target, 6, "signal " .. roleValues(mixed.signals), width)
   writeLine(target, 7, "power  " .. roleValues(mixed.power, 1), width)
   writeLine(target, 8, statusText(frame, mixed, settings), width)
@@ -304,8 +302,8 @@ local function drawCornerLayout(target, frame, settings, status, width, height)
 
   if centerY + 3 < bottomY then
     writeCentered(target, centerY, "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1), width)
-    writeCentered(target, centerY + 1, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2) .. " Y=" .. signed(mixed.yawRate, 2), width)
-    writeCentered(target, centerY + 2, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2) .. " Y=" .. signed(mixed.correctionYaw, 2), width)
+    writeCentered(target, centerY + 1, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
+    writeCentered(target, centerY + 2, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
   end
 
   writeCentered(target, height, statusText(frame, mixed, settings), width)

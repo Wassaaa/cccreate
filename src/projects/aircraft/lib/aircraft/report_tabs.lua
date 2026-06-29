@@ -15,9 +15,7 @@ local ROLE_LABELS = {
 }
 
 local BINDING_ORDER = {
-  "q",
   "w",
-  "e",
   "shift",
   "a",
   "s",
@@ -166,21 +164,10 @@ local function configSections(config)
   add(stabilize, config, "stabilize.axis2Kd", "Pitch damping gain. Uses gimbal angular rate to resist pitch rotation.")
   add(stabilize, config, "stabilize.axis1Trim", "Constant roll correction bias added every frame. Usually keep near 0 and fix balance physically when possible.", "aircraft config stabilize-trim 0 0")
   add(stabilize, config, "stabilize.axis2Trim", "Constant pitch correction bias added every frame. Usually keep near 0 and fix balance physically when possible.")
-  add(stabilize, config, "stabilize.yawKd", "Yaw-rate damping gain using gimbal wy angular rate.", "aircraft config stabilize-yaw <yawKd> <maxYawCorrection>")
-  add(stabilize, config, "stabilize.yawTrim", "Constant yaw correction bias mixed across diagonal rotor pairs.")
-  add(stabilize, config, "stabilize.yawSign", "Calibration sign for yaw damping. Flip between 1 and -1 if damping amplifies spin.")
   add(stabilize, config, "stabilize.maxCorrection", "Maximum stabilizer correction power per axis before mixing into the four rotors.", "aircraft config stabilize-limits 1.5 0.785")
-  add(stabilize, config, "stabilize.maxYawCorrection", "Maximum yaw correction power before diagonal rotor mixing.", "aircraft config stabilize-yaw <yawKd> <maxYawCorrection>")
   add(stabilize, config, "stabilize.signalDither", "Spreads fractional desired signals over time so redstone integer outputs average closer to the float target.", "aircraft config stabilize-dither true")
   add(stabilize, config, "stabilize.brakeOnExit", "Writes brakeSignal when stabilize exits, errors, or aborts.")
   add(stabilize, config, "stabilize.reportFrameLimit", "Maximum recent control frames kept in the saved report. Lower saves space; higher gives more history.", nil)
-
-  local rotors = {}
-  add(rotors, config, "rotors.applyHandednessOnStabilize", "If true, active stabilize runs write the scanned or overridden Avionics thrust handedness before the flight loop.")
-  add(rotors, config, "rotors.handedness.front_left", "Optional override for the scanned front-left propeller-bearing handedness.", "aircraft config rotor-handedness front_left right_handed")
-  add(rotors, config, "rotors.handedness.front_right", "Optional override for the scanned front-right propeller-bearing handedness.", "aircraft config rotor-handedness front_right left_handed")
-  add(rotors, config, "rotors.handedness.rear_left", "Optional override for the scanned rear-left propeller-bearing handedness.", "aircraft config rotor-handedness rear_left left_handed")
-  add(rotors, config, "rotors.handedness.rear_right", "Optional override for the scanned rear-right propeller-bearing handedness.", "aircraft config rotor-handedness rear_right right_handed")
 
   local controller = {}
   add(controller, config, "controller.enabled", "Default controller enable flag. A run can still use --controller or --no-controller.", "aircraft config controller true")
@@ -190,7 +177,6 @@ local function configSections(config)
   add(controller, config, "controller.axis2TargetDeg", "Requested pitch target in degrees while holding W/S.")
   add(controller, config, "controller.axis1Power", "Optional direct roll power mixed in while steering. 0 means steering only changes the attitude target.")
   add(controller, config, "controller.axis2Power", "Optional direct pitch power mixed in while steering. 0 means steering only changes the attitude target.")
-  add(controller, config, "controller.yawPower", "Direct yaw power mixed while holding Q/E. Positive yaw is E minus Q.", "aircraft config controller-yaw <yawPower>")
   add(controller, config, "controller.targetSlewDegPerSecond", "How quickly requested pitch/roll targets move toward held controller inputs.", "aircraft config controller-response <targetSlewDegPerSecond> <throttleSlewPowerPerSecond>")
   add(controller, config, "controller.throttleSlewPowerPerSecond", "How quickly space/shift throttle power ramps up or returns to base.")
 
@@ -226,7 +212,6 @@ local function configSections(config)
     section("Safety and Output", safety),
     section("Orientation and Level", orientation),
     section("Stabilizer", stabilize, "axis1 is roll/A-D/left-right. axis2 is pitch/W-S/front-back."),
-    section("Rotors", rotors, "Leave overrides empty to use the handedness discovered by aircraft scan."),
     section("Controller", controller),
     section("Controller Bindings", bindings),
     section("Displays and HUD", display),
@@ -308,15 +293,12 @@ local function controlsActive(control)
     or math.abs(tonumber(control.throttlePower) or 0) > 0.0001
     or math.abs(tonumber(control.axis1Power) or 0) > 0.0001
     or math.abs(tonumber(control.axis2Power) or 0) > 0.0001
-    or math.abs(tonumber(control.yawPower) or 0) > 0.0001
-    or math.abs(tonumber(control.yawRateTarget) or 0) > 0.0001
 end
 
 local function frameStats(report)
   local stats = {
     frames = 0,
     correctionLimited = 0,
-    yawCorrectionLimited = 0,
     controllerActiveFrames = 0,
     pressed = {},
     signalRanges = {},
@@ -340,14 +322,8 @@ local function frameStats(report)
     if type(mixed.error2) == "number" then
       stats.peakError2 = math.max(stats.peakError2 or 0, math.abs(mixed.error2))
     end
-    if type(mixed.yawRate) == "number" then
-      stats.peakYawRate = math.max(stats.peakYawRate or 0, math.abs(mixed.yawRate))
-    end
     if mixed.correctionLimited then
       stats.correctionLimited = stats.correctionLimited + 1
-    end
-    if mixed.yawCorrectionLimited then
-      stats.yawCorrectionLimited = stats.yawCorrectionLimited + 1
     end
     if controlsActive(control) then
       stats.controllerActiveFrames = stats.controllerActiveFrames + 1
@@ -449,15 +425,8 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(stabilizerRows, "finalAxis2", degText(finalMixed.measured2), "Last pitch measurement in the report.")
   addTextRow(stabilizerRows, "finalRate1", degPerSecondText(finalMixed.rate1), "Last roll angular rate.")
   addTextRow(stabilizerRows, "finalRate2", degPerSecondText(finalMixed.rate2), "Last pitch angular rate.")
-  addTextRow(stabilizerRows, "finalYawRate", degPerSecondText(finalMixed.yawRate), "Last yaw angular rate.")
-  addTextRow(stabilizerRows, "peakYawRate", degPerSecondText(stats.peakYawRate), "Largest absolute yaw rate kept in the report.")
   addTextRow(stabilizerRows, "maxCorrection", settings.maxCorrection, "Per-axis correction cap used by the stabilizer.")
-  addTextRow(stabilizerRows, "maxYawCorrection", settings.maxYawCorrection, "Yaw correction cap mixed across diagonal rotor pairs.")
-  addTextRow(stabilizerRows, "yawKd", settings.yawKd, "Yaw-rate damping gain.")
-  addTextRow(stabilizerRows, "yawTrim", settings.yawTrim, "Constant yaw correction bias.")
-  addTextRow(stabilizerRows, "yawSign", settings.yawSign, "Calibration sign for yaw-rate damping.")
   addTextRow(stabilizerRows, "correctionLimitedFrames", stats.correctionLimited, "How often the stabilizer hit maxCorrection.")
-  addTextRow(stabilizerRows, "yawCorrectionLimitedFrames", stats.yawCorrectionLimited, "How often yaw correction hit maxYawCorrection.")
   addTextRow(stabilizerRows, "maxAttitudeDelta", degText(settings.maxAttitudeDelta), "Angle error abort threshold for this run.")
   addTextRow(stabilizerRows, "angleGetter", "getAnglesRad", "Gimbal getter used for pitch/roll attitude.")
   addTextRow(stabilizerRows, "rateGetter", "getAngularRatesRad", "Gimbal getter used for damping.")
@@ -484,55 +453,6 @@ function reportTabs.flightOverviewTab(report)
       section("Controller and Recovery", controllerRows),
     },
   }, stats
-end
-
-local function telemetryHandedness(report, phase, role)
-  local read = report.rotorTelemetry
-    and report.rotorTelemetry[phase]
-    and report.rotorTelemetry[phase].roles
-    and report.rotorTelemetry[phase].roles[role]
-    and report.rotorTelemetry[phase].roles[role].thrustHandedness
-
-  if type(read) == "table" and read.ok then
-    return read.value
-  elseif type(read) == "table" and read.error then
-    return "err: " .. tostring(read.error)
-  end
-
-  return "n/a"
-end
-
-function reportTabs.rotorHandednessTab(report)
-  local rows = {}
-
-  for _, role in ipairs(ROLE_ORDER) do
-    local result = report.results and report.results[role] or {}
-    table.insert(rows, row(role, {
-      before = telemetryHandedness(report, "before", role),
-      source = report.sources and report.sources[role],
-      planned = report.planned and report.planned[role],
-      desired = result.desired,
-      applied = result.applied,
-      skipped = result.skipped,
-      error = result.error or (result.result and result.result.error),
-      after = telemetryHandedness(report, "after", role),
-    }, "Avionics propeller-bearing thrust handedness for this rotor role."))
-  end
-
-  return {
-    id = "aircraft-rotor-handedness",
-    label = "Rotor Handedness",
-    title = "Rotor Handedness",
-    sections = {
-      section("Command", {
-        row("applied", report.applied, "true means setThrustHandedness was called."),
-        row("target", report.request and report.request.target, "Requested target group or role."),
-        row("handedness", report.request and report.request.handedness, "Requested handedness value, if supplied."),
-        row("blockedReason", report.blockedReason or "none", "Why writes were skipped, if any."),
-      }),
-      section("Roles", rows),
-    },
-  }
 end
 
 local function setMetrics(report, stats)
@@ -562,13 +482,6 @@ local function setMetrics(report, stats)
       { label = "Peak Tilt", value = stats and (degText(math.max(stats.peakAxis1 or 0, stats.peakAxis2 or 0))) or "n/a" },
       { label = "Stop", value = timing.stopReason or report.abortReason or settings.mode or "n/a" },
     }
-  elseif report.kind == "aircraft_rotor_handedness" then
-    human.metrics = {
-      { label = "Kind", value = report.kind },
-      { label = "Applied", value = report.applied },
-      { label = "Target", value = report.request and report.request.target or "baseline" },
-      { label = "Blocked", value = report.blockedReason or "none" },
-    }
   end
 end
 
@@ -585,8 +498,6 @@ function reportTabs.attach(report, config, options)
     local flightTab
     flightTab, stats = reportTabs.flightOverviewTab(report)
     insertFirstTab(human, flightTab)
-  elseif report.kind == "aircraft_rotor_handedness" then
-    insertFirstTab(human, reportTabs.rotorHandednessTab(report))
   end
 
   if config then

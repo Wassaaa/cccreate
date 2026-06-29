@@ -4,11 +4,9 @@ local controller = {}
 
 local INPUT_ORDER = {
   "shift",
-  "q",
   "a",
   "s",
   "d",
-  "e",
   "space",
   "w",
 }
@@ -141,32 +139,6 @@ local function normalizeBinding(binding)
   }
 end
 
-local function offsetBinding(anchor, center, target)
-  if not anchor or not center or not target then
-    return nil
-  end
-
-  return {
-    x = anchor.x + (target.x - center.x),
-    y = anchor.y + (target.y - center.y),
-    z = anchor.z + (target.z - center.z),
-    side = anchor.side,
-  }
-end
-
-local function adjacentBinding(anchor, deltaX)
-  if not anchor then
-    return nil
-  end
-
-  return {
-    x = anchor.x + deltaX,
-    y = anchor.y,
-    z = anchor.z,
-    side = anchor.side,
-  }
-end
-
 local function axisVector(value, fallback)
   if type(value) == "table" then
     local x = tonumber(value.x) or 0
@@ -210,33 +182,6 @@ local function stepFrom(binding, vector, amount)
   }
 end
 
-function controller.completeKeyboardBindings(bindings, missing)
-  if type(bindings) ~= "table" then
-    return bindings
-  end
-
-  missing = missing or {}
-
-  local w = normalizeBinding(bindings.w)
-  if not w then
-    return bindings
-  end
-
-  local s = normalizeBinding(bindings.s)
-  local a = normalizeBinding(bindings.a)
-  local d = normalizeBinding(bindings.d)
-
-  if missing.q == true or bindings.q == nil then
-    bindings.q = offsetBinding(w, s, a) or adjacentBinding(w, 1)
-  end
-
-  if missing.e == true or bindings.e == nil then
-    bindings.e = offsetBinding(w, s, d) or adjacentBinding(w, -1)
-  end
-
-  return bindings
-end
-
 local function controllerConfig(config)
   return config.controller or {}
 end
@@ -259,8 +204,6 @@ local function settingsFrom(config, options)
     enabled = options.controller == true
   end
 
-  controller.completeKeyboardBindings(bindings)
-
   return {
     enabled = enabled,
     threshold = numberOr(cfg.threshold, 1),
@@ -269,7 +212,6 @@ local function settingsFrom(config, options)
     axis2TargetDeg = numberOr(cfg.axis2TargetDeg, numberOr(cfg.axis1TargetDeg, 5)),
     axis1Power = numberOr(cfg.axis1Power, 0),
     axis2Power = numberOr(cfg.axis2Power, numberOr(cfg.axis1Power, 0)),
-    yawPower = numberOr(cfg.yawPower, 1),
     targetSlewDegPerSecond = numberOr(cfg.targetSlewDegPerSecond, 8),
     throttleSlewPowerPerSecond = numberOr(cfg.throttleSlewPowerPerSecond, 4),
     bindings = bindings,
@@ -295,9 +237,7 @@ function controller.defaultBindings(originX, originY, originZ, side, frontAxis, 
     s = s,
     d = d,
     space = stepFrom(shift, right, 4),
-    q = stepFrom(a, front, 1),
     w = stepFrom(s, front, 1),
-    e = stepFrom(d, front, 1),
   }
 end
 
@@ -395,8 +335,6 @@ function controller.sample(context)
       axis2Target = 0,
       axis1Power = 0,
       axis2Power = 0,
-      yaw = 0,
-      yawPower = 0,
       reads = {},
     }
   end
@@ -425,7 +363,6 @@ function controller.sample(context)
   local throttle = inputValue(reads.space) - inputValue(reads.shift)
   local axis1 = inputValue(reads.d) - inputValue(reads.a)
   local axis2 = inputValue(reads.w) - inputValue(reads.s)
-  local yaw = inputValue(reads.e) - inputValue(reads.q)
   local degToRad = math.pi / 180
 
   return {
@@ -435,12 +372,10 @@ function controller.sample(context)
     throttlePower = throttle * context.settings.throttlePower,
     axis1 = axis1,
     axis2 = axis2,
-    yaw = yaw,
     axis1Target = axis1 * context.settings.axis1TargetDeg * degToRad,
     axis2Target = axis2 * context.settings.axis2TargetDeg * degToRad,
     axis1Power = axis1 * context.settings.axis1Power,
     axis2Power = axis2 * context.settings.axis2Power,
-    yawPower = yaw * context.settings.yawPower,
     reads = reads,
   }
 end
@@ -642,9 +577,7 @@ local function drawProbeDisplay(target, frame, context, seconds)
 
   local center = math.max(16, math.floor(width / 2))
   local topY = math.max(4, math.floor(height / 2) - 4)
-  drawButton(target, center - 12, topY, "q", reads.q)
   drawButton(target, center - 4, topY, "w", reads.w)
-  drawButton(target, center + 4, topY, "e", reads.e)
   drawButton(target, center - 23, topY + 2, "shift", reads.shift)
   drawButton(target, center - 8, topY + 2, "a", reads.a)
   drawButton(target, center, topY + 2, "s", reads.s)
@@ -657,8 +590,7 @@ local function drawProbeDisplay(target, frame, context, seconds)
     topY + 5,
     "thr " .. signed(frame.input.throttle)
       .. "  axis1 " .. signed(frame.input.axis1)
-      .. "  axis2 " .. signed(frame.input.axis2)
-      .. "  yaw " .. signed(frame.input.yaw),
+      .. "  axis2 " .. signed(frame.input.axis2),
     width
   )
   writeCentered(target, topY + 7, ". off   number pressed   err bad coord/API", width)

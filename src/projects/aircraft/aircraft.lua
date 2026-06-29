@@ -38,18 +38,10 @@ local DEFAULT_CONFIG = {
     axis2Kd = 0.2,
     axis1Trim = 0,
     axis2Trim = 0,
-    yawKd = 0.2,
-    yawTrim = 0,
-    yawSign = 1,
     maxCorrection = 1.5,
-    maxYawCorrection = 1.5,
     signalDither = true,
     brakeOnExit = true,
     reportFrameLimit = 600,
-  },
-  rotors = {
-    applyHandednessOnStabilize = true,
-    handedness = {},
   },
   display = {
     enabled = true,
@@ -75,7 +67,6 @@ local DEFAULT_CONFIG = {
     axis2TargetDeg = 5,
     axis1Power = 0,
     axis2Power = 0,
-    yawPower = 1,
     targetSlewDegPerSecond = 8,
     throttleSlewPowerPerSecond = 4,
     bindings = controller.defaultBindings(3, -1, -5, "up", "+Z", "+X"),
@@ -92,8 +83,6 @@ local function usage()
   print("aircraft config max-signal <0-15>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
-  print("aircraft config stabilize-yaw <yawKd> [maxYawCorrection] [yawTrim] [yawSign]")
-  print("aircraft config rotor-handedness <role> <right_handed|left_handed>")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
   print("aircraft config stabilize-dither <true|false>")
   print("aircraft config display <true|false>")
@@ -104,11 +93,9 @@ local function usage()
   print("aircraft config controller-layout <shiftX> <shiftY> <shiftZ> [side]")
   print("aircraft config controller-bind <key> <x> <y> <z> [side]")
   print("aircraft config controller-tuning <throttlePower> <axis1TargetDeg> [axis2TargetDeg] [axis1Power] [axis2Power]")
-  print("aircraft config controller-yaw <yawPower>")
   print("aircraft config controller-response <targetSlewDegPerSecond> [throttleSlewPowerPerSecond]")
   print("aircraft config controller-threshold <0-15>")
   print("aircraft brake [role|all] [--apply]")
-  print("aircraft rotor-handedness [role|all|baseline|configured|diagonal] [right_handed|left_handed|toggle] [--apply]")
   print("aircraft controller [--seconds n] [--interval n]")
   print("aircraft displays [--seconds n] [--interval n]")
   print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
@@ -128,8 +115,6 @@ local function usage()
   print("  --nixie-interval <n> stabilize Nixie refresh seconds")
   print("  --report-frames <n> max stabilize frames kept in report")
   print("  --max-attitude-deg <n> abort when tilt error exceeds degrees")
-  print("  --yaw-kd <n>       one-run yaw damping gain")
-  print("  --max-yaw-correction <n> one-run yaw correction cap")
   print("")
   print("signal/brake are dry-run unless --apply is used and config dryRun=false.")
 end
@@ -180,22 +165,7 @@ local function loadConfig()
       error(CONFIG_PATH .. " must return a table", 0)
     end
 
-    local missingControllerBindings
-    if type(fileConfig.controller) == "table" and type(fileConfig.controller.bindings) == "table" then
-      missingControllerBindings = {
-        q = fileConfig.controller.bindings.q == nil,
-        e = fileConfig.controller.bindings.e == nil,
-      }
-    end
-
     mergeInto(config, fileConfig)
-    if missingControllerBindings then
-      config.controller = config.controller or {}
-      config.controller.bindings = controller.completeKeyboardBindings(
-        config.controller.bindings or {},
-        missingControllerBindings
-      )
-    end
 
     return configModel.normalize(config), CONFIG_PATH
   end
@@ -503,35 +473,11 @@ end
 
 local function validControllerKey(key)
   return key == "w"
-    or key == "q"
-    or key == "e"
     or key == "a"
     or key == "s"
     or key == "d"
     or key == "space"
     or key == "shift"
-end
-
-local function validRotorRole(role)
-  return role == "front_left"
-    or role == "front_right"
-    or role == "rear_left"
-    or role == "rear_right"
-end
-
-local function normalizeHandedness(value)
-  local normalized = string.lower(tostring(value or ""))
-  normalized = string.gsub(normalized, "-", "_")
-
-  if normalized == "right" or normalized == "right_handed" or normalized == "r" then
-    return "right_handed"
-  elseif normalized == "left" or normalized == "left_handed" or normalized == "l" then
-    return "left_handed"
-  elseif normalized == "toggle" then
-    return "toggle"
-  end
-
-  error("handedness must be right_handed, left_handed, or toggle", 0)
 end
 
 local function bindingText(binding)
@@ -562,20 +508,8 @@ local function printConfig(config, source)
   print("  stabilize.axis2Kd=" .. tostring(config.stabilize.axis2Kd))
   print("  stabilize.axis1Trim=" .. tostring(config.stabilize.axis1Trim))
   print("  stabilize.axis2Trim=" .. tostring(config.stabilize.axis2Trim))
-  print("  stabilize.yawKd=" .. tostring(config.stabilize.yawKd))
-  print("  stabilize.yawTrim=" .. tostring(config.stabilize.yawTrim))
-  print("  stabilize.yawSign=" .. tostring(config.stabilize.yawSign))
   print("  stabilize.maxCorrection=" .. tostring(config.stabilize.maxCorrection))
-  print("  stabilize.maxYawCorrection=" .. tostring(config.stabilize.maxYawCorrection))
   print("  stabilize.signalDither=" .. tostring(config.stabilize.signalDither))
-  print("  rotors.applyHandednessOnStabilize=" .. tostring(config.rotors and config.rotors.applyHandednessOnStabilize))
-  if config.rotors and config.rotors.handedness then
-    print("  rotors.handedness overrides:")
-    print("    front_left=" .. tostring(config.rotors.handedness.front_left))
-    print("    front_right=" .. tostring(config.rotors.handedness.front_right))
-    print("    rear_left=" .. tostring(config.rotors.handedness.rear_left))
-    print("    rear_right=" .. tostring(config.rotors.handedness.rear_right))
-  end
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
   print("  display.stabilizeEnabled=" .. tostring(config.display and config.display.stabilizeEnabled))
   print("  display.stabilizeInterval=" .. tostring(config.display and config.display.stabilizeInterval))
@@ -592,7 +526,6 @@ local function printConfig(config, source)
   print("  controller.axis2TargetDeg=" .. tostring(config.controller and config.controller.axis2TargetDeg))
   print("  controller.axis1Power=" .. tostring(config.controller and config.controller.axis1Power))
   print("  controller.axis2Power=" .. tostring(config.controller and config.controller.axis2Power))
-  print("  controller.yawPower=" .. tostring(config.controller and config.controller.yawPower))
   print("  controller.targetSlewDegPerSecond=" .. tostring(config.controller and config.controller.targetSlewDegPerSecond))
   print("  controller.throttleSlewPowerPerSecond=" .. tostring(config.controller and config.controller.throttleSlewPowerPerSecond))
   if config.controller and config.controller.bindings then
@@ -602,9 +535,7 @@ local function printConfig(config, source)
     print("    s=" .. bindingText(config.controller.bindings.s))
     print("    d=" .. bindingText(config.controller.bindings.d))
     print("    space=" .. bindingText(config.controller.bindings.space))
-    print("    q=" .. bindingText(config.controller.bindings.q))
     print("    w=" .. bindingText(config.controller.bindings.w))
-    print("    e=" .. bindingText(config.controller.bindings.e))
   end
 end
 
@@ -686,45 +617,6 @@ local function runConfig()
     print("Saved stabilize trim to " .. CONFIG_PATH)
     print("  axis1Trim=" .. tostring(config.stabilize.axis1Trim))
     print("  axis2Trim=" .. tostring(config.stabilize.axis2Trim))
-    return
-  elseif subcommand == "stabilize-yaw" then
-    local yawKd = parseNumber(args[3], "yawKd")
-    local maxYawCorrection = args[4] and parseNumber(args[4], "maxYawCorrection") or config.stabilize.maxYawCorrection or config.stabilize.maxCorrection or 1.5
-    local yawTrim = args[5] and parseNumber(args[5], "yawTrim") or config.stabilize.yawTrim or 0
-    local yawSign = args[6] and parseNumber(args[6], "yawSign") or config.stabilize.yawSign or 1
-
-    if maxYawCorrection < 0 then
-      error("maxYawCorrection must be zero or greater", 0)
-    end
-    if yawSign ~= 1 and yawSign ~= -1 then
-      error("yawSign must be 1 or -1", 0)
-    end
-
-    config.stabilize.yawKd = yawKd
-    config.stabilize.maxYawCorrection = maxYawCorrection
-    config.stabilize.yawTrim = yawTrim
-    config.stabilize.yawSign = yawSign
-    saveConfig(config)
-    print("Saved stabilize yaw tuning to " .. CONFIG_PATH)
-    print("  yawKd=" .. tostring(config.stabilize.yawKd))
-    print("  maxYawCorrection=" .. tostring(config.stabilize.maxYawCorrection))
-    print("  yawTrim=" .. tostring(config.stabilize.yawTrim))
-    print("  yawSign=" .. tostring(config.stabilize.yawSign))
-    return
-  elseif subcommand == "rotor-handedness" then
-    local role = string.lower(tostring(args[3] or ""))
-    if not validRotorRole(role) then
-      error("Usage: aircraft config rotor-handedness <front_left|front_right|rear_left|rear_right> <right_handed|left_handed>", 0)
-    end
-
-    config.rotors = config.rotors or {}
-    config.rotors.handedness = config.rotors.handedness or {}
-    config.rotors.handedness[role] = normalizeHandedness(args[4])
-    if config.rotors.handedness[role] == "toggle" then
-      error("config rotor-handedness needs an explicit right_handed or left_handed value", 0)
-    end
-    saveConfig(config)
-    print("Saved rotors.handedness." .. role .. "=" .. tostring(config.rotors.handedness[role]) .. " to " .. CONFIG_PATH)
     return
   elseif subcommand == "stabilize-limits" then
     local maxCorrection = parseNumber(args[3], "maxCorrection")
@@ -812,9 +704,7 @@ local function runConfig()
     print("  anchor=shift")
     print("  frontAxis=" .. coords.axisLabel(frontAxis) .. " source=" .. tostring(frontSource))
     print("  leftAxis=" .. coords.axisLabel(leftAxis) .. " source=" .. tostring(leftSource))
-    print("  q=" .. bindingText(config.controller.bindings.q))
     print("  w=" .. bindingText(config.controller.bindings.w))
-    print("  e=" .. bindingText(config.controller.bindings.e))
     print("  shift=" .. bindingText(config.controller.bindings.shift))
     print("  a=" .. bindingText(config.controller.bindings.a))
     print("  s=" .. bindingText(config.controller.bindings.s))
@@ -824,7 +714,7 @@ local function runConfig()
   elseif subcommand == "controller-bind" then
     local key = string.lower(tostring(args[3] or ""))
     if not validControllerKey(key) then
-      error("controller key must be q, w, e, a, s, d, space, or shift", 0)
+      error("controller key must be w, a, s, d, space, or shift", 0)
     end
 
     config.controller = config.controller or {}
@@ -859,16 +749,6 @@ local function runConfig()
     print("  axis2TargetDeg=" .. tostring(axis2TargetDeg))
     print("  axis1Power=" .. tostring(axis1Power))
     print("  axis2Power=" .. tostring(axis2Power))
-    return
-  elseif subcommand == "controller-yaw" then
-    local controllerConfig = config.controller or {}
-    local yawPower = parseNumber(args[3], "yawPower")
-
-    config.controller = controllerConfig
-    config.controller.yawPower = yawPower
-    saveConfig(config)
-    print("Saved controller yaw tuning to " .. CONFIG_PATH)
-    print("  yawPower=" .. tostring(yawPower))
     return
   elseif subcommand == "controller-response" then
     local controllerConfig = config.controller or {}
@@ -1033,34 +913,10 @@ local function parseCommandOptions(startIndex)
         error("--axis2-trim needs a number", 0)
       end
       i = i + 2
-    elseif arg == "--yaw-kd" then
-      options.yawKd = tonumber(args[i + 1])
-      if not options.yawKd then
-        error("--yaw-kd needs a number", 0)
-      end
-      i = i + 2
-    elseif arg == "--yaw-trim" then
-      options.yawTrim = tonumber(args[i + 1])
-      if not options.yawTrim then
-        error("--yaw-trim needs a number", 0)
-      end
-      i = i + 2
-    elseif arg == "--yaw-sign" then
-      options.yawSign = tonumber(args[i + 1])
-      if options.yawSign ~= 1 and options.yawSign ~= -1 then
-        error("--yaw-sign needs 1 or -1", 0)
-      end
-      i = i + 2
     elseif arg == "--max-correction" then
       options.maxCorrection = tonumber(args[i + 1])
       if not options.maxCorrection or options.maxCorrection < 0 then
         error("--max-correction needs a non-negative number", 0)
-      end
-      i = i + 2
-    elseif arg == "--max-yaw-correction" then
-      options.maxYawCorrection = tonumber(args[i + 1])
-      if not options.maxYawCorrection or options.maxYawCorrection < 0 then
-        error("--max-yaw-correction needs a non-negative number", 0)
       end
       i = i + 2
     elseif arg == "--max-attitude" then
@@ -1163,28 +1019,6 @@ local function runBrake()
   actuatorTest.brake(config, options)
 end
 
-local function runRotorHandedness()
-  local config = loadConfig()
-  local target = args[2]
-  local handedness = args[3]
-  local optionStart = 4
-
-  if target and string.sub(target, 1, 2) == "--" then
-    target = nil
-    handedness = nil
-    optionStart = 2
-  elseif handedness and string.sub(handedness, 1, 2) == "--" then
-    handedness = nil
-    optionStart = 3
-  end
-
-  local options = parseCommandOptions(optionStart)
-  options.target = target
-  options.handedness = handedness
-
-  flightControl.rotorHandedness(config, options)
-end
-
 local function runDisplays()
   local config = loadConfig()
   local options = parseCommandOptions(2)
@@ -1264,12 +1098,6 @@ elseif command == "brake" then
   if not ok then
     print("aircraft brake failed: " .. tostring(result))
     error("aircraft brake failed", 0)
-  end
-elseif command == "rotor-handedness" then
-  local ok, result = pcall(runRotorHandedness)
-  if not ok then
-    print("aircraft rotor-handedness failed: " .. tostring(result))
-    error("aircraft rotor-handedness failed", 0)
   end
 elseif command == "displays" then
   local ok, result = pcall(runDisplays)

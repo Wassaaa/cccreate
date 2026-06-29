@@ -32,20 +32,10 @@ return {
     axis2Kd = 0.2,
     axis1Trim = 0,
     axis2Trim = 0,
-    yawKd = 0.2,
-    yawTrim = 0,
-    yawSign = 1,
     maxCorrection = 1.5,
-    maxYawCorrection = 1.5,
     signalDither = true,
     brakeOnExit = true,
     reportFrameLimit = 600,
-  },
-  rotors = {
-    -- Empty handedness means "use the values discovered by aircraft scan".
-    -- Set a role here only when you want to override the scanned baseline.
-    applyHandednessOnStabilize = true,
-    handedness = {},
   },
   display = {
     enabled = true,
@@ -71,11 +61,10 @@ return {
     axis2TargetDeg = 5,
     axis1Power = 0,
     axis2Power = 0,
-    yawPower = 1,
     targetSlewDegPerSecond = 8,
     throttleSlewPowerPerSecond = 4,
     -- Default Create controller link layout from the bottom-left shift key:
-    -- keyboard view is Q W E over shift A S D space.
+    -- keyboard view is W over shift A S D space.
     -- Each coord points at the block under the Redstone Link; read its up face.
     bindings = {
       shift = { x = 3, y = -1, z = -5, side = "up" },
@@ -83,9 +72,7 @@ return {
       s = { x = 1, y = -1, z = -5, side = "up" },
       d = { x = 0, y = -1, z = -5, side = "up" },
       space = { x = -1, y = -1, z = -5, side = "up" },
-      q = { x = 2, y = -1, z = -4, side = "up" },
       w = { x = 1, y = -1, z = -4, side = "up" },
-      e = { x = 0, y = -1, z = -4, side = "up" },
     },
   },
 
