@@ -206,13 +206,7 @@ local function configSections(config)
   add(kill, config, "killSwitch.activeHigh", "If true, signal on means stop. If false, signal off means stop.")
 
   local reports = {}
-  add(reports, config, "reportPath", "Local scan report path used by later aircraft commands.")
-  add(reports, config, "statusReportPath", "Local status report path.")
-  add(reports, config, "actuatorReportPath", "Local signal/brake test report path.")
-  add(reports, config, "stabilizeReportPath", "Local stabilize/recover/level report path.")
-  add(reports, config, "displayReportPath", "Local display-loop report path.")
-  add(reports, config, "controllerReportPath", "Local controller-probe report path.")
-  add(reports, config, "configReportPath", "Local config-show report path.")
+  add(reports, config, "reportPath", "Local scan cache path used by later aircraft commands.")
 
   return {
     section("Safety and Output", safety),

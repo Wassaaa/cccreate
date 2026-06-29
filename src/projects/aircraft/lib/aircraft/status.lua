@@ -385,14 +385,14 @@ end
 
 function status.run(config)
   local report = status.collect(config)
-  local path = config.statusReportPath or "/aircraft_status.txt"
+  local path = "/aircraft_status.txt"
 
-  reporting.save(report, path, config)
+  reporting.save(report, path, config, { localReport = false })
   if config.sendWebhook ~= false then
     reporting.send(report)
   end
 
-  print("Aircraft status report: " .. path)
+  print("Aircraft status report: " .. (config.sendWebhook ~= false and "webhook" or "webhook disabled"))
   printOrientation(report.scan)
   print("side sensors: " .. tostring(report.summary.sideSensors))
 

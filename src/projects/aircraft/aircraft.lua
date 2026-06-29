@@ -28,12 +28,6 @@ local DEFAULT_CONFIG = {
   maxAttitudeDelta = 2,
   statusReadLimit = 8,
   reportPath = "/aircraft_scan.txt",
-  statusReportPath = "/aircraft_status.txt",
-  actuatorReportPath = "/aircraft_actuator_test.txt",
-  stabilizeReportPath = "/aircraft_stabilize.txt",
-  displayReportPath = "/aircraft_displays.txt",
-  controllerReportPath = "/aircraft_controller.txt",
-  configReportPath = "/aircraft_config.txt",
   stabilize = {
     interval = 0.1,
     seconds = 1,
@@ -116,7 +110,7 @@ local function usage()
   print("  --z-radius <n>     set z scan radius")
   print("  --sample-limit <n> max getter samples per peripheral")
   print("  --out <path>       default /aircraft_scan.txt")
-  print("  --no-webhook       save local report only")
+  print("  --no-webhook       skip webhook output")
   print("  --hud-interval <n> stabilize HUD refresh seconds")
   print("  --nixie-interval <n> stabilize Nixie refresh seconds")
   print("  --report-frames <n> max stabilize frames kept in report")
@@ -499,14 +493,14 @@ local function runConfigShow(config, source)
     configSource = source,
     configSnapshot = configModel.copy(configModel.normalize(config)),
   }
-  local path = config.configReportPath or "/aircraft_config.txt"
+  local path = "/aircraft_config.txt"
 
-  reporting.save(report, path, config, { configSource = source })
+  reporting.save(report, path, config, { configSource = source, localReport = false })
   if config.sendWebhook ~= false then
     reporting.send(report)
   end
 
-  print("Config report: " .. path)
+  print("Config report: " .. (config.sendWebhook ~= false and "webhook" or "webhook disabled"))
 end
 
 local function runConfig()

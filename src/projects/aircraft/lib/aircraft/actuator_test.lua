@@ -272,14 +272,14 @@ local function loadContext(config)
 end
 
 local function saveAndSend(config, report)
-  local path = config.actuatorReportPath or "/aircraft_actuator_test.txt"
+  local path = "/aircraft_actuator_test.txt"
 
-  reporting.save(report, path, config)
+  reporting.save(report, path, config, { localReport = false })
   if config.sendWebhook ~= false then
     reporting.send(report)
   end
 
-  return path
+  return config.sendWebhook ~= false and "webhook" or "webhook disabled"
 end
 
 local function collectScalarDevices(router, scan, roles, report)

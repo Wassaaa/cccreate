@@ -352,14 +352,14 @@ local function wrapOptionalRoleDevices(scan, router, family)
 end
 
 local function saveAndSend(config, report)
-  local path = config.stabilizeReportPath or "/aircraft_stabilize.txt"
+  local path = "/aircraft_stabilize.txt"
 
-  reporting.save(report, path, config)
+  reporting.save(report, path, config, { localReport = false })
   if config.sendWebhook ~= false then
     reporting.send(report)
   end
 
-  return path
+  return config.sendWebhook ~= false and "webhook" or "webhook disabled"
 end
 
 local function baseReport(kind, config, scan, routerName)
@@ -435,8 +435,9 @@ local function attitudeRates(rates)
   local yawRate = numberAt(rates, 2)
   local rollRate = numberAt(rates, 3)
 
+  -- Do not mirror the angle negation here; -rollRate was anti-damping axis1.
   return {
-    axis1 = -rollRate,
+    axis1 = rollRate,
     axis2 = pitchRate,
     pitch = pitchRate,
     yaw = yawRate,

@@ -15,12 +15,6 @@ local ROOT_ORDER = {
   "hud",
   "killSwitch",
   "reportPath",
-  "statusReportPath",
-  "actuatorReportPath",
-  "stabilizeReportPath",
-  "displayReportPath",
-  "controllerReportPath",
-  "configReportPath",
   "sendWebhook",
 }
 
@@ -139,12 +133,6 @@ function configModel.normalize(config)
   result.hud = pick(config.hud, ORDERS.hud)
   result.killSwitch = pick(config.killSwitch, ORDERS.killSwitch)
   set(result, "reportPath", config.reportPath)
-  set(result, "statusReportPath", config.statusReportPath)
-  set(result, "actuatorReportPath", config.actuatorReportPath)
-  set(result, "stabilizeReportPath", config.stabilizeReportPath)
-  set(result, "displayReportPath", config.displayReportPath)
-  set(result, "controllerReportPath", config.controllerReportPath)
-  set(result, "configReportPath", config.configReportPath)
   set(result, "sendWebhook", config.sendWebhook)
 
   return result
