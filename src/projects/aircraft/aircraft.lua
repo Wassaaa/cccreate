@@ -46,6 +46,7 @@ local DEFAULT_CONFIG = {
     axis2Trim = 0,
     maxCorrection = 1.5,
     brakeOnExit = true,
+    reportFrameLimit = 600,
   },
   display = {
     enabled = true,
@@ -98,7 +99,7 @@ local function usage()
   print("aircraft displays [--seconds n] [--interval n]")
   print("aircraft level-set")
   print("aircraft level-zero")
-  print("aircraft stabilize [--apply] [--seconds n] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--no-hud] [--nixies]")
+  print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--no-hud] [--nixies]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
   print("aircraft help")
   print("")
@@ -112,6 +113,8 @@ local function usage()
   print("  --no-webhook       save local report only")
   print("  --hud-interval <n> stabilize HUD refresh seconds")
   print("  --nixie-interval <n> stabilize Nixie refresh seconds")
+  print("  --report-frames <n> max stabilize frames kept in report")
+  print("  --max-attitude-deg <n> abort when tilt error exceeds degrees")
   print("")
   print("signal/brake are dry-run unless --apply is used and config dryRun=false.")
 end
@@ -680,6 +683,9 @@ local function parseCommandOptions(startIndex)
         error("--seconds needs a number", 0)
       end
       i = i + 2
+    elseif arg == "--forever" then
+      options.forever = true
+      i = i + 1
     elseif arg == "--base-power" then
       options.basePower = tonumber(args[i + 1])
       if not options.basePower then
@@ -798,6 +804,18 @@ local function parseCommandOptions(startIndex)
       options.maxAttitudeDelta = tonumber(args[i + 1])
       if not options.maxAttitudeDelta or options.maxAttitudeDelta <= 0 then
         error("--max-attitude needs a positive number", 0)
+      end
+      i = i + 2
+    elseif arg == "--max-attitude-deg" then
+      options.maxAttitudeDeg = tonumber(args[i + 1])
+      if not options.maxAttitudeDeg or options.maxAttitudeDeg <= 0 then
+        error("--max-attitude-deg needs a positive number", 0)
+      end
+      i = i + 2
+    elseif arg == "--report-frames" then
+      options.reportFrameLimit = tonumber(args[i + 1])
+      if not options.reportFrameLimit or options.reportFrameLimit < 0 then
+        error("--report-frames needs a non-negative number", 0)
       end
       i = i + 2
     else

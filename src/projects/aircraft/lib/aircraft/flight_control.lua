@@ -448,6 +448,7 @@ local function stabilizeConfig(config, options)
   end
 
   return {
+    forever = options.forever == true,
     seconds = tonumber(options.seconds) or tonumber(defaults.seconds) or 1,
     interval = tonumber(options.interval) or tonumber(defaults.interval) or 0.1,
     basePower = tonumber(options.basePower) or tonumber(defaults.basePower) or 0,
@@ -462,10 +463,13 @@ local function stabilizeConfig(config, options)
     axis1Trim = tonumber(options.axis1Trim) or tonumber(defaults.axis1Trim) or 0,
     axis2Trim = tonumber(options.axis2Trim) or tonumber(defaults.axis2Trim) or 0,
     maxCorrection = tonumber(options.maxCorrection) or tonumber(defaults.maxCorrection) or 1.5,
-    maxAttitudeDelta = tonumber(options.maxAttitudeDelta) or tonumber(defaults.maxAttitudeDelta)
+    maxAttitudeDelta = tonumber(options.maxAttitudeDelta)
+      or (tonumber(options.maxAttitudeDeg) and tonumber(options.maxAttitudeDeg) * math.pi / 180)
+      or tonumber(defaults.maxAttitudeDelta)
       or tonumber(config.maxAttitudeDelta)
       or 2,
     brakeOnExit = defaults.brakeOnExit ~= false,
+    reportFrameLimit = tonumber(options.reportFrameLimit) or tonumber(defaults.reportFrameLimit) or 600,
     nixiesEnabled = nixiesEnabled,
     nixieInterval = tonumber(options.nixieInterval) or tonumber(display.stabilizeInterval) or 1,
   }
@@ -742,6 +746,7 @@ function flightControl.stabilize(config, options)
   report.request = {
     apply = options.apply == true,
     seconds = settings.seconds,
+    forever = settings.forever,
     interval = settings.interval,
     basePower = settings.basePower,
   }
@@ -761,7 +766,9 @@ function flightControl.stabilize(config, options)
   report.frames = {}
   report.timing = {
     requestedSeconds = settings.seconds,
+    forever = settings.forever,
     interval = settings.interval,
+    reportFrameLimit = settings.reportFrameLimit,
     mode = "scheduled_os_clock",
   }
 
@@ -795,12 +802,12 @@ function flightControl.stabilize(config, options)
 
   local function runLoop()
     local startTime = os.clock()
-    local deadline = startTime + settings.seconds
+    local deadline = settings.forever and nil or startTime + settings.seconds
     local nextFrameTime = startTime
     local frameIndex = 1
 
     while true do
-      if active and frameIndex > 1 and os.clock() >= deadline then
+      if active and deadline and frameIndex > 1 and os.clock() >= deadline then
         report.timing.stopReason = "duration_clock"
         break
       end
@@ -834,7 +841,15 @@ function flightControl.stabilize(config, options)
         frame.telemetry = readRotorTelemetry(rotorDevices)
       end
       frame.hud = hud.update(hudContext, frame, settings, active, attitudeExceeded)
-      table.insert(report.frames, compactStabilizeFrame(frame))
+      if settings.reportFrameLimit == 0 then
+        report.timing.framesDropped = (report.timing.framesDropped or 0) + 1
+      else
+        table.insert(report.frames, compactStabilizeFrame(frame))
+        if #report.frames > settings.reportFrameLimit then
+          table.remove(report.frames, 1)
+          report.timing.framesDropped = (report.timing.framesDropped or 0) + 1
+        end
+      end
 
       if attitudeExceeded then
         break
@@ -847,13 +862,18 @@ function flightControl.stabilize(config, options)
       frameIndex = frameIndex + 1
       nextFrameTime = nextFrameTime + settings.interval
 
-      local remaining = deadline - os.clock()
-      if remaining <= 0 then
-        report.timing.stopReason = "duration_clock"
-        break
-      end
+      local delay
+      if deadline then
+        local remaining = deadline - os.clock()
+        if remaining <= 0 then
+          report.timing.stopReason = "duration_clock"
+          break
+        end
 
-      local delay = math.min(remaining, nextFrameTime - os.clock())
+        delay = math.min(remaining, nextFrameTime - os.clock())
+      else
+        delay = nextFrameTime - os.clock()
+      end
       if delay > 0 then
         sleep(delay)
       end
@@ -880,6 +900,7 @@ function flightControl.stabilize(config, options)
 
   if not ok then
     report.error = tostring(result)
+    report.timing.stopReason = "error"
   end
 
   local path = saveAndSend(config, report)

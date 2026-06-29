@@ -37,6 +37,7 @@ return {
     axis2Trim = 0,
     maxCorrection = 1.5,
     brakeOnExit = true,
+    reportFrameLimit = 600,
   },
   display = {
     enabled = true,

@@ -208,6 +208,14 @@ local function statusText(frame, mixed, settings)
   return "maxCorr " .. fixed(settings.maxCorrection, 2)
 end
 
+local function timeText(frame, settings)
+  if settings.forever then
+    return "t " .. fixed(frame.elapsed, 1) .. "s"
+  end
+
+  return "t " .. fixed(frame.elapsed, 1) .. "/" .. fixed(settings.seconds, 1) .. "s"
+end
+
 local function telemetryNumber(telemetry, role, key)
   local read = telemetry
     and telemetry.roles
@@ -253,7 +261,7 @@ local function drawCompact(target, frame, settings, active, status, width)
   local mixed = frame.mixed or {}
 
   writeLine(target, 1, "AIRCRAFT STABILIZE " .. status, width)
-  writeLine(target, 2, "t " .. fixed(frame.elapsed, 1) .. "/" .. fixed(settings.seconds, 1) .. "s base " .. fixed(settings.basePower, 1), width)
+  writeLine(target, 2, timeText(frame, settings) .. " base " .. fixed(settings.basePower, 1), width)
   writeLine(target, 3, "err A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1) .. " deg", width)
   writeLine(target, 4, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
   writeLine(target, 5, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
@@ -271,7 +279,7 @@ local function drawCornerLayout(target, frame, settings, status, width, height)
   local centerY = math.max(5, math.floor(height / 2) - 1)
 
   writeCentered(target, 1, "AIRCRAFT STABILIZE " .. status, width)
-  writeCentered(target, 2, "t " .. fixed(frame.elapsed, 1) .. "/" .. fixed(settings.seconds, 1) .. "s  base " .. fixed(settings.basePower, 1), width)
+  writeCentered(target, 2, timeText(frame, settings) .. "  base " .. fixed(settings.basePower, 1), width)
 
   drawRolePanel(target, "front_left", 1, 3, panelWidth, mixed, telemetry, false)
   drawRolePanel(target, "front_right", rightX, 3, panelWidth, mixed, telemetry, true)
