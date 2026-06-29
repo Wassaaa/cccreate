@@ -78,7 +78,7 @@ local DEFAULT_CONFIG = {
     yawPower = 1,
     targetSlewDegPerSecond = 8,
     throttleSlewPowerPerSecond = 4,
-    bindings = controller.defaultBindings(-1, -1, -5, "up"),
+    bindings = controller.defaultBindings(3, -1, -5, "up", "+Z", "+X"),
   },
   sendWebhook = true,
 }
@@ -101,7 +101,7 @@ local function usage()
   print("aircraft config hud <true|false>")
   print("aircraft config killswitch <true|false> [front|back|left|right|top|bottom] [activeHigh true|false]")
   print("aircraft config controller <true|false>")
-  print("aircraft config controller-layout <x> <y> <z> [side]")
+  print("aircraft config controller-layout <shiftX> <shiftY> <shiftZ> [side]")
   print("aircraft config controller-bind <key> <x> <y> <z> [side]")
   print("aircraft config controller-tuning <throttlePower> <axis1TargetDeg> [axis2TargetDeg] [axis1Power] [axis2Power]")
   print("aircraft config controller-yaw <yawPower>")
@@ -201,6 +201,61 @@ local function loadConfig()
   end
 
   return configModel.normalize(config), "built-in defaults"
+end
+
+local function loadSerializedTable(path)
+  if not path or not fs.exists(path) then
+    return nil
+  end
+
+  local handle = fs.open(path, "r")
+  if not handle then
+    return nil
+  end
+
+  local contents = handle.readAll()
+  handle.close()
+
+  local ok, value = pcall(textutils.unserialize, contents)
+  if ok and type(value) == "table" then
+    return value
+  end
+
+  return nil
+end
+
+local function scannedAxis(config, name)
+  local scan = loadSerializedTable(config.reportPath or "/aircraft_scan.txt")
+  local vector = scan and scan.orientation and scan.orientation[name]
+
+  if coords.isCardinal(vector) then
+    return vector
+  end
+
+  return nil
+end
+
+local function controllerLayoutAxes(config)
+  local front = coords.parseAxis(config.frontAxis)
+  local left = coords.parseAxis(config.leftAxis)
+  local frontSource = front and "config" or nil
+  local leftSource = left and "config" or nil
+
+  if not front then
+    front = scannedAxis(config, "frontVector")
+    frontSource = front and "scan" or nil
+  end
+  if not left then
+    left = scannedAxis(config, "leftVector")
+    leftSource = left and "scan" or nil
+  end
+
+  front = front or coords.parseAxis("+Z")
+  left = left or coords.parseAxis("+X")
+  frontSource = frontSource or "default"
+  leftSource = leftSource or "default"
+
+  return front, left, frontSource, leftSource
 end
 
 local function saveConfig(config)
@@ -748,11 +803,15 @@ local function runConfig()
     local y = parseInteger(args[4], "y")
     local z = parseInteger(args[5], "z")
     local side = normalizeRedstoneSide(args[6] or "up")
+    local frontAxis, leftAxis, frontSource, leftSource = controllerLayoutAxes(config)
 
     config.controller = config.controller or {}
-    config.controller.bindings = controller.defaultBindings(x, y, z, side)
+    config.controller.bindings = controller.defaultBindings(x, y, z, side, frontAxis, leftAxis)
     saveConfig(config)
     print("Saved controller layout to " .. CONFIG_PATH)
+    print("  anchor=shift")
+    print("  frontAxis=" .. coords.axisLabel(frontAxis) .. " source=" .. tostring(frontSource))
+    print("  leftAxis=" .. coords.axisLabel(leftAxis) .. " source=" .. tostring(leftSource))
     print("  q=" .. bindingText(config.controller.bindings.q))
     print("  w=" .. bindingText(config.controller.bindings.w))
     print("  e=" .. bindingText(config.controller.bindings.e))

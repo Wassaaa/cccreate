@@ -15,14 +15,14 @@ local ROLE_LABELS = {
 }
 
 local BINDING_ORDER = {
-  "space",
   "q",
-  "d",
-  "s",
-  "a",
+  "w",
   "e",
   "shift",
-  "w",
+  "a",
+  "s",
+  "d",
+  "space",
 }
 
 local function copyPlain(value, depth)

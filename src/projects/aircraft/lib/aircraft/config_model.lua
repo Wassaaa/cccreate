@@ -58,7 +58,7 @@ local ORDERS = {
     "throttleSlewPowerPerSecond",
     "bindings",
   },
-  bindings = { "space", "d", "s", "a", "shift", "q", "w", "e" },
+  bindings = { "shift", "a", "s", "d", "space", "q", "w", "e" },
   binding = { "x", "y", "z", "side" },
   display = { "enabled", "stabilizeEnabled", "stabilizeInterval" },
   hud = { "enabled", "interval", "monitorScale", "monitorName" },

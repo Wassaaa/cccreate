@@ -74,15 +74,15 @@ return {
     yawPower = 1,
     targetSlewDegPerSecond = 8,
     throttleSlewPowerPerSecond = 4,
-    -- Default Create controller link layout from the first lower-row block:
-    -- keyboard view is Q W E over A S D, with space and shift on the lower row.
+    -- Default Create controller link layout from the bottom-left shift key:
+    -- keyboard view is Q W E over shift A S D space.
     -- Each coord points at the block under the Redstone Link; read its up face.
     bindings = {
-      space = { x = -1, y = -1, z = -5, side = "up" },
-      d = { x = 0, y = -1, z = -5, side = "up" },
-      s = { x = 1, y = -1, z = -5, side = "up" },
-      a = { x = 2, y = -1, z = -5, side = "up" },
       shift = { x = 3, y = -1, z = -5, side = "up" },
+      a = { x = 2, y = -1, z = -5, side = "up" },
+      s = { x = 1, y = -1, z = -5, side = "up" },
+      d = { x = 0, y = -1, z = -5, side = "up" },
+      space = { x = -1, y = -1, z = -5, side = "up" },
       q = { x = 2, y = -1, z = -4, side = "up" },
       w = { x = 1, y = -1, z = -4, side = "up" },
       e = { x = 0, y = -1, z = -4, side = "up" },

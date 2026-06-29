@@ -167,6 +167,49 @@ local function adjacentBinding(anchor, deltaX)
   }
 end
 
+local function axisVector(value, fallback)
+  if type(value) == "table" then
+    local x = tonumber(value.x) or 0
+    local y = tonumber(value.y) or 0
+    local z = tonumber(value.z) or 0
+
+    if math.abs(x) + math.abs(y) + math.abs(z) == 1 then
+      return { x = x, y = y, z = z }
+    end
+  elseif type(value) == "string" then
+    local text = string.upper(string.gsub(value, "%s+", ""))
+    local sign = 1
+
+    if string.sub(text, 1, 1) == "-" then
+      sign = -1
+      text = string.sub(text, 2)
+    elseif string.sub(text, 1, 1) == "+" then
+      text = string.sub(text, 2)
+    end
+
+    if text == "X" then
+      return { x = sign, y = 0, z = 0 }
+    elseif text == "Y" then
+      return { x = 0, y = sign, z = 0 }
+    elseif text == "Z" then
+      return { x = 0, y = 0, z = sign }
+    end
+  end
+
+  return fallback
+end
+
+local function stepFrom(binding, vector, amount)
+  amount = tonumber(amount) or 1
+
+  return {
+    x = binding.x + vector.x * amount,
+    y = binding.y + vector.y * amount,
+    z = binding.z + vector.z * amount,
+    side = binding.side,
+  }
+end
+
 function controller.completeKeyboardBindings(bindings, missing)
   if type(bindings) ~= "table" then
     return bindings
@@ -233,21 +276,28 @@ local function settingsFrom(config, options)
   }
 end
 
-function controller.defaultBindings(originX, originY, originZ, side)
-  local x = tonumber(originX) or -1
+function controller.defaultBindings(originX, originY, originZ, side, frontAxis, leftAxis)
+  local x = tonumber(originX) or 3
   local y = tonumber(originY) or -1
   local z = tonumber(originZ) or -5
   local face = normalizeSide(side or "up")
+  local front = axisVector(frontAxis, { x = 0, y = 0, z = 1 })
+  local left = axisVector(leftAxis, { x = 1, y = 0, z = 0 })
+  local right = { x = -left.x, y = -left.y, z = -left.z }
+  local shift = { x = x, y = y, z = z, side = face }
+  local a = stepFrom(shift, right, 1)
+  local s = stepFrom(shift, right, 2)
+  local d = stepFrom(shift, right, 3)
 
   return {
-    space = { x = x, y = y, z = z, side = face },
-    d = { x = x + 1, y = y, z = z, side = face },
-    s = { x = x + 2, y = y, z = z, side = face },
-    a = { x = x + 3, y = y, z = z, side = face },
-    shift = { x = x + 4, y = y, z = z, side = face },
-    e = { x = x + 1, y = y, z = z + 1, side = face },
-    w = { x = x + 2, y = y, z = z + 1, side = face },
-    q = { x = x + 3, y = y, z = z + 1, side = face },
+    shift = shift,
+    a = a,
+    s = s,
+    d = d,
+    space = stepFrom(shift, right, 4),
+    q = stepFrom(a, front, 1),
+    w = stepFrom(s, front, 1),
+    e = stepFrom(d, front, 1),
   }
 end
 

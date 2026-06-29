@@ -52,9 +52,10 @@ This project installs with `update aircraft`. Its files land at the ComputerCraf
 
 - Existing controller support is through a `redstone_router` reading Redstone Link receiver blocks by relative coordinate.
 - Controller placement is config-driven, not scan-driven. Use:
-  - `aircraft config controller-layout <x> <y> <z> [side]`
+  - `aircraft config controller-layout <shiftX> <shiftY> <shiftZ> [side]`
   - `aircraft config controller-bind <key> <x> <y> <z> [side]`
-- Default keyboard geometry is Q/W/E over A/S/D, with space and shift on the lower row. Missing Q/E in old configs are inferred from W/A/S/D.
+- `controller-layout` uses the bottom-left `shift` coordinate, then lays out `shift A S D space` to aircraft right and `Q W E` one row toward aircraft front. It uses configured axes first, then scan axes, then defaults to `front=+Z` and `left=+X`.
+- Missing Q/E in old configs are inferred from W/A/S/D.
 - Q/E yaw math is `yaw = E - Q`; if in-game direction is backwards, tune `controller.yawPower` negative before swapping bindings.
 - Linked Typewriter support is a future second controller backend. It should consume CraftOS `key` and `key_up` events without removing the current redstone controller path.
 
