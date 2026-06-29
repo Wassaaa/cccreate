@@ -71,6 +71,16 @@ local function isRedstoneRouterType(types)
   return false
 end
 
+local function isPeripheralRouterType(types)
+  for _, typeName in ipairs(types or {}) do
+    if string.find(string.lower(tostring(typeName)), "peripheral_router", 1, true) then
+      return true
+    end
+  end
+
+  return false
+end
+
 local function findRedstoneRouter()
   for _, peripheralName in ipairs(peripheral.getNames()) do
     local types = safePeripheralTypes(peripheralName)
@@ -85,6 +95,26 @@ local function findRedstoneRouter()
 
   local router = peripheral.find("redstone_router")
   if router and type(router.getRedstone) == "function" then
+    return router, nil
+  end
+
+  return nil, nil
+end
+
+local function findPeripheralRouter()
+  for _, peripheralName in ipairs(peripheral.getNames()) do
+    local types = safePeripheralTypes(peripheralName)
+
+    if isPeripheralRouterType(types) then
+      local wrapped = peripheral.wrap(peripheralName)
+      if wrapped and type(wrapped.wrap) == "function" then
+        return wrapped, peripheralName
+      end
+    end
+  end
+
+  local router = peripheral.find("peripheral_router")
+  if router and type(router.wrap) == "function" then
     return router, nil
   end
 
@@ -282,7 +312,207 @@ function controller.describe(context)
   }
 end
 
-local function formatPressed(read)
+local formatPressed
+
+local function call(target, method, ...)
+  if not target or type(target[method]) ~= "function" then
+    return false
+  end
+
+  local ok = pcall(target[method], ...)
+  return ok
+end
+
+local function wrapMonitor(name)
+  if not name then
+    return nil, nil
+  end
+
+  local ok, object = pcall(peripheral.wrap, name)
+  if ok and object and type(object.getSize) == "function" and type(object.write) == "function" then
+    return object, name
+  end
+
+  return nil, nil
+end
+
+local function hasMethod(entry, method)
+  for _, name in ipairs(entry.methods or {}) do
+    if name == method then
+      return true
+    end
+  end
+
+  return false
+end
+
+local function isTerminalLike(entry)
+  return hasMethod(entry, "getSize")
+    and hasMethod(entry, "setCursorPos")
+    and hasMethod(entry, "clear")
+    and hasMethod(entry, "write")
+end
+
+local function loadScan(path)
+  if not path or not fs.exists(path) then
+    return nil
+  end
+
+  local handle = fs.open(path, "r")
+  if not handle then
+    return nil
+  end
+
+  local contents = handle.readAll()
+  handle.close()
+
+  local ok, scan = pcall(textutils.unserialize, contents)
+  if ok and type(scan) == "table" then
+    return scan
+  end
+
+  return nil
+end
+
+local function findScanMonitor(config)
+  local scan = loadScan(config.reportPath or "/aircraft_scan.txt")
+  if not scan then
+    return nil, nil
+  end
+
+  local router = findPeripheralRouter()
+  if not router then
+    return nil, nil
+  end
+
+  for _, entry in ipairs(scan.peripherals or {}) do
+    local coord = entry.coord
+
+    if coord and isTerminalLike(entry) then
+      local ok, object = pcall(router.wrap, coord.x, coord.y, coord.z)
+      if ok and object and type(object.getSize) == "function" and type(object.write) == "function" then
+        return object, "scan:" .. tostring(coord.x) .. "," .. tostring(coord.y) .. "," .. tostring(coord.z)
+      end
+    end
+  end
+
+  return nil, nil
+end
+
+local function findDisplay(config)
+  local hudConfig = config.hud or {}
+
+  if hudConfig.monitorName then
+    local monitor, name = wrapMonitor(hudConfig.monitorName)
+    if monitor then
+      return monitor, name
+    end
+  end
+
+  local monitor = peripheral.find("monitor")
+  if monitor then
+    return monitor, "monitor"
+  end
+
+  local scanned, scannedName = findScanMonitor(config)
+  if scanned then
+    return scanned, scannedName
+  end
+
+  return term.current(), "terminal"
+end
+
+local function size(target)
+  local ok, width, height = pcall(target.getSize)
+  if ok and type(width) == "number" and type(height) == "number" then
+    return width, height
+  end
+
+  return 51, 19
+end
+
+local function writeAt(target, x, y, text)
+  call(target, "setCursorPos", x, y)
+  call(target, "write", tostring(text or ""))
+end
+
+local function writeCentered(target, y, text, width)
+  local value = tostring(text or "")
+  local x = math.max(1, math.floor((width - #value) / 2) + 1)
+  writeAt(target, x, y, value)
+end
+
+local function setColor(target, color)
+  if colors and color then
+    call(target, "setTextColor", color)
+  end
+end
+
+local function readLabel(name, read)
+  local value = formatPressed(read)
+  if read and read.pressed then
+    return "[" .. string.upper(name) .. " " .. value .. "]"
+  end
+
+  return " " .. string.upper(name) .. " " .. value .. " "
+end
+
+local function drawButton(target, x, y, name, read)
+  if read and read.pressed then
+    setColor(target, colors and colors.lime)
+  elseif read and not read.ok then
+    setColor(target, colors and colors.red)
+  else
+    setColor(target, colors and colors.white)
+  end
+
+  writeAt(target, x, y, readLabel(name, read))
+  setColor(target, colors and colors.white)
+end
+
+local function signed(value)
+  local number = tonumber(value) or 0
+  if number >= 0 then
+    return "+" .. string.format("%.2f", number)
+  end
+
+  return string.format("%.2f", number)
+end
+
+local function drawProbeDisplay(target, frame, context, seconds)
+  local width, height = size(target)
+  local reads = frame.input.reads or {}
+
+  call(target, "clear")
+  setColor(target, colors and colors.white)
+  writeCentered(target, 1, "AIRCRAFT CONTROLLER PROBE", width)
+  writeCentered(
+    target,
+    2,
+    "t " .. string.format("%.1f", frame.elapsed) .. "/" .. tostring(seconds) .. "  router " .. tostring(context.routerName),
+    width
+  )
+
+  local center = math.max(16, math.floor(width / 2))
+  local topY = math.max(4, math.floor(height / 2) - 4)
+  drawButton(target, center - 4, topY, "w", reads.w)
+  drawButton(target, center - 23, topY + 2, "shift", reads.shift)
+  drawButton(target, center - 8, topY + 2, "a", reads.a)
+  drawButton(target, center, topY + 2, "s", reads.s)
+  drawButton(target, center + 8, topY + 2, "d", reads.d)
+  drawButton(target, center + 18, topY + 2, "space", reads.space)
+
+  setColor(target, colors and colors.white)
+  writeCentered(
+    target,
+    topY + 5,
+    "thr " .. signed(frame.input.throttle) .. "  axis1 " .. signed(frame.input.axis1) .. "  axis2 " .. signed(frame.input.axis2),
+    width
+  )
+  writeCentered(target, topY + 7, ". off   number pressed   err bad coord/API", width)
+end
+
+function formatPressed(read)
   if not read or not read.ok then
     return "err"
   end
@@ -302,6 +532,13 @@ function controller.probe(config, options)
   local context = controller.open(config, probeOptions)
   local seconds = tonumber(options.seconds) or 10
   local interval = tonumber(options.interval) or 0.2
+  local display, displayName = findDisplay(config)
+  local displayScale = tonumber(config.hud and config.hud.monitorScale) or 0.5
+
+  if displayName ~= "terminal" then
+    call(display, "setTextScale", displayScale)
+  end
+
   local startTime = os.clock()
   local deadline = startTime + seconds
   local report = {
@@ -312,11 +549,15 @@ function controller.probe(config, options)
     seconds = seconds,
     interval = interval,
     controller = controller.describe(context),
+    display = {
+      targetName = displayName,
+    },
     frames = {},
   }
 
   print("Aircraft controller probe")
   print("router=" .. tostring(context.routerName))
+  print("display=" .. tostring(displayName))
   print("Press controller buttons. Ctrl+T stops.")
 
   repeat
@@ -326,21 +567,7 @@ function controller.probe(config, options)
     }
     table.insert(report.frames, frame)
 
-    local reads = frame.input.reads or {}
-    print(
-      "shift="
-        .. formatPressed(reads.shift)
-        .. " a="
-        .. formatPressed(reads.a)
-        .. " s="
-        .. formatPressed(reads.s)
-        .. " d="
-        .. formatPressed(reads.d)
-        .. " space="
-        .. formatPressed(reads.space)
-        .. " w="
-        .. formatPressed(reads.w)
-    )
+    drawProbeDisplay(display, frame, context, seconds)
 
     sleep(interval)
   until os.clock() >= deadline
