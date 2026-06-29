@@ -55,6 +55,8 @@ return {
     throttlePower = 1,
     axis1TargetDeg = 5,
     axis2TargetDeg = 5,
+    axis1Power = 0,
+    axis2Power = 0,
     axis1Sign = 1,
     axis2Sign = 1,
     -- Default Create controller link layout from the first configured block:

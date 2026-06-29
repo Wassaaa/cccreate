@@ -483,12 +483,14 @@ local function mixerSignals(settings, state, level, control)
 
   local target1 = tonumber(control.axis1Target) or 0
   local target2 = tonumber(control.axis2Target) or 0
+  local controlPower1 = tonumber(control.axis1Power) or 0
+  local controlPower2 = tonumber(control.axis2Power) or 0
   local error1 = wrapRadians(rawError1) * settings.axis1Sign - target1
   local error2 = wrapRadians(rawError2) * settings.axis2Sign - target2
   local rate1 = rawRate1 * settings.axis1Sign
   local rate2 = rawRate2 * settings.axis2Sign
-  local rawCorrection1 = -(settings.axis1Kp * error1 + settings.axis1Kd * rate1) + settings.axis1Trim
-  local rawCorrection2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2) + settings.axis2Trim
+  local rawCorrection1 = -(settings.axis1Kp * error1 + settings.axis1Kd * rate1) + settings.axis1Trim + controlPower1
+  local rawCorrection2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2) + settings.axis2Trim + controlPower2
   local correction1 = clamp(rawCorrection1, -settings.maxCorrection, settings.maxCorrection)
   local correction2 = clamp(rawCorrection2, -settings.maxCorrection, settings.maxCorrection)
   local basePower = settings.basePower + (tonumber(control.throttlePower) or 0)
@@ -520,6 +522,8 @@ local function mixerSignals(settings, state, level, control)
     rawError2 = rawError2,
     target1 = target1,
     target2 = target2,
+    controlPower1 = controlPower1,
+    controlPower2 = controlPower2,
     error1 = error1,
     error2 = error2,
     rawCorrection1 = rawCorrection1,
@@ -613,6 +617,8 @@ local function compactControllerFrame(control)
     axis2 = control.axis2,
     axis1Target = control.axis1Target,
     axis2Target = control.axis2Target,
+    axis1Power = control.axis1Power,
+    axis2Power = control.axis2Power,
     pressed = pressedControls(control),
   }
 end
@@ -633,6 +639,8 @@ local function compactMixedFrame(mixed)
     rawError2 = mixed.rawError2,
     target1 = mixed.target1,
     target2 = mixed.target2,
+    controlPower1 = mixed.controlPower1,
+    controlPower2 = mixed.controlPower2,
     error1 = mixed.error1,
     error2 = mixed.error2,
     rawCorrection1 = mixed.rawCorrection1,

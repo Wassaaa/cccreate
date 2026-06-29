@@ -157,6 +157,8 @@ local function settingsFrom(config, options)
     throttlePower = tonumber(cfg.throttlePower) or 1,
     axis1TargetDeg = tonumber(cfg.axis1TargetDeg) or 5,
     axis2TargetDeg = tonumber(cfg.axis2TargetDeg) or tonumber(cfg.axis1TargetDeg) or 5,
+    axis1Power = tonumber(cfg.axis1Power) or 0,
+    axis2Power = tonumber(cfg.axis2Power) or tonumber(cfg.axis1Power) or 0,
     axis1Sign = tonumber(cfg.axis1Sign) or 1,
     axis2Sign = tonumber(cfg.axis2Sign) or 1,
     bindings = cfg.bindings or {},
@@ -271,6 +273,8 @@ function controller.sample(context)
       axis2 = 0,
       axis1Target = 0,
       axis2Target = 0,
+      axis1Power = 0,
+      axis2Power = 0,
       reads = {},
     }
   end
@@ -310,6 +314,8 @@ function controller.sample(context)
     axis2 = axis2,
     axis1Target = axis1 * context.settings.axis1TargetDeg * degToRad,
     axis2Target = axis2 * context.settings.axis2TargetDeg * degToRad,
+    axis1Power = axis1 * context.settings.axis1Power,
+    axis2Power = axis2 * context.settings.axis2Power,
     reads = reads,
   }
 end

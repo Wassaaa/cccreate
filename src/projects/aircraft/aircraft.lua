@@ -64,6 +64,8 @@ local DEFAULT_CONFIG = {
     throttlePower = 1,
     axis1TargetDeg = 5,
     axis2TargetDeg = 5,
+    axis1Power = 0,
+    axis2Power = 0,
     axis1Sign = 1,
     axis2Sign = 1,
     bindings = controller.defaultBindings(-1, -1, -5, "up"),
@@ -88,7 +90,7 @@ local function usage()
   print("aircraft config controller <true|false>")
   print("aircraft config controller-layout <x> <y> <z> [side]")
   print("aircraft config controller-bind <key> <x> <y> <z> [side]")
-  print("aircraft config controller-tuning <throttlePower> <axis1TargetDeg> [axis2TargetDeg]")
+  print("aircraft config controller-tuning <throttlePower> <axis1TargetDeg> [axis2TargetDeg] [axis1Power] [axis2Power]")
   print("aircraft config controller-signs <-1|1> <-1|1>")
   print("aircraft config controller-threshold <0-15>")
   print("aircraft brake [role|all] [--apply]")
@@ -450,6 +452,8 @@ local function printConfig(config, source)
   print("  controller.throttlePower=" .. tostring(config.controller and config.controller.throttlePower))
   print("  controller.axis1TargetDeg=" .. tostring(config.controller and config.controller.axis1TargetDeg))
   print("  controller.axis2TargetDeg=" .. tostring(config.controller and config.controller.axis2TargetDeg))
+  print("  controller.axis1Power=" .. tostring(config.controller and config.controller.axis1Power))
+  print("  controller.axis2Power=" .. tostring(config.controller and config.controller.axis2Power))
   print("  controller.axis1Sign=" .. tostring(config.controller and config.controller.axis1Sign))
   print("  controller.axis2Sign=" .. tostring(config.controller and config.controller.axis2Sign))
   if config.controller and config.controller.bindings then
@@ -614,19 +618,26 @@ local function runConfig()
     print("Saved controller." .. key .. "=" .. bindingText(config.controller.bindings[key]) .. " to " .. CONFIG_PATH)
     return
   elseif subcommand == "controller-tuning" then
+    local controllerConfig = config.controller or {}
     local throttlePower = parseNumber(args[3], "throttlePower")
     local axis1TargetDeg = parseNumber(args[4], "axis1TargetDeg")
     local axis2TargetDeg = parseNumber(args[5] or args[4], "axis2TargetDeg")
+    local axis1Power = args[6] and parseNumber(args[6], "axis1Power") or controllerConfig.axis1Power or 0
+    local axis2Power = args[7] and parseNumber(args[7], "axis2Power") or args[6] and axis1Power or controllerConfig.axis2Power or 0
 
-    config.controller = config.controller or {}
+    config.controller = controllerConfig
     config.controller.throttlePower = throttlePower
     config.controller.axis1TargetDeg = axis1TargetDeg
     config.controller.axis2TargetDeg = axis2TargetDeg
+    config.controller.axis1Power = axis1Power
+    config.controller.axis2Power = axis2Power
     saveConfig(config)
     print("Saved controller tuning to " .. CONFIG_PATH)
     print("  throttlePower=" .. tostring(throttlePower))
     print("  axis1TargetDeg=" .. tostring(axis1TargetDeg))
     print("  axis2TargetDeg=" .. tostring(axis2TargetDeg))
+    print("  axis1Power=" .. tostring(axis1Power))
+    print("  axis2Power=" .. tostring(axis2Power))
     return
   elseif subcommand == "controller-signs" then
     config.controller = config.controller or {}
