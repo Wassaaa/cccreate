@@ -61,6 +61,7 @@ local DEFAULT_CONFIG = {
   },
   controller = {
     enabled = false,
+    type = "redstone_router",
     threshold = 1,
     throttlePower = 1,
     axis1TargetDeg = 5,
@@ -69,6 +70,9 @@ local DEFAULT_CONFIG = {
     axis2Power = 0,
     targetSlewDegPerSecond = 8,
     throttleSlewPowerPerSecond = 4,
+    protocol = "cc_control",
+    senderId = nil,
+    timeout = 0.75,
     bindings = controller.defaultBindings(3, -1, -5, "up", "+Z", "+X"),
   },
   sendWebhook = true,
@@ -90,6 +94,8 @@ local function usage()
   print("aircraft config hud <true|false>")
   print("aircraft config killswitch <true|false> [front|back|left|right|top|bottom] [activeHigh true|false]")
   print("aircraft config controller <true|false>")
+  print("aircraft config controller-type <redstone_router|keyboard|modem>")
+  print("aircraft config controller-modem [protocol] [senderId|any] [timeout] [modemSide]")
   print("aircraft config controller-layout <shiftX> <shiftY> <shiftZ> [side]")
   print("aircraft config controller-bind <key> <x> <y> <z> [side]")
   print("aircraft config controller-tuning <throttlePower> <axis1TargetDeg> [axis2TargetDeg] [axis1Power] [axis2Power]")
@@ -98,7 +104,7 @@ local function usage()
   print("aircraft brake [role|all] [--apply]")
   print("aircraft controller [--seconds n] [--interval n]")
   print("aircraft displays [--seconds n] [--interval n]")
-  print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
+  print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--controller-type type] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
   print("aircraft recover [--apply] [--seconds n] [--base-power n] [--axis1-target-deg n] [--axis2-target-deg n] [--axis1-power n] [--axis2-power n] [--pulse-seconds n]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
   print("aircraft help")
@@ -520,6 +526,7 @@ local function printConfig(config, source)
   print("  killSwitch.side=" .. tostring(config.killSwitch and config.killSwitch.side))
   print("  killSwitch.activeHigh=" .. tostring(config.killSwitch and config.killSwitch.activeHigh))
   print("  controller.enabled=" .. tostring(config.controller and config.controller.enabled))
+  print("  controller.type=" .. tostring(config.controller and config.controller.type))
   print("  controller.threshold=" .. tostring(config.controller and config.controller.threshold))
   print("  controller.throttlePower=" .. tostring(config.controller and config.controller.throttlePower))
   print("  controller.axis1TargetDeg=" .. tostring(config.controller and config.controller.axis1TargetDeg))
@@ -528,6 +535,10 @@ local function printConfig(config, source)
   print("  controller.axis2Power=" .. tostring(config.controller and config.controller.axis2Power))
   print("  controller.targetSlewDegPerSecond=" .. tostring(config.controller and config.controller.targetSlewDegPerSecond))
   print("  controller.throttleSlewPowerPerSecond=" .. tostring(config.controller and config.controller.throttleSlewPowerPerSecond))
+  print("  controller.protocol=" .. tostring(config.controller and config.controller.protocol))
+  print("  controller.senderId=" .. tostring(config.controller and config.controller.senderId))
+  print("  controller.timeout=" .. tostring(config.controller and config.controller.timeout))
+  print("  controller.modemSide=" .. tostring(config.controller and config.controller.modemSide))
   if config.controller and config.controller.bindings then
     print("  controller.bindings:")
     print("    shift=" .. bindingText(config.controller.bindings.shift))
@@ -690,6 +701,45 @@ local function runConfig()
     saveConfig(config)
     print("Saved controller.enabled=" .. tostring(config.controller.enabled) .. " to " .. CONFIG_PATH)
     return
+  elseif subcommand == "controller-type" then
+    local typeName = controller.normalizeType(args[3])
+    if typeName ~= "redstone_router" and typeName ~= "keyboard" and typeName ~= "modem" then
+      error("controller type must be redstone_router, keyboard, or modem", 0)
+    end
+
+    config.controller = config.controller or {}
+    config.controller.type = typeName
+    saveConfig(config)
+    print("Saved controller.type=" .. tostring(typeName) .. " to " .. CONFIG_PATH)
+    return
+  elseif subcommand == "controller-modem" then
+    config.controller = config.controller or {}
+    config.controller.protocol = args[3] or config.controller.protocol or "cc_control"
+
+    if args[4] and args[4] ~= "any" and args[4] ~= "-" then
+      config.controller.senderId = parseInteger(args[4], "senderId")
+    elseif args[4] == "any" or args[4] == "-" then
+      config.controller.senderId = nil
+    end
+
+    if args[5] then
+      config.controller.timeout = parseNumber(args[5], "timeout")
+      if config.controller.timeout <= 0 then
+        error("timeout must be greater than zero", 0)
+      end
+    end
+
+    if args[6] then
+      config.controller.modemSide = args[6]
+    end
+
+    saveConfig(config)
+    print("Saved controller modem settings to " .. CONFIG_PATH)
+    print("  protocol=" .. tostring(config.controller.protocol))
+    print("  senderId=" .. tostring(config.controller.senderId or "any"))
+    print("  timeout=" .. tostring(config.controller.timeout))
+    print("  modemSide=" .. tostring(config.controller.modemSide))
+    return
   elseif subcommand == "controller-layout" then
     local x = parseInteger(args[3], "x")
     local y = parseInteger(args[4], "y")
@@ -817,6 +867,12 @@ local function parseCommandOptions(startIndex)
     elseif arg == "--no-controller" then
       options.controller = false
       i = i + 1
+    elseif arg == "--controller-type" then
+      options.controllerType = args[i + 1]
+      if not options.controllerType then
+        error("--controller-type needs a type", 0)
+      end
+      i = i + 2
     elseif arg == "--killswitch" then
       options.killSwitch = true
       i = i + 1

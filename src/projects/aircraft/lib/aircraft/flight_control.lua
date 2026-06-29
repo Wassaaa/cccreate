@@ -792,6 +792,7 @@ local function compactControllerFrame(control)
 
   return {
     enabled = control.enabled == true,
+    type = control.type,
     synthetic = control.synthetic == true,
     pulseActive = control.pulseActive == true,
     pulseSeconds = control.pulseSeconds,
@@ -1106,7 +1107,20 @@ function flightControl.stabilize(config, options)
     end
   end
 
-  local ok, result = pcall(runLoop)
+  local function runWithControllerPump()
+    if controller.needsPump(controllerContext) then
+      parallel.waitForAny(
+        function()
+          controller.pump(controllerContext)
+        end,
+        runLoop
+      )
+    else
+      runLoop()
+    end
+  end
+
+  local ok, result = pcall(runWithControllerPump)
   if active and settings.brakeOnExit then
     report.brakeOnExit = brakeDevices(devices, settings.brakeSignal)
     if settings.nixiesEnabled then

@@ -10,7 +10,7 @@ This project installs with `update aircraft`. Its files land at the ComputerCraf
   - `scanner.lua`: peripheral-router scan, orientation, roles, sampled getters.
   - `classify.lua`: capability classification from method names.
   - `flight_control.lua`: stabilization loop, roll/pitch mixer, reports.
-  - `controller.lua`: redstone-router controller input sampling.
+  - `controller.lua`: aircraft adapter over shared controller input backends.
   - `hud.lua`, `displays.lua`, `display_loop.lua`: monitor and Nixie/display output.
   - `report_tabs.lua`, `reporting.lua`: structured report presentation.
 - Official Create Avionics docs are trusted for this module. Relevant pages used so far:
@@ -22,7 +22,7 @@ This project installs with `update aircraft`. Its files land at the ComputerCraf
 
 - `aircraft scan` uses a Relative Routing/Peripheral Router style block to wrap nearby peripherals by relative coordinates and writes `/aircraft_scan.txt`.
 - `aircraft status` reads the cached scan without actuating the craft.
-- `aircraft stabilize` needs a scan, a gimbal sensor, four mapped scalar actuator outputs, and optionally propeller bearings, displays, HUD, redstone-router controller, and kill switch.
+- `aircraft stabilize` needs a scan, a gimbal sensor, four mapped scalar actuator outputs, and optionally propeller bearings, displays, HUD, controller input, and kill switch.
 - Commands that move or write outputs stay dry unless both `--apply` is used and `dryRun=false` in config.
 - Reports should stay compact but structured. Aircraft commands save local report files and send webhook reports unless disabled.
 
@@ -42,12 +42,15 @@ This project installs with `update aircraft`. Its files land at the ComputerCraf
 
 ## Controller Inputs
 
-- Existing controller support is through a `redstone_router` reading Redstone Link receiver blocks by relative coordinate.
+- Controller support goes through the shared `/lib/control_input.lua` layer. Current backends are `redstone_router`, `keyboard`, and `modem`.
+- The `redstone_router` backend reads Redstone Link receiver blocks by relative coordinate.
 - Controller placement is config-driven, not scan-driven. Use:
+  - `aircraft config controller-type <redstone_router|keyboard|modem>`
   - `aircraft config controller-layout <shiftX> <shiftY> <shiftZ> [side]`
   - `aircraft config controller-bind <key> <x> <y> <z> [side]`
 - `controller-layout` uses the bottom-left `shift` coordinate, then lays out `shift A S D space` to aircraft right and `W` one row toward aircraft front. It uses configured axes first, then scan axes, then defaults to `front=+Z` and `left=+X`.
-- Linked Typewriter support is a future second controller backend. It should consume CraftOS `key` and `key_up` events without removing the current redstone controller path.
+- The `keyboard` backend consumes CraftOS `key` and `key_up` events from an onboard keyboard or Create: Avionics Linked Typewriter.
+- The `modem` backend receives rednet key state from `/control_remote` and clears held remote keys after its timeout.
 
 ## Expected In-Game Flow
 

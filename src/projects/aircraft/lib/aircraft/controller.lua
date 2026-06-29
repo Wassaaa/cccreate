@@ -1,3 +1,4 @@
+local controlInput = require("lib.control_input")
 local reporting = require("lib.aircraft.reporting")
 
 local controller = {}
@@ -186,6 +187,8 @@ local function controllerConfig(config)
   return config.controller or {}
 end
 
+controller.normalizeType = controlInput.normalizeType
+
 local function numberOr(value, fallback)
   local number = tonumber(value)
   if number ~= nil then
@@ -199,13 +202,19 @@ local function settingsFrom(config, options)
   local cfg = controllerConfig(config)
   local enabled = cfg.enabled == true
   local bindings = copyPlain(cfg.bindings or {})
+  local typeName = cfg.type or cfg.backend or "redstone_router"
 
   if options.controller ~= nil then
     enabled = options.controller == true
   end
+  if options.controllerType then
+    typeName = options.controllerType
+  end
 
   return {
     enabled = enabled,
+    type = controlInput.normalizeType(typeName),
+    inputs = INPUT_ORDER,
     threshold = numberOr(cfg.threshold, 1),
     throttlePower = numberOr(cfg.throttlePower, 1),
     axis1TargetDeg = numberOr(cfg.axis1TargetDeg, 5),
@@ -214,6 +223,12 @@ local function settingsFrom(config, options)
     axis2Power = numberOr(cfg.axis2Power, numberOr(cfg.axis1Power, 0)),
     targetSlewDegPerSecond = numberOr(cfg.targetSlewDegPerSecond, 8),
     throttleSlewPowerPerSecond = numberOr(cfg.throttleSlewPowerPerSecond, 4),
+    protocol = cfg.protocol or "cc_control",
+    senderId = cfg.senderId or cfg.trustedSender,
+    trustedSender = cfg.trustedSender,
+    timeout = numberOr(cfg.timeout, 0.75),
+    modemSide = cfg.modemSide,
+    keyMap = copyPlain(cfg.keyMap),
     bindings = bindings,
   }
 end
@@ -243,77 +258,7 @@ end
 
 function controller.open(config, options)
   local settings = settingsFrom(config, options or {})
-  local context = {
-    enabled = settings.enabled,
-    settings = settings,
-    routerName = nil,
-    router = nil,
-  }
-
-  if not settings.enabled then
-    return context
-  end
-
-  local router, routerName = findRedstoneRouter()
-  if not router then
-    error("No redstone_router with getRedstone(x, y, z, side) found", 0)
-  end
-
-  context.router = router
-  context.routerName = routerName
-
-  return context
-end
-
-local function readBinding(context, binding)
-  local normalized = normalizeBinding(binding)
-  if not normalized then
-    return {
-      ok = false,
-      signal = 0,
-      value = 0,
-      pressed = false,
-      error = "missing binding",
-    }
-  end
-
-  local ok, valueOrError = pcall(
-    context.router.getRedstone,
-    normalized.x,
-    normalized.y,
-    normalized.z,
-    normalized.side
-  )
-
-  if not ok then
-    return {
-      ok = false,
-      signal = 0,
-      value = 0,
-      pressed = false,
-      coord = normalized,
-      error = tostring(valueOrError),
-    }
-  end
-
-  local signal = valueOrError
-  if signal == true then
-    signal = 15
-  elseif signal == false or signal == nil then
-    signal = 0
-  else
-    signal = tonumber(signal) or 0
-  end
-
-  signal = clamp(signal, 0, 15)
-
-  return {
-    ok = true,
-    signal = signal,
-    value = signal / 15,
-    pressed = signal >= context.settings.threshold,
-    coord = normalized,
-  }
+  return controlInput.open(settings)
 end
 
 local function inputValue(read)
@@ -339,26 +284,8 @@ function controller.sample(context)
     }
   end
 
-  local reads = {}
-  for _, name in ipairs(INPUT_ORDER) do
-    reads[name] = {
-      ok = false,
-      signal = 0,
-      value = 0,
-      pressed = false,
-      error = "not sampled",
-    }
-  end
-
-  local tasks = {}
-  for _, inputName in ipairs(INPUT_ORDER) do
-    local name = inputName
-    table.insert(tasks, function()
-      reads[name] = readBinding(context, context.settings.bindings[name])
-    end)
-  end
-
-  parallel.waitForAll(unpack(tasks))
+  local raw = controlInput.sample(context)
+  local reads = raw.reads or {}
 
   local throttle = inputValue(reads.space) - inputValue(reads.shift)
   local axis1 = inputValue(reads.d) - inputValue(reads.a)
@@ -367,7 +294,10 @@ function controller.sample(context)
 
   return {
     enabled = true,
-    routerName = context.routerName,
+    type = raw.type or context.type,
+    routerName = raw.routerName,
+    remote = raw.remote,
+    eventCount = raw.eventCount,
     throttle = throttle,
     throttlePower = throttle * context.settings.throttlePower,
     axis1 = axis1,
@@ -381,17 +311,15 @@ function controller.sample(context)
 end
 
 function controller.describe(context)
-  if not context then
-    return {
-      enabled = false,
-    }
-  end
+  return controlInput.describe(context)
+end
 
-  return {
-    enabled = context.enabled == true,
-    routerName = context.routerName,
-    settings = copyPlain(context.settings),
-  }
+function controller.needsPump(context)
+  return controlInput.needsPump(context)
+end
+
+function controller.pump(context)
+  return controlInput.pump(context)
 end
 
 local formatPressed
@@ -571,7 +499,7 @@ local function drawProbeDisplay(target, frame, context, seconds)
   writeCentered(
     target,
     2,
-    "t " .. string.format("%.1f", frame.elapsed) .. "/" .. tostring(seconds) .. "  router " .. tostring(context.routerName),
+    "t " .. string.format("%.1f", frame.elapsed) .. "/" .. tostring(seconds) .. "  input " .. tostring(context.type),
     width
   )
 
@@ -640,21 +568,37 @@ function controller.probe(config, options)
   }
 
   print("Aircraft controller probe")
-  print("router=" .. tostring(context.routerName))
+  print("input=" .. tostring(context.type))
+  if context.routerName then
+    print("router=" .. tostring(context.routerName))
+  end
   print("display=" .. tostring(displayName))
   print("Press controller buttons. Ctrl+T stops.")
 
-  repeat
-    local frame = {
-      elapsed = os.clock() - startTime,
-      input = controller.sample(context),
-    }
-    table.insert(report.frames, frame)
+  local function runProbeLoop()
+    repeat
+      local frame = {
+        elapsed = os.clock() - startTime,
+        input = controller.sample(context),
+      }
+      table.insert(report.frames, frame)
 
-    drawProbeDisplay(display, frame, context, seconds)
+      drawProbeDisplay(display, frame, context, seconds)
 
-    sleep(interval)
-  until os.clock() >= deadline
+      sleep(interval)
+    until os.clock() >= deadline
+  end
+
+  if controller.needsPump(context) then
+    parallel.waitForAny(
+      function()
+        controller.pump(context)
+      end,
+      runProbeLoop
+    )
+  else
+    runProbeLoop()
+  end
 
   local path = "/aircraft_controller.txt"
   reporting.save(report, path, config, { localReport = false })

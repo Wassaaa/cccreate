@@ -171,6 +171,7 @@ local function configSections(config)
 
   local controller = {}
   add(controller, config, "controller.enabled", "Default controller enable flag. A run can still use --controller or --no-controller.", "aircraft config controller true")
+  add(controller, config, "controller.type", "Controller input backend: redstone_router, keyboard, or modem.", "aircraft config controller-type keyboard")
   add(controller, config, "controller.threshold", "Minimum redstone value counted as a pressed controller input.", "aircraft config controller-threshold 1")
   add(controller, config, "controller.throttlePower", "Extra power while holding space, and negative extra power while holding shift.", "aircraft config controller-tuning <throttlePower> <axis1TargetDeg> <axis2TargetDeg> <axis1Power> <axis2Power>")
   add(controller, config, "controller.axis1TargetDeg", "Requested roll target in degrees while holding A/D.")
@@ -179,6 +180,10 @@ local function configSections(config)
   add(controller, config, "controller.axis2Power", "Optional direct pitch power mixed in while steering. 0 means steering only changes the attitude target.")
   add(controller, config, "controller.targetSlewDegPerSecond", "How quickly requested pitch/roll targets move toward held controller inputs.", "aircraft config controller-response <targetSlewDegPerSecond> <throttleSlewPowerPerSecond>")
   add(controller, config, "controller.throttleSlewPowerPerSecond", "How quickly space/shift throttle power ramps up or returns to base.")
+  add(controller, config, "controller.protocol", "Rednet protocol used by the modem controller backend.", "aircraft config controller-modem cc_control any 0.75")
+  add(controller, config, "controller.senderId", "Optional remote computer ID trusted by the modem backend. nil accepts any sender.")
+  add(controller, config, "controller.timeout", "Seconds before modem-held keys are cleared after no remote state arrives.")
+  add(controller, config, "controller.modemSide", "Optional modem peripheral name/side to open for rednet. nil opens all local modems.")
 
   local bindings = {}
   for _, key in ipairs(BINDING_ORDER) do
@@ -186,7 +191,7 @@ local function configSections(config)
     table.insert(bindings, row(
       "controller.bindings." .. key,
       value,
-      "Redstone-router coordinate and side read for the " .. key .. " controller input.",
+      "Redstone-router coordinate and side read for the " .. key .. " controller input. Used only when controller.type is redstone_router.",
       "aircraft config controller-bind " .. key .. " <x> <y> <z> [side]"
     ))
   end
@@ -435,6 +440,7 @@ function reportTabs.flightOverviewTab(report)
 
   local controllerRows = {}
   addTextRow(controllerRows, "controller.enabled", report.controller and report.controller.enabled, "Whether controller input was open for this run.")
+  addTextRow(controllerRows, "controller.type", report.controller and report.controller.type, "Input backend used by this run.")
   addTextRow(controllerRows, "controllerActiveFrames", stats.controllerActiveFrames, "Frames where controller or recovery input requested a target/throttle/power.")
   addTextRow(controllerRows, "pressedKeys", pressedText(stats.pressed), "Controller keys seen in kept frames.")
   addTextRow(controllerRows, "recoveryPulseSeconds", recoveryTest.pulseSeconds, "Recovery-test pulse duration, if this was aircraft recover.")
