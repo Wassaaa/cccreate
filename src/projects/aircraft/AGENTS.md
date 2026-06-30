@@ -33,6 +33,14 @@ This project installs with `update aircraft`. Its files land at the ComputerCraf
 - Role names are `front_left`, `front_right`, `rear_left`, and `rear_right`.
 - Scan samples safe getters. Do not add setters to scan sampling.
 
+## Parallelism Notes
+
+- Use `parallel` for Create: Avionics calls that yield until a server tick, especially routed/network peripheral work and setters. Plain local reads usually do not need it.
+- `aircraft scan` runs routed coordinate probes through a worker pool controlled by `scan.parallelism` / `aircraft config scan-parallelism <workers>`. Default is 32; flight testing found 24 was a good practical value on the current setup. Higher values can be useful for experiments, but expect diminishing returns once the router or server tick is saturated.
+- The stabilization actuator writes already batch the four scalar `setSignal` calls with `parallel.waitForAll`. Keep this path batched; do not replace it with sequential writes.
+- Nixie/display writes are already batched across role displays. If a single Nixie/display array is used later, prefer one text write for the whole array, then keep its refresh interval slower than the control loop.
+- The `redstone_router` controller backend already samples configured key bindings in parallel. Future controller backends that read multiple routed peripherals should preserve that shape or use a bounded worker pool when the input count grows.
+
 ## Stabilization And Heading
 
 - The gimbal provides pitch/roll angles from gravity. It does not provide absolute heading.

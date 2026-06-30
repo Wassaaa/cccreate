@@ -18,6 +18,20 @@ Current backends:
 - `keyboard`: consumes normal CraftOS `key` and `key_up` events. This works with
   a local keyboard or Create: Avionics Linked Typewriter.
 
+## Parallelism
+
+The `redstone_router` backend reads every configured key binding with
+`parallel.waitForAll`. This matters because each `getRedstone(x, y, z, side)`
+call crosses the routed peripheral network and may yield until a server tick.
+Reading the controller keys as a batch keeps the stabilizer from spending one
+tick per key.
+
+Keep that pattern for future routed controller features. If a controller grows
+from a handful of keys into many routed inputs, use a bounded worker pool like
+`aircraft scan` rather than spawning unbounded tasks. Keyboard/typewriter input
+is event-backed state and does not benefit from read-side parallelism in the
+same way.
+
 ## Aircraft Setup
 
 Enable controller input:
