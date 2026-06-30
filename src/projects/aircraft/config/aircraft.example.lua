@@ -7,8 +7,8 @@ return {
     zRadius = 8,
     sampleLimit = 12,
     errorLimit = 12,
-    -- Bounded worker count for routed scan calls. 1 keeps legacy sequential scans.
-    parallelism = 12,
+    -- Worker count for routed scan calls. 1 keeps legacy sequential scans.
+    parallelism = 32,
   },
 
   -- Leave unset for automatic side-based orientation, or set explicit aircraft

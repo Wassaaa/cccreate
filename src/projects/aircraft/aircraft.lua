@@ -19,7 +19,7 @@ local DEFAULT_CONFIG = {
     zRadius = 8,
     sampleLimit = 12,
     errorLimit = 12,
-    parallelism = 12,
+    parallelism = 32,
   },
   frontAxis = nil,
   leftAxis = nil,
@@ -91,7 +91,7 @@ local function usage()
   print("aircraft status")
   print("aircraft config show")
   print("aircraft config axes <frontAxis> <leftAxis>")
-  print("aircraft config scan-parallelism <1-32>")
+  print("aircraft config scan-parallelism <workers>")
   print("aircraft config dry-run <true|false>")
   print("aircraft config max-signal <0-15>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
@@ -131,7 +131,7 @@ local function usage()
   print("  --y-radius <n>     set y scan radius")
   print("  --z-radius <n>     set z scan radius")
   print("  --sample-limit <n> max getter samples per peripheral")
-  print("  --parallelism <n>  scan worker count, 1-32")
+  print("  --parallelism <n>  scan worker count")
   print("  --out <path>       default /aircraft_scan.txt")
   print("  --no-webhook       skip webhook output")
   print("  --hud-interval <n> stabilize HUD refresh seconds")
@@ -288,8 +288,8 @@ end
 local function parseScanParallelism(value, label)
   local number = parseInteger(value, label or "scan parallelism")
 
-  if number < 1 or number > 32 then
-    error((label or "scan parallelism") .. " must be from 1 to 32", 0)
+  if number < 1 then
+    error((label or "scan parallelism") .. " must be one or greater", 0)
   end
 
   return number

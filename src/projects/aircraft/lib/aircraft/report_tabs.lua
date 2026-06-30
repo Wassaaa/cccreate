@@ -167,7 +167,7 @@ local function configSections(config)
   add(scan, config, "scan.zRadius", "Horizontal scan radius to aircraft front/back.")
   add(scan, config, "scan.sampleLimit", "Maximum number of safe getter samples captured per found peripheral.")
   add(scan, config, "scan.errorLimit", "Maximum stored scan errors per error list.")
-  add(scan, config, "scan.parallelism", "Bounded worker count for routed scan calls. 1 is sequential.", "aircraft config scan-parallelism 12")
+  add(scan, config, "scan.parallelism", "Worker count for routed scan calls. 1 is sequential; larger values increase concurrent router calls.", "aircraft config scan-parallelism 32")
 
   local stabilize = {}
   add(stabilize, config, "stabilize.interval", "Requested control-loop interval in seconds. Lower is faster but costs more peripheral work.")

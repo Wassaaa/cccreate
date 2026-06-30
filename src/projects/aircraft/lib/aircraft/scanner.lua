@@ -3,8 +3,7 @@ local coords = require("lib.aircraft.coords")
 local kineticScada = require("lib.aircraft.kinetic_scada")
 
 local scanner = {}
-local MAX_SCAN_PARALLELISM = 32
-local DEFAULT_SCAN_PARALLELISM = 12
+local DEFAULT_SCAN_PARALLELISM = 32
 
 local SIDE_NAMES = {
   front = true,
@@ -429,8 +428,6 @@ local function scanParallelism(config)
 
   if requested < 1 then
     return 1
-  elseif requested > MAX_SCAN_PARALLELISM then
-    return MAX_SCAN_PARALLELISM
   end
 
   return requested
