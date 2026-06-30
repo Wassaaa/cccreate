@@ -681,7 +681,7 @@ local function stabilizeConfig(config, options)
         or tonumber(config.maxAttitudeDelta)
         or 2,
     brakeOnExit = defaults.brakeOnExit ~= false,
-    reportFrameLimit = tonumber(options.reportFrameLimit) or tonumber(defaults.reportFrameLimit) or 600,
+    reportFrameLimit = tonumber(options.reportFrameLimit) or tonumber(defaults.reportFrameLimit) or 120,
     yaw = {
       enabled = yawEnabled,
       rateKd = math.max(0, tonumber(options.yawRateKd) or tonumber(yaw.rateKd) or 0.15),
@@ -1780,28 +1780,198 @@ local function compactControllerFrame(control)
     return nil
   end
 
-  return {
+  local pressed = pressedControls(control)
+  local result = {
     enabled = control.enabled == true,
     type = control.type,
-    synthetic = control.synthetic == true,
-    pulseActive = control.pulseActive == true,
-    pulseSeconds = control.pulseSeconds,
-    throttle = control.throttle,
     throttlePower = control.throttlePower,
-    axis1 = control.axis1,
-    axis2 = control.axis2,
-    yaw = control.yaw,
-    rawAxis1Target = control.rawAxis1Target,
-    rawAxis2Target = control.rawAxis2Target,
-    rawThrottlePower = control.rawThrottlePower,
-    rawYaw = control.rawYaw,
     throttleMode = control.throttleMode,
     heldThrottlePower = control.heldThrottlePower,
-    axis1Target = control.axis1Target,
-    axis2Target = control.axis2Target,
-    axis1Power = control.axis1Power,
-    axis2Power = control.axis2Power,
-    pressed = pressedControls(control),
+    pressed = #pressed > 0 and pressed or nil,
+  }
+
+  if control.synthetic == true then
+    result.synthetic = true
+    result.pulseActive = control.pulseActive == true
+    result.pulseSeconds = control.pulseSeconds
+  end
+
+  if math.abs(tonumber(control.throttle) or 0) > 0.0001 then
+    result.throttle = control.throttle
+  end
+  if math.abs(tonumber(control.axis1) or 0) > 0.0001 then
+    result.axis1 = control.axis1
+  end
+  if math.abs(tonumber(control.axis2) or 0) > 0.0001 then
+    result.axis2 = control.axis2
+  end
+  if math.abs(tonumber(control.yaw) or 0) > 0.0001 then
+    result.yaw = control.yaw
+  end
+  if math.abs(tonumber(control.axis1Target) or 0) > 0.0001 then
+    result.axis1Target = control.axis1Target
+  end
+  if math.abs(tonumber(control.axis2Target) or 0) > 0.0001 then
+    result.axis2Target = control.axis2Target
+  end
+  if math.abs(tonumber(control.axis1Power) or 0) > 0.0001 then
+    result.axis1Power = control.axis1Power
+  end
+  if math.abs(tonumber(control.axis2Power) or 0) > 0.0001 then
+    result.axis2Power = control.axis2Power
+  end
+
+  return result
+end
+
+local function tableHasEntries(value)
+  return type(value) == "table" and next(value) ~= nil
+end
+
+local function compactRead(read)
+  if type(read) ~= "table" then
+    return read
+  end
+
+  if read.ok == false then
+    return {
+      ok = false,
+      method = read.method,
+      error = read.error,
+    }
+  end
+
+  if read.ok == true then
+    return copyPlain(read.value)
+  end
+
+  return copyPlain(read)
+end
+
+local function compactSetterResult(result, keepValue)
+  if type(result) ~= "table" then
+    return result
+  end
+
+  local compact = {}
+  if result.ok ~= nil then
+    compact.ok = result.ok
+  end
+  if result.method ~= nil then
+    compact.method = result.method
+  end
+  if result.error ~= nil then
+    compact.error = result.error
+  end
+  if result.skipped ~= nil then
+    compact.skipped = result.skipped
+  end
+  if result.dryRun == true then
+    compact.dryRun = true
+  end
+
+  if keepValue and result.value ~= nil then
+    compact.value = copyPlain(result.value)
+  elseif type(result.value) == "table" and tableHasEntries(result.value) then
+    compact.value = copyPlain(result.value)
+  end
+
+  if result.target ~= nil then
+    compact.target = copyPlain(result.target)
+  end
+
+  return compact
+end
+
+local function compactRoleResults(results, keepValue)
+  if type(results) ~= "table" then
+    return results
+  end
+
+  local compact = {}
+  for _, role in ipairs(ROLE_ORDER) do
+    local result = results[role]
+    if type(result) == "table" then
+      local interesting = result.ok == false
+        or result.error ~= nil
+        or result.skipped ~= nil
+        or result.dryRun == true
+      if keepValue or interesting then
+        compact[role] = compactSetterResult(result, keepValue)
+      end
+    elseif result ~= nil and keepValue then
+      compact[role] = result
+    end
+  end
+
+  return tableHasEntries(compact) and compact or nil
+end
+
+local function compactWriteDecision(write)
+  if type(write) ~= "table" then
+    return write
+  end
+
+  return {
+    write = write.write == true,
+    reason = write.reason,
+    delta = write.delta,
+    elapsedSinceWrite = write.elapsedSinceWrite,
+  }
+end
+
+local function compactYawSetResults(results)
+  if type(results) ~= "table" then
+    return results
+  end
+
+  local roleResults = compactRoleResults(results.results, false)
+  if not roleResults then
+    return nil
+  end
+
+  return {
+    applied = results.applied == true,
+    skipped = results.skipped,
+    write = compactWriteDecision(results.write),
+    results = roleResults,
+  }
+end
+
+local function compactActuatorFrame(actuator)
+  if not actuator then
+    return nil
+  end
+
+  return {
+    type = actuator.type,
+    roleFamily = actuator.roleFamily,
+    outputLabel = actuator.outputLabel,
+    outputKind = actuator.outputKind,
+    method = actuator.method,
+    controlMode = actuator.controlMode,
+    roleSigns = copyPlain(actuator.roleSigns),
+  }
+end
+
+local function compactDesaturationFrame(desaturation)
+  if not desaturation then
+    return nil
+  end
+
+  local shift = tonumber(desaturation.shift) or 0
+  return {
+    enabled = desaturation.enabled ~= false,
+    unit = desaturation.unit,
+    headroom = desaturation.headroom,
+    inputMin = desaturation.inputMin,
+    inputMax = desaturation.inputMax,
+    outputMin = desaturation.outputMin,
+    outputMax = desaturation.outputMax,
+    shift = math.abs(shift) > 0.000001 and shift or nil,
+    scaled = desaturation.scaled == true and true or nil,
+    scale = desaturation.scaled == true and desaturation.scale or nil,
+    saturated = desaturation.saturated == true and true or nil,
   }
 end
 
@@ -1810,25 +1980,26 @@ local function compactMixedFrame(mixed)
     return nil
   end
 
+  local rpmMode = mixed.targetRpm ~= nil
+  local rawPower = nil
+  local power = nil
+  local signals = nil
+  if not rpmMode then
+    rawPower = copyPlain(mixed.rawPower)
+    power = copyPlain(mixed.power)
+    signals = copyPlain(mixed.signals)
+  end
+
   return {
     angle1 = mixed.angle1,
     angle2 = mixed.angle2,
     rate1 = mixed.rate1,
     rate2 = mixed.rate2,
     yawRate = mixed.yawRate,
-    rawRate1 = mixed.rawRate1,
-    rawRate2 = mixed.rawRate2,
-    rawYawRate = mixed.rawYawRate,
-    rawError1 = mixed.rawError1,
-    rawError2 = mixed.rawError2,
     measured1 = mixed.measured1,
     measured2 = mixed.measured2,
     target1 = mixed.target1,
     target2 = mixed.target2,
-    rawControlPower1 = mixed.rawControlPower1,
-    rawControlPower2 = mixed.rawControlPower2,
-    rawControlRpm1 = mixed.rawControlRpm1,
-    rawControlRpm2 = mixed.rawControlRpm2,
     controlPower1 = mixed.controlPower1,
     controlPower2 = mixed.controlPower2,
     controlRpm1 = mixed.controlRpm1,
@@ -1851,16 +2022,15 @@ local function compactMixedFrame(mixed)
     tiltCompensation = copyPlain(mixed.tiltCompensation),
     basePower = mixed.basePower,
     baseRpm = mixed.baseRpm,
-    rawPower = copyPlain(mixed.rawPower),
-    power = copyPlain(mixed.power),
+    rawPower = rawPower,
+    power = power,
     rawTargetRpm = copyPlain(mixed.rawTargetRpm),
     targetRpm = copyPlain(mixed.targetRpm),
-    desaturation = copyPlain(mixed.desaturation),
+    desaturation = compactDesaturationFrame(mixed.desaturation),
     desiredSignals = copyPlain(mixed.desiredSignals),
-    signals = copyPlain(mixed.signals),
+    signals = signals,
     outputs = copyPlain(mixed.outputs),
-    displayValues = copyPlain(mixed.displayValues),
-    actuator = copyPlain(mixed.actuator),
+    actuator = compactActuatorFrame(mixed.actuator),
   }
 end
 
@@ -2022,22 +2192,213 @@ local function updateTimingSummary(timing, frameTiming, recentFrames)
   }
 end
 
+local function compactTimingFrame(timing)
+  if not timing then
+    return nil
+  end
+
+  return {
+    startedAt = timing.startedAt,
+    finishedAt = timing.finishedAt,
+    lateness = timing.lateness,
+    dt = timing.dt,
+    total = timing.total,
+    missed = timing.missed == true,
+    phases = copyPlain(timing.phases),
+  }
+end
+
+local function compactKillSwitchFrame(killSwitch)
+  if not killSwitch then
+    return nil
+  end
+
+  local checks = nil
+  if (killSwitch.triggered or killSwitch.ok == false) and type(killSwitch.checks) == "table" then
+    checks = {}
+    for _, check in ipairs(killSwitch.checks) do
+      table.insert(checks, {
+        source = check.source,
+        side = check.side,
+        key = check.key,
+        binding = copyPlain(check.binding),
+        ok = check.ok,
+        input = check.input,
+        rawInput = check.rawInput,
+        pressed = check.pressed,
+        triggered = check.triggered == true,
+        error = check.error,
+      })
+    end
+  end
+
+  return {
+    enabled = killSwitch.enabled == true,
+    source = killSwitch.source,
+    key = killSwitch.key,
+    ok = killSwitch.ok,
+    triggered = killSwitch.triggered == true,
+    triggeredBy = killSwitch.triggeredBy,
+    error = killSwitch.error,
+    checks = tableHasEntries(checks) and checks or nil,
+  }
+end
+
+local function compactYawCommand(command, includeTarget)
+  if type(command) ~= "table" then
+    return command
+  end
+
+  return {
+    skipped = command.skipped,
+    radius = command.radius,
+    worldRadius = command.worldRadius,
+    target = includeTarget and copyPlain(command.target) or nil,
+  }
+end
+
+local function compactYawFrame(yaw)
+  if not yaw then
+    return nil
+  end
+
+  local includeTargets = yaw.write and yaw.write.write == true
+  local commands = nil
+  if type(yaw.commands) == "table" and (includeTargets or yaw.skipped) then
+    commands = {}
+    for _, role in ipairs(ROLE_ORDER) do
+      if yaw.commands[role] ~= nil then
+        commands[role] = compactYawCommand(yaw.commands[role], includeTargets)
+      end
+    end
+  end
+
+  return {
+    enabled = yaw.enabled == true,
+    skipped = yaw.skipped,
+    error = yaw.error,
+    yawRate = yaw.yawRate,
+    yawRateDegPerSecond = yaw.yawRateDegPerSecond,
+    activeYawRate = yaw.activeYawRate,
+    headingRad = yaw.headingRad,
+    commandYaw = yaw.commandYaw,
+    rateLateral = yaw.rateLateral,
+    commandLateral = yaw.commandLateral,
+    rawLateral = yaw.rawLateral,
+    lateral = yaw.lateral,
+    tiltDeg = yaw.tiltDeg,
+    sign = yaw.sign,
+    write = compactWriteDecision(yaw.write),
+    commands = tableHasEntries(commands) and commands or nil,
+  }
+end
+
+local function compactRotorTelemetry(telemetry)
+  if type(telemetry) ~= "table" then
+    return telemetry
+  end
+
+  return {
+    rotorThrust = compactRead(telemetry.rotorThrust),
+    thrustHandedness = compactRead(telemetry.thrustHandedness),
+    thrustVector = compactRead(telemetry.thrustVector),
+    tiltAngle = compactRead(telemetry.tiltAngle),
+    stabilizationStrength = compactRead(telemetry.stabilizationStrength),
+    manualTarget = compactRead(telemetry.manualTarget),
+  }
+end
+
+local function compactActuatorTelemetry(telemetry)
+  if type(telemetry) ~= "table" then
+    return telemetry
+  end
+
+  local roles = {}
+  for _, role in ipairs(ROLE_ORDER) do
+    local roleTelemetry = telemetry.roles and telemetry.roles[role]
+    if roleTelemetry then
+      roles[role] = {
+        ok = roleTelemetry.ok,
+        error = roleTelemetry.error,
+        output = compactRead(roleTelemetry.output),
+        targetSpeed = compactRead(roleTelemetry.targetSpeed),
+        speed = compactRead(roleTelemetry.speed),
+        outputSpeed = compactRead(roleTelemetry.outputSpeed),
+        signal = compactRead(roleTelemetry.signal),
+        shiftLevel = compactRead(roleTelemetry.shiftLevel),
+      }
+    end
+  end
+
+  return {
+    type = telemetry.type,
+    outputLabel = telemetry.outputLabel,
+    roles = tableHasEntries(roles) and roles or nil,
+  }
+end
+
+local function compactSensorTelemetry(sensors)
+  if type(sensors) ~= "table" then
+    return sensors
+  end
+
+  local navigation = sensors.navigation
+  local altitude = sensors.altitude
+  return {
+    navigation = navigation and {
+      source = navigation.source,
+      heading = compactRead(navigation.heading),
+      headingRad = compactRead(navigation.headingRad),
+      hasTarget = compactRead(navigation.hasTarget),
+      targetType = compactRead(navigation.targetType),
+      bearingRad = compactRead(navigation.bearingRad),
+      distanceToTarget = compactRead(navigation.distanceToTarget),
+    } or nil,
+    altitude = altitude and {
+      source = altitude.source,
+      height = compactRead(altitude.height),
+      verticalSpeed = compactRead(altitude.verticalSpeed),
+      airPressure = compactRead(altitude.airPressure),
+    } or nil,
+  }
+end
+
+local function compactTelemetryFrame(telemetry)
+  if not telemetry then
+    return nil
+  end
+
+  local roles = {}
+  for _, role in ipairs(ROLE_ORDER) do
+    local roleTelemetry = telemetry.roles and telemetry.roles[role]
+    if roleTelemetry then
+      roles[role] = compactRotorTelemetry(roleTelemetry)
+    end
+  end
+
+  return {
+    roles = tableHasEntries(roles) and roles or nil,
+    actuators = compactActuatorTelemetry(telemetry.actuators),
+    sensors = compactSensorTelemetry(telemetry.sensors),
+  }
+end
+
 local function compactStabilizeFrame(frame)
   return {
     index = frame.index,
     elapsed = frame.elapsed,
-    timing = copyPlain(frame.timing),
-    dryRun = frame.dryRun == true,
-    aborted = frame.aborted == true,
+    timing = compactTimingFrame(frame.timing),
+    dryRun = frame.dryRun == true and true or nil,
+    aborted = frame.aborted == true and true or nil,
     abortReason = frame.abortReason,
-    killSwitch = copyPlain(frame.killSwitch),
+    killSwitch = compactKillSwitchFrame(frame.killSwitch),
     controller = compactControllerFrame(frame.controller),
     mixed = compactMixedFrame(frame.mixed),
-    actuatorWrite = copyPlain(frame.actuatorWrite),
-    setResults = copyPlain(frame.setResults),
-    yaw = copyPlain(frame.yaw),
-    yawSetResults = copyPlain(frame.yawSetResults),
-    telemetry = copyPlain(frame.telemetry),
+    actuatorWrite = compactWriteDecision(frame.actuatorWrite),
+    setResults = compactRoleResults(frame.setResults, false),
+    yaw = compactYawFrame(frame.yaw),
+    yawSetResults = compactYawSetResults(frame.yawSetResults),
+    telemetry = compactTelemetryFrame(frame.telemetry),
   }
 end
 
@@ -2389,7 +2750,7 @@ function flightControl.stabilize(config, options)
       timing.summary = copyPlain(timingHealth)
       previousTimingHealth = timingHealth
       if compactFrame then
-        compactFrame.timing = copyPlain(timing)
+        compactFrame.timing = compactTimingFrame(timing)
       end
 
       if attitudeExceeded or killSwitch.triggered then

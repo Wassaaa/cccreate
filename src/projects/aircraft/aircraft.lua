@@ -84,7 +84,7 @@ local DEFAULT_CONFIG = {
     tiltCompensationMaxPower = 2,
     signalDither = true,
     brakeOnExit = true,
-    reportFrameLimit = 600,
+    reportFrameLimit = 120,
   },
   yaw = {
     enabled = true,
@@ -154,6 +154,7 @@ local function usage()
   print("aircraft config stabilize-desaturate <true|false> [headroomPower]")
   print("aircraft config stabilize-tilt-comp <true|false> [gain] [maxPower]")
   print("aircraft config stabilize-dither <true|false>")
+  print("aircraft config report-frames <n>")
   print("aircraft config yaw <true|false> [rateKd] [maxTiltDeg] [sign] [commandLateral]")
   print("aircraft config yaw-writes <intervalSeconds> [deadband]")
   print("aircraft config display <true|false>")
@@ -1137,6 +1138,16 @@ local function runConfig()
     config.stabilize.signalDither = parseBoolean(args[3])
     saveConfig(config)
     print("Saved stabilize.signalDither=" .. tostring(config.stabilize.signalDither) .. " to " .. CONFIG_PATH)
+    return
+  elseif subcommand == "report-frames" then
+    local limit = parseNumber(args[3], "frameLimit")
+    if limit < 0 then
+      error("frameLimit must be zero or greater", 0)
+    end
+
+    config.stabilize.reportFrameLimit = math.floor(limit)
+    saveConfig(config)
+    print("Saved stabilize.reportFrameLimit=" .. tostring(config.stabilize.reportFrameLimit) .. " to " .. CONFIG_PATH)
     return
   elseif subcommand == "yaw" then
     config.yaw = config.yaw or {}

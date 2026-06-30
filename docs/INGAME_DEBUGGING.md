@@ -75,6 +75,18 @@ Send a note:
 report note testing after update
 ```
 
+For aircraft stabilize reports, keep saved frames low enough for the webhook:
+
+```text
+aircraft config report-frames 120
+```
+
+Use a one-off lower limit during rapid tuning if needed:
+
+```text
+aircraft stabilize --apply --controller --forever --report-frames 80
+```
+
 Run a command and send its captured output:
 
 ```text

@@ -101,7 +101,7 @@ return {
     tiltCompensationMaxPower = 2,
     signalDither = true,
     brakeOnExit = true,
-    reportFrameLimit = 600,
+    reportFrameLimit = 120,
   },
   yaw = {
     -- Damps spin around the craft up axis by tilting gyroscopic propeller

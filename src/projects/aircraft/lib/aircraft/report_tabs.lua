@@ -219,7 +219,7 @@ local function configSections(config)
   add(stabilize, config, "stabilize.tiltCompensationMaxPower", "Maximum extra power tilt compensation may add.")
   add(stabilize, config, "stabilize.signalDither", "Spreads fractional desired signals over time so redstone integer outputs average closer to the float target.", "aircraft config stabilize-dither true")
   add(stabilize, config, "stabilize.brakeOnExit", "Writes brakeSignal when stabilize exits, errors, or aborts.")
-  add(stabilize, config, "stabilize.reportFrameLimit", "Maximum recent control frames kept in the saved report. Lower saves space; higher gives more history.", nil)
+  add(stabilize, config, "stabilize.reportFrameLimit", "Maximum recent control frames kept in the saved report. Lower saves space; higher gives more history.", "aircraft config report-frames 120")
 
   local yaw = {}
   add(yaw, config, "yaw.enabled", "When true, stabilize damps yaw rate by tilting gyroscopic propeller bearings with setManualTarget.", "aircraft config yaw true 0.15 8 1 0.08")
