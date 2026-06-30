@@ -212,6 +212,11 @@ function actuators.settings(config, options)
 
     local idleRpm = tonumber(speedConfig.idleRpm) or 0
     local powerRpm = math.abs(tonumber(speedConfig.powerRpm) or 256)
+    local baseRpm = tonumber(options.baseRpm)
+      or tonumber(speedConfig.baseRpm)
+      or (powerRpm * ((tonumber(config.stabilize and config.stabilize.basePower) or 0) / maxPower))
+    local maxTargetRpm = math.abs(tonumber(speedConfig.maxTargetRpm)
+      or math.max(math.abs(tonumber(speedConfig.minRpm) or -256), math.abs(tonumber(speedConfig.maxRpm) or 256)))
 
     return {
       type = "rotation_speed",
@@ -231,7 +236,41 @@ function actuators.settings(config, options)
       sign = signValue(speedConfig.sign),
       autoRoleSigns = speedConfig.autoRoleSigns ~= false,
       roleSigns = roleSignsFromConfig(speedConfig.roleSigns),
-      round = speedConfig.round ~= false,
+      round = speedConfig.round == true,
+      controlMode = "rpm_native",
+      baseRpm = baseRpm,
+      throttleRpmPerPower = tonumber(options.throttleRpmPerPower)
+        or tonumber(speedConfig.throttleRpmPerPower)
+        or (powerRpm / maxPower),
+      axisPowerRpmPerPower = tonumber(options.axisPowerRpmPerPower)
+        or tonumber(speedConfig.axisPowerRpmPerPower),
+      axis1KpRpm = tonumber(options.axis1KpRpm)
+        or tonumber(options.kpRpm)
+        or tonumber(speedConfig.axis1KpRpm)
+        or tonumber(speedConfig.axis1Kp)
+        or 0,
+      axis1KdRpm = tonumber(options.axis1KdRpm)
+        or tonumber(options.kdRpm)
+        or tonumber(speedConfig.axis1KdRpm)
+        or tonumber(speedConfig.axis1Kd)
+        or 0,
+      axis2KpRpm = tonumber(options.axis2KpRpm)
+        or tonumber(options.kpRpm)
+        or tonumber(speedConfig.axis2KpRpm)
+        or tonumber(speedConfig.axis2Kp)
+        or 0,
+      axis2KdRpm = tonumber(options.axis2KdRpm)
+        or tonumber(options.kdRpm)
+        or tonumber(speedConfig.axis2KdRpm)
+        or tonumber(speedConfig.axis2Kd)
+        or 0,
+      axis1TrimRpm = tonumber(options.axis1TrimRpm) or tonumber(speedConfig.axis1TrimRpm) or 0,
+      axis2TrimRpm = tonumber(options.axis2TrimRpm) or tonumber(speedConfig.axis2TrimRpm) or 0,
+      maxCorrectionRpm = math.abs(tonumber(options.maxCorrectionRpm) or tonumber(speedConfig.maxCorrectionRpm) or 0),
+      minTargetRpm = math.max(0, tonumber(options.minTargetRpm) or tonumber(speedConfig.minTargetRpm) or 0),
+      maxTargetRpm = math.abs(tonumber(options.maxTargetRpm) or maxTargetRpm),
+      writeInterval = math.max(0, tonumber(options.writeInterval) or tonumber(speedConfig.writeInterval) or 0.1),
+      writeDeadbandRpm = math.max(0, tonumber(options.writeDeadbandRpm) or tonumber(speedConfig.writeDeadbandRpm) or 0.5),
     }
   end
 
@@ -406,6 +445,52 @@ function actuators.outputsFromPower(settings, powerByRole, residuals)
     frame.desiredSignals[role] = desired
     frame.outputs[role] = signal
     frame.displayValues[role] = signal
+  end
+
+  return frame
+end
+
+local function signedSpeed(settings, localRpm, role)
+  local roleSign = settings.roleSigns and settings.roleSigns[role] or 1
+  local speed = (tonumber(settings.sign) or 1) * roleSign * (tonumber(localRpm) or 0)
+  speed = clamp(speed, tonumber(settings.minRpm) or -256, tonumber(settings.maxRpm) or 256)
+
+  if settings.round == true then
+    speed = round(speed)
+  end
+
+  return speed
+end
+
+function actuators.outputsFromRpm(settings, rpmByRole)
+  local frame = {
+    type = settings.type,
+    roleFamily = settings.roleFamily,
+    outputLabel = settings.outputLabel,
+    outputKind = settings.outputKind,
+    method = settings.setter,
+    outputs = {},
+    displayValues = {},
+    targetSpeeds = {},
+    desiredTargetSpeeds = {},
+    localTargetRpm = {},
+    roleSigns = copyPlain(settings.roleSigns),
+    roleSignSources = copyPlain(settings.roleSignSources),
+    controlMode = "rpm_native",
+  }
+
+  local minTarget = math.max(0, tonumber(settings.minTargetRpm) or 0)
+  local maxTarget = math.max(minTarget, tonumber(settings.maxTargetRpm) or 256)
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local localTarget = clamp(tonumber(rpmByRole and rpmByRole[role]) or 0, minTarget, maxTarget)
+    local target = signedSpeed(settings, localTarget, role)
+
+    frame.localTargetRpm[role] = localTarget
+    frame.outputs[role] = target
+    frame.targetSpeeds[role] = target
+    frame.desiredTargetSpeeds[role] = target
+    frame.displayValues[role] = target
   end
 
   return frame

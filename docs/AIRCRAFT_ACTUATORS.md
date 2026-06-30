@@ -1,14 +1,14 @@
 # Aircraft Actuator Backends
 
-The aircraft stabilizer computes four per-rotor power demands from the same PD mixer regardless of how the drivetrain is controlled. The final write step is selected by `actuator.type`.
+The aircraft stabilizer selects its rotor mixer and write step by `actuator.type`. The legacy backend keeps the original redstone-power PD path; the rotation-speed backend uses native RPM values.
 
 ## Backends
 
 `redstone_signal` is the default and keeps the current analog-transmission setup. The mixer power range is `0..absoluteSignalMax`; output is inverted as `brakeSignal - power`, then written with `setSignal` to the scanned `scalarActuator` role map.
 
-`rotation_speed` maps that same mixer power range to target RPM and writes it to scanned `speedActuator` roles. Create Rotation Speed Controllers expose `setTargetSpeed(speed)` and `getTargetSpeed()`, with target speed clamped by the block to the in-game `-256..256 RPM` range.
+`rotation_speed` uses a separate RPM-native mixer and writes it to scanned `speedActuator` roles. Create Rotation Speed Controllers expose `setTargetSpeed(speed)` and `getTargetSpeed()`, with target speed clamped by the block to the in-game `-256..256 RPM` range. The setter yields until the next server tick, so the backend throttles repeated writes with `writeInterval` and `writeDeadbandRpm`.
 
-Default mapping:
+Default rotation-speed config:
 
 ```lua
 actuator = {
@@ -25,18 +25,37 @@ actuator = {
     sign = 1,
     autoRoleSigns = true,
     roleSigns = nil,
-    round = true,
+    round = false,
+    baseRpm = 0,
+    throttleRpmPerPower = 16,
+    axis1KpRpm = 0,
+    axis1KdRpm = 0,
+    axis2KpRpm = 0,
+    axis2KdRpm = 0,
+    axis1TrimRpm = 0,
+    axis2TrimRpm = 0,
+    maxCorrectionRpm = 0,
+    minTargetRpm = 0,
+    maxTargetRpm = 256,
+    writeInterval = 0.1,
+    writeDeadbandRpm = 0.5,
   },
 }
 ```
 
-For rotation speed control, target RPM is:
+For legacy power-to-RPM diagnostics, target RPM is still available as:
 
 ```text
 idleRpm + sign * roleSign * powerRpm * clamp(power / maxPower, 0, 1)
 ```
 
-The result is clamped to `minRpm..maxRpm` and rounded by default because the Create controller API expects integer RPM. `roleSign` defaults to scan-derived controller-to-rotor geometry when `autoRoleSigns=true`; use `aircraft config rotation-speed-signs 1 1 -1 -1` for an explicit override.
+The active stabilizer path for `rotation_speed` does not use `stabilize.basePower`, `stabilize.axis*Kp`, `stabilize.axis*Kd`, or `stabilize.maxCorrection`. It computes native local target RPM directly:
+
+```text
+baseRpm + controllerThrottle * throttleRpmPerPower +/- axis RPM corrections
+```
+
+The local unsigned target is clamped to `minTargetRpm..maxTargetRpm`, then multiplied by global `sign` and per-corner `roleSign`, then clamped to `minRpm..maxRpm` before writing. Fractional RPM is sent by default; set `round=true` only for a future block that rejects floats. `roleSign` defaults to scan-derived controller-to-rotor geometry when `autoRoleSigns=true`; use `aircraft config rotation-speed-signs 1 1 -1 -1` for an explicit override.
 
 ## Migration Flow
 
@@ -50,8 +69,10 @@ When ready:
 
 ```text
 aircraft config actuator-type rotation_speed
-aircraft config rotation-speed 256 0 1 0 -256 256
 aircraft config rotation-speed-signs auto
+aircraft config rotation-speed 256 0 1 0 -256 256
+aircraft config rotation-speed-control <baseRpm> <maxCorrectionRpm> <axis1KpRpm> <axis1KdRpm> [axis2KpRpm] [axis2KdRpm] [throttleRpmPerPower]
+aircraft config rotation-speed-writes 0.1 0.5
 aircraft scan
 aircraft status
 aircraft stabilize --seconds 1
@@ -64,6 +85,12 @@ For A/B testing on a practice rig:
 ```text
 aircraft stabilize --seconds 1 --actuator-type redstone_signal
 aircraft stabilize --seconds 1 --actuator-type rotation_speed
+```
+
+For one-off tuning without saving config:
+
+```text
+aircraft stabilize --seconds 1 --actuator-type rotation_speed --base-rpm 120 --kp-rpm 80 --kd-rpm 25 --max-correction-rpm 40
 ```
 
 `aircraft stabilize`, `aircraft brake`, the HUD, displays, and reports use the selected actuator backend. `aircraft signal` intentionally remains a raw `setSignal` diagnostic for the legacy redstone/transmission hardware.

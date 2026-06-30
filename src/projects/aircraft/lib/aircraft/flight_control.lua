@@ -1134,6 +1134,124 @@ local function mixerSignals(settings, state, control, signalResiduals)
   local rate1 = rawRate1
   local rate2 = rawRate2
 
+  if settings.actuator and settings.actuator.type == "rotation_speed" then
+    local rpm = settings.actuator
+    local throttleRpm = (tonumber(control.throttlePower) or 0) * (tonumber(rpm.throttleRpmPerPower) or 0)
+    local baseRpmBeforeTilt = (tonumber(rpm.baseRpm) or 0) + throttleRpm
+    local rawControlRpm1 = rawControlPower1 * (tonumber(rpm.axisPowerRpmPerPower) or tonumber(rpm.throttleRpmPerPower) or 1)
+    local rawControlRpm2 = rawControlPower2 * (tonumber(rpm.axisPowerRpmPerPower) or tonumber(rpm.throttleRpmPerPower) or 1)
+    local controlRpm1 = targetAssistPower(rawControlRpm1, error1, target1)
+    local controlRpm2 = targetAssistPower(rawControlRpm2, error2, target2)
+    local rawCorrection1Rpm = -((tonumber(rpm.axis1KpRpm) or 0) * error1 + (tonumber(rpm.axis1KdRpm) or 0) * rate1)
+      + (tonumber(rpm.axis1TrimRpm) or 0)
+      + controlRpm1
+    local rawCorrection2Rpm = -((tonumber(rpm.axis2KpRpm) or 0) * error2 + (tonumber(rpm.axis2KdRpm) or 0) * rate2)
+      + (tonumber(rpm.axis2TrimRpm) or 0)
+      + controlRpm2
+    local maxCorrectionRpm = math.abs(tonumber(rpm.maxCorrectionRpm) or 0)
+    local correction1Rpm = maxCorrectionRpm > 0
+      and clamp(rawCorrection1Rpm, -maxCorrectionRpm, maxCorrectionRpm)
+      or rawCorrection1Rpm
+    local correction2Rpm = maxCorrectionRpm > 0
+      and clamp(rawCorrection2Rpm, -maxCorrectionRpm, maxCorrectionRpm)
+      or rawCorrection2Rpm
+    local baseRpm = baseRpmBeforeTilt
+    local rawTargetRpm = {
+      front_left = baseRpm + correction1Rpm - correction2Rpm,
+      front_right = baseRpm - correction1Rpm - correction2Rpm,
+      rear_left = baseRpm + correction1Rpm + correction2Rpm,
+      rear_right = baseRpm - correction1Rpm + correction2Rpm,
+    }
+    local targetRpm = {}
+    local minTarget = math.max(0, tonumber(rpm.minTargetRpm) or 0)
+    local maxTarget = math.max(minTarget, tonumber(rpm.maxTargetRpm) or 256)
+    local saturated = false
+
+    for _, role in ipairs(ROLE_ORDER) do
+      local raw = tonumber(rawTargetRpm[role]) or 0
+      targetRpm[role] = clamp(raw, minTarget, maxTarget)
+      if math.abs(targetRpm[role] - raw) > 0.000001 then
+        saturated = true
+      end
+    end
+
+    local actuatorFrame = actuators.outputsFromRpm(rpm, targetRpm)
+
+    return {
+      angle1 = currentTilt.axis1,
+      angle2 = currentTilt.axis2,
+      rate1 = rate1,
+      rate2 = rate2,
+      yawRate = rawYawRate,
+      rawRate1 = rawRate1,
+      rawRate2 = rawRate2,
+      rawYawRate = rawYawRate,
+      neutral1 = 0,
+      neutral2 = 0,
+      currentTilt = currentTilt,
+      neutralTilt = {
+        axis1 = 0,
+        axis2 = 0,
+        pitch = 0,
+        roll = 0,
+      },
+      rawError1 = rawError1,
+      rawError2 = rawError2,
+      measured1 = measured1,
+      measured2 = measured2,
+      target1 = target1,
+      target2 = target2,
+      rawControlPower1 = rawControlPower1,
+      rawControlPower2 = rawControlPower2,
+      rawControlRpm1 = rawControlRpm1,
+      rawControlRpm2 = rawControlRpm2,
+      controlPower1 = controlRpm1,
+      controlPower2 = controlRpm2,
+      controlRpm1 = controlRpm1,
+      controlRpm2 = controlRpm2,
+      error1 = error1,
+      error2 = error2,
+      rawCorrection1 = rawCorrection1Rpm,
+      rawCorrection2 = rawCorrection2Rpm,
+      rawCorrection1Rpm = rawCorrection1Rpm,
+      rawCorrection2Rpm = rawCorrection2Rpm,
+      trim1 = tonumber(rpm.axis1TrimRpm) or 0,
+      trim2 = tonumber(rpm.axis2TrimRpm) or 0,
+      correction1 = correction1Rpm,
+      correction2 = correction2Rpm,
+      correction1Rpm = correction1Rpm,
+      correction2Rpm = correction2Rpm,
+      correctionLimited = correction1Rpm ~= rawCorrection1Rpm
+        or correction2Rpm ~= rawCorrection2Rpm,
+      basePowerBeforeTilt = baseRpmBeforeTilt,
+      baseRpmBeforeTilt = baseRpmBeforeTilt,
+      throttleRpm = throttleRpm,
+      tiltCompensationPower = 0,
+      tiltCompensation = {
+        enabled = false,
+        source = "rpm_native",
+      },
+      basePower = baseRpm,
+      baseRpm = baseRpm,
+      rawPower = rawTargetRpm,
+      power = targetRpm,
+      rawTargetRpm = rawTargetRpm,
+      targetRpm = targetRpm,
+      desaturation = {
+        enabled = false,
+        saturated = saturated,
+        outputMin = select(1, rangeOfPower(targetRpm)),
+        outputMax = select(2, rangeOfPower(targetRpm)),
+      },
+      control = copyPlain(control),
+      desiredSignals = actuatorFrame.desiredSignals,
+      signals = actuatorFrame.signals or actuatorFrame.outputs,
+      outputs = actuatorFrame.outputs,
+      displayValues = actuatorFrame.displayValues,
+      actuator = actuatorFrame,
+    }
+  end
+
   local rawCorrection1 = -(settings.axis1Kp * error1 + settings.axis1Kd * rate1) + settings.axis1Trim + controlPower1
   local rawCorrection2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2) + settings.axis2Trim + controlPower2
   local correction1 = clamp(rawCorrection1, -settings.maxCorrection, settings.maxCorrection)
@@ -1587,21 +1705,34 @@ local function compactMixedFrame(mixed)
     target2 = mixed.target2,
     rawControlPower1 = mixed.rawControlPower1,
     rawControlPower2 = mixed.rawControlPower2,
+    rawControlRpm1 = mixed.rawControlRpm1,
+    rawControlRpm2 = mixed.rawControlRpm2,
     controlPower1 = mixed.controlPower1,
     controlPower2 = mixed.controlPower2,
+    controlRpm1 = mixed.controlRpm1,
+    controlRpm2 = mixed.controlRpm2,
     error1 = mixed.error1,
     error2 = mixed.error2,
     rawCorrection1 = mixed.rawCorrection1,
     rawCorrection2 = mixed.rawCorrection2,
+    rawCorrection1Rpm = mixed.rawCorrection1Rpm,
+    rawCorrection2Rpm = mixed.rawCorrection2Rpm,
     correction1 = mixed.correction1,
     correction2 = mixed.correction2,
+    correction1Rpm = mixed.correction1Rpm,
+    correction2Rpm = mixed.correction2Rpm,
     correctionLimited = mixed.correctionLimited == true,
     basePowerBeforeTilt = mixed.basePowerBeforeTilt,
+    baseRpmBeforeTilt = mixed.baseRpmBeforeTilt,
+    throttleRpm = mixed.throttleRpm,
     tiltCompensationPower = mixed.tiltCompensationPower,
     tiltCompensation = copyPlain(mixed.tiltCompensation),
     basePower = mixed.basePower,
+    baseRpm = mixed.baseRpm,
     rawPower = copyPlain(mixed.rawPower),
     power = copyPlain(mixed.power),
+    rawTargetRpm = copyPlain(mixed.rawTargetRpm),
+    targetRpm = copyPlain(mixed.targetRpm),
     desaturation = copyPlain(mixed.desaturation),
     desiredSignals = copyPlain(mixed.desiredSignals),
     signals = copyPlain(mixed.signals),
@@ -1633,6 +1764,70 @@ local function emptyTimingHealth(settings)
     lastFrameSeconds = 0,
     lastMissed = false,
     rollingMissedFrames = 0,
+  }
+end
+
+local function outputDelta(previous, current)
+  local maxDelta = 0
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local before = tonumber(previous and previous[role])
+    local after = tonumber(current and current[role])
+
+    if before == nil or after == nil then
+      return math.huge
+    end
+
+    maxDelta = math.max(maxDelta, math.abs(after - before))
+  end
+
+  return maxDelta
+end
+
+local function shouldWriteActuators(settings, outputs, previousOutputs, elapsed, lastWriteElapsed)
+  if not settings or settings.type ~= "rotation_speed" then
+    return true, {
+      write = true,
+      reason = "every_frame",
+    }
+  end
+
+  local interval = math.max(0, tonumber(settings.writeInterval) or 0)
+  local deadband = math.max(0, tonumber(settings.writeDeadbandRpm) or 0)
+  local delta = outputDelta(previousOutputs, outputs)
+
+  if not previousOutputs or lastWriteElapsed == nil then
+    return true, {
+      write = true,
+      reason = "first_write",
+      delta = delta,
+      interval = interval,
+      deadband = deadband,
+    }
+  end
+
+  local elapsedSinceWrite = (tonumber(elapsed) or 0) - (tonumber(lastWriteElapsed) or 0)
+  local due = interval <= 0 or elapsedSinceWrite >= interval
+  local changed = delta >= deadband
+
+  if due and changed then
+    return true, {
+      write = true,
+      reason = "due_changed",
+      delta = delta,
+      elapsedSinceWrite = elapsedSinceWrite,
+      interval = interval,
+      deadband = deadband,
+    }
+  end
+
+  return false, {
+    write = false,
+    reason = due and "deadband" or "interval",
+    delta = delta,
+    elapsedSinceWrite = elapsedSinceWrite,
+    interval = interval,
+    deadband = deadband,
   }
 end
 
@@ -1716,6 +1911,8 @@ local function compactStabilizeFrame(frame)
     killSwitch = copyPlain(frame.killSwitch),
     controller = compactControllerFrame(frame.controller),
     mixed = compactMixedFrame(frame.mixed),
+    actuatorWrite = copyPlain(frame.actuatorWrite),
+    setResults = copyPlain(frame.setResults),
     yaw = copyPlain(frame.yaw),
     yawSetResults = copyPlain(frame.yawSetResults),
     telemetry = copyPlain(frame.telemetry),
@@ -1801,6 +1998,7 @@ function flightControl.stabilize(config, options)
     forever = settings.forever,
     interval = settings.interval,
     basePower = settings.basePower,
+    baseRpm = settings.actuator and settings.actuator.baseRpm,
   }
   report.settings = copyPlain(settings)
   report.attitudeTarget = {
@@ -1902,6 +2100,8 @@ function flightControl.stabilize(config, options)
       throttlePower = 0,
       heldThrottlePower = 0,
     }
+    local previousActuatorOutputs = nil
+    local previousActuatorWriteElapsed = nil
     local recentTimingFrames = {}
     local previousTimingHealth = emptyTimingHealth(settings)
 
@@ -1976,7 +2176,19 @@ function flightControl.stabilize(config, options)
         report.aborted = true
         report.abortReason = frame.abortReason
       elseif active then
-        frame.setResults = actuators.apply(actuatorContext, mixed.outputs)
+        local writeActuators, actuatorWrite = shouldWriteActuators(
+          settings.actuator,
+          mixed.outputs,
+          previousActuatorOutputs,
+          frame.elapsed,
+          previousActuatorWriteElapsed
+        )
+        frame.actuatorWrite = actuatorWrite
+        if writeActuators then
+          frame.setResults = actuators.apply(actuatorContext, mixed.outputs)
+          previousActuatorOutputs = copyPlain(mixed.outputs)
+          previousActuatorWriteElapsed = frame.elapsed
+        end
         frame.yawSetResults = applyYawTargets(gyroDevices, yawFrame, true)
       else
         frame.dryRun = true

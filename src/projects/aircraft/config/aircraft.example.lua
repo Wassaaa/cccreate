@@ -24,8 +24,8 @@ return {
   brakeSignal = 15,
   actuator = {
     -- redstone_signal keeps the current analog-transmission path.
-    -- rotation_speed maps the same PD power demand to target RPM and writes
-    -- setTargetSpeed on speedActuator role devices discovered by scan.
+    -- rotation_speed uses native RPM mixer gains and writes setTargetSpeed on
+    -- speedActuator role devices discovered by scan.
     type = "redstone_signal",
     redstoneSignal = {
       roleFamily = "scalarActuator",
@@ -47,7 +47,29 @@ return {
       -- drivetrain has an extra gear reversal.
       autoRoleSigns = true,
       roleSigns = nil,
-      round = true,
+      -- Keep false for fine Create Rotation Speed Controller targets. Set
+      -- true only for a future block that rejects fractional RPM values.
+      round = false,
+      -- Native RPM control. These are independent from stabilize.basePower,
+      -- stabilize.axis*Kp, stabilize.axis*Kd, and stabilize.maxCorrection,
+      -- which are retained for the redstone_signal backend.
+      baseRpm = 0,
+      throttleRpmPerPower = 16,
+      axis1KpRpm = 0,
+      axis1KdRpm = 0,
+      axis2KpRpm = 0,
+      axis2KdRpm = 0,
+      axis1TrimRpm = 0,
+      axis2TrimRpm = 0,
+      -- 0 means no correction cap; use a positive value while tuning.
+      maxCorrectionRpm = 0,
+      -- Local unsigned target range before sign/roleSign polarity is applied.
+      minTargetRpm = 0,
+      maxTargetRpm = 256,
+      -- setTargetSpeed yields until the next server tick, so avoid rewriting
+      -- identical targets every control frame.
+      writeInterval = 0.1,
+      writeDeadbandRpm = 0.5,
     },
   },
   maxAttitudeDelta = 2,

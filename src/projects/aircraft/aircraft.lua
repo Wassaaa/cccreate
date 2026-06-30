@@ -46,7 +46,20 @@ local DEFAULT_CONFIG = {
       sign = 1,
       autoRoleSigns = true,
       roleSigns = nil,
-      round = true,
+      round = false,
+      baseRpm = 0,
+      throttleRpmPerPower = 16,
+      axis1KpRpm = 0,
+      axis1KdRpm = 0,
+      axis2KpRpm = 0,
+      axis2KdRpm = 0,
+      axis1TrimRpm = 0,
+      axis2TrimRpm = 0,
+      maxCorrectionRpm = 0,
+      minTargetRpm = 0,
+      maxTargetRpm = 256,
+      writeInterval = 0.1,
+      writeDeadbandRpm = 0.5,
     },
   },
   maxAttitudeDelta = 2,
@@ -128,6 +141,8 @@ local function usage()
   print("aircraft config max-signal <0-15>")
   print("aircraft config actuator-type <redstone_signal|rotation_speed>")
   print("aircraft config rotation-speed <powerRpm> [idleRpm] [sign] [brakeRpm] [minRpm] [maxRpm]")
+  print("aircraft config rotation-speed-control <baseRpm> [maxCorrectionRpm] [axis1KpRpm] [axis1KdRpm] [axis2KpRpm] [axis2KdRpm] [throttleRpmPerPower]")
+  print("aircraft config rotation-speed-writes <intervalSeconds> [deadbandRpm]")
   print("aircraft config rotation-speed-signs <auto|fl fr rl rr>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
@@ -156,8 +171,8 @@ local function usage()
   print("aircraft controller [--seconds n] [--interval n]")
   print("aircraft killswitch [--seconds n] [--interval n] [--controller-type type]")
   print("aircraft displays [--seconds n] [--interval n]")
-  print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--controller-type type] [--yaw|--no-yaw] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
-  print("aircraft recover [--apply] [--seconds n] [--base-power n] [--axis1-target-deg n] [--axis2-target-deg n] [--axis1-power n] [--axis2-power n] [--pulse-seconds n]")
+  print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--base-rpm n] [--kp n] [--kd n] [--kp-rpm n] [--kd-rpm n] [--axis1-trim n] [--axis2-trim n] [--axis1-trim-rpm n] [--axis2-trim-rpm n] [--controller] [--controller-type type] [--yaw|--no-yaw] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
+  print("aircraft recover [--apply] [--seconds n] [--base-power n] [--base-rpm n] [--axis1-target-deg n] [--axis2-target-deg n] [--axis1-power n] [--axis2-power n] [--pulse-seconds n]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
   print("aircraft help")
   print("")
@@ -174,6 +189,9 @@ local function usage()
   print("  --nixie-interval <n> stabilize Nixie refresh seconds")
   print("  --report-frames <n> max stabilize frames kept in report")
   print("  --max-attitude-deg <n> abort when tilt error exceeds degrees")
+  print("  --base-rpm <n>     rotation_speed base target RPM for this run")
+  print("  --kp-rpm/--kd-rpm <n> rotation_speed PD gains for this run")
+  print("  --max-correction-rpm <n> rotation_speed correction cap")
   print("  --yaw-kd <n>       yaw-rate damping gain")
   print("  --yaw-max-tilt-deg <n> max gyro bearing yaw tilt, clamped to 12")
   print("  --yaw-deadband-deg <n> ignore smaller yaw rates")
@@ -701,6 +719,20 @@ local function printConfig(config, source)
   print("  actuator.rotationSpeed.sign=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.sign))
   print("  actuator.rotationSpeed.autoRoleSigns=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.autoRoleSigns))
   print("  actuator.rotationSpeed.roleSigns=" .. roleSignsText(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.roleSigns))
+  print("  actuator.rotationSpeed.round=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.round))
+  print("  actuator.rotationSpeed.baseRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.baseRpm))
+  print("  actuator.rotationSpeed.throttleRpmPerPower=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.throttleRpmPerPower))
+  print("  actuator.rotationSpeed.axis1KpRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.axis1KpRpm))
+  print("  actuator.rotationSpeed.axis1KdRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.axis1KdRpm))
+  print("  actuator.rotationSpeed.axis2KpRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.axis2KpRpm))
+  print("  actuator.rotationSpeed.axis2KdRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.axis2KdRpm))
+  print("  actuator.rotationSpeed.axis1TrimRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.axis1TrimRpm))
+  print("  actuator.rotationSpeed.axis2TrimRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.axis2TrimRpm))
+  print("  actuator.rotationSpeed.maxCorrectionRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.maxCorrectionRpm))
+  print("  actuator.rotationSpeed.minTargetRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.minTargetRpm))
+  print("  actuator.rotationSpeed.maxTargetRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.maxTargetRpm))
+  print("  actuator.rotationSpeed.writeInterval=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.writeInterval))
+  print("  actuator.rotationSpeed.writeDeadbandRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.writeDeadbandRpm))
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
   print("  stabilize.interval=" .. tostring(config.stabilize.interval))
   print("  stabilize.seconds=" .. tostring(config.stabilize.seconds))
@@ -884,7 +916,7 @@ local function runConfig()
     end
 
     if rotationSpeed.round == nil then
-      rotationSpeed.round = true
+      rotationSpeed.round = false
     end
 
     saveConfig(config)
@@ -895,6 +927,88 @@ local function runConfig()
     print("  brakeRpm=" .. tostring(rotationSpeed.brakeRpm))
     print("  minRpm=" .. tostring(rotationSpeed.minRpm))
     print("  maxRpm=" .. tostring(rotationSpeed.maxRpm))
+    return
+  elseif subcommand == "rotation-speed-control" then
+    config.actuator = config.actuator or {}
+    config.actuator.rotationSpeed = config.actuator.rotationSpeed or {}
+
+    local rotationSpeed = config.actuator.rotationSpeed
+    rotationSpeed.baseRpm = parseNumber(args[3], "baseRpm")
+
+    if args[4] then
+      rotationSpeed.maxCorrectionRpm = math.abs(parseNumber(args[4], "maxCorrectionRpm"))
+    elseif rotationSpeed.maxCorrectionRpm == nil then
+      rotationSpeed.maxCorrectionRpm = 32
+    end
+
+    if args[5] then
+      rotationSpeed.axis1KpRpm = parseNumber(args[5], "axis1KpRpm")
+    elseif rotationSpeed.axis1KpRpm == nil then
+      rotationSpeed.axis1KpRpm = 0
+    end
+
+    if args[6] then
+      rotationSpeed.axis1KdRpm = parseNumber(args[6], "axis1KdRpm")
+    elseif rotationSpeed.axis1KdRpm == nil then
+      rotationSpeed.axis1KdRpm = 0
+    end
+
+    if args[7] then
+      rotationSpeed.axis2KpRpm = parseNumber(args[7], "axis2KpRpm")
+    elseif rotationSpeed.axis2KpRpm == nil then
+      rotationSpeed.axis2KpRpm = rotationSpeed.axis1KpRpm or 0
+    end
+
+    if args[8] then
+      rotationSpeed.axis2KdRpm = parseNumber(args[8], "axis2KdRpm")
+    elseif rotationSpeed.axis2KdRpm == nil then
+      rotationSpeed.axis2KdRpm = rotationSpeed.axis1KdRpm or 0
+    end
+
+    if args[9] then
+      rotationSpeed.throttleRpmPerPower = parseNumber(args[9], "throttleRpmPerPower")
+    elseif rotationSpeed.throttleRpmPerPower == nil then
+      rotationSpeed.throttleRpmPerPower = 16
+    end
+
+    if rotationSpeed.minTargetRpm == nil then
+      rotationSpeed.minTargetRpm = 0
+    end
+    if rotationSpeed.maxTargetRpm == nil then
+      rotationSpeed.maxTargetRpm = math.max(math.abs(tonumber(rotationSpeed.minRpm) or -256), math.abs(tonumber(rotationSpeed.maxRpm) or 256))
+    end
+    rotationSpeed.round = false
+
+    saveConfig(config)
+    print("Saved native rotation speed control to " .. CONFIG_PATH)
+    print("  baseRpm=" .. tostring(rotationSpeed.baseRpm))
+    print("  maxCorrectionRpm=" .. tostring(rotationSpeed.maxCorrectionRpm))
+    print("  axis1KpRpm=" .. tostring(rotationSpeed.axis1KpRpm) .. " axis1KdRpm=" .. tostring(rotationSpeed.axis1KdRpm))
+    print("  axis2KpRpm=" .. tostring(rotationSpeed.axis2KpRpm) .. " axis2KdRpm=" .. tostring(rotationSpeed.axis2KdRpm))
+    print("  throttleRpmPerPower=" .. tostring(rotationSpeed.throttleRpmPerPower))
+    return
+  elseif subcommand == "rotation-speed-writes" then
+    config.actuator = config.actuator or {}
+    config.actuator.rotationSpeed = config.actuator.rotationSpeed or {}
+
+    local rotationSpeed = config.actuator.rotationSpeed
+    rotationSpeed.writeInterval = parseNumber(args[3], "intervalSeconds")
+    if rotationSpeed.writeInterval < 0 then
+      error("intervalSeconds must be non-negative", 0)
+    end
+    if args[4] then
+      rotationSpeed.writeDeadbandRpm = parseNumber(args[4], "deadbandRpm")
+      if rotationSpeed.writeDeadbandRpm < 0 then
+        error("deadbandRpm must be non-negative", 0)
+      end
+    elseif rotationSpeed.writeDeadbandRpm == nil then
+      rotationSpeed.writeDeadbandRpm = 0.5
+    end
+
+    saveConfig(config)
+    print("Saved rotation speed write cadence to " .. CONFIG_PATH)
+    print("  writeInterval=" .. tostring(rotationSpeed.writeInterval))
+    print("  writeDeadbandRpm=" .. tostring(rotationSpeed.writeDeadbandRpm))
     return
   elseif subcommand == "rotation-speed-signs" then
     config.actuator = config.actuator or {}
@@ -1366,6 +1480,12 @@ local function parseCommandOptions(startIndex)
         error("--base-power needs a number", 0)
       end
       i = i + 2
+    elseif arg == "--base-rpm" then
+      options.baseRpm = tonumber(args[i + 1])
+      if not options.baseRpm then
+        error("--base-rpm needs a number", 0)
+      end
+      i = i + 2
     elseif arg == "--controller" then
       options.controller = true
       i = i + 1
@@ -1480,10 +1600,22 @@ local function parseCommandOptions(startIndex)
         error("--kp needs a number", 0)
       end
       i = i + 2
+    elseif arg == "--kp-rpm" then
+      options.kpRpm = tonumber(args[i + 1])
+      if not options.kpRpm then
+        error("--kp-rpm needs a number", 0)
+      end
+      i = i + 2
     elseif arg == "--axis1-kp" then
       options.axis1Kp = tonumber(args[i + 1])
       if not options.axis1Kp then
         error("--axis1-kp needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--axis1-kp-rpm" then
+      options.axis1KpRpm = tonumber(args[i + 1])
+      if not options.axis1KpRpm then
+        error("--axis1-kp-rpm needs a number", 0)
       end
       i = i + 2
     elseif arg == "--axis2-kp" then
@@ -1492,10 +1624,22 @@ local function parseCommandOptions(startIndex)
         error("--axis2-kp needs a number", 0)
       end
       i = i + 2
+    elseif arg == "--axis2-kp-rpm" then
+      options.axis2KpRpm = tonumber(args[i + 1])
+      if not options.axis2KpRpm then
+        error("--axis2-kp-rpm needs a number", 0)
+      end
+      i = i + 2
     elseif arg == "--kd" then
       options.kd = tonumber(args[i + 1])
       if not options.kd then
         error("--kd needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--kd-rpm" then
+      options.kdRpm = tonumber(args[i + 1])
+      if not options.kdRpm then
+        error("--kd-rpm needs a number", 0)
       end
       i = i + 2
     elseif arg == "--axis1-kd" then
@@ -1504,10 +1648,22 @@ local function parseCommandOptions(startIndex)
         error("--axis1-kd needs a number", 0)
       end
       i = i + 2
+    elseif arg == "--axis1-kd-rpm" then
+      options.axis1KdRpm = tonumber(args[i + 1])
+      if not options.axis1KdRpm then
+        error("--axis1-kd-rpm needs a number", 0)
+      end
+      i = i + 2
     elseif arg == "--axis2-kd" then
       options.axis2Kd = tonumber(args[i + 1])
       if not options.axis2Kd then
         error("--axis2-kd needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--axis2-kd-rpm" then
+      options.axis2KdRpm = tonumber(args[i + 1])
+      if not options.axis2KdRpm then
+        error("--axis2-kd-rpm needs a number", 0)
       end
       i = i + 2
     elseif arg == "--axis1-trim" then
@@ -1516,16 +1672,52 @@ local function parseCommandOptions(startIndex)
         error("--axis1-trim needs a number", 0)
       end
       i = i + 2
+    elseif arg == "--axis1-trim-rpm" then
+      options.axis1TrimRpm = tonumber(args[i + 1])
+      if not options.axis1TrimRpm then
+        error("--axis1-trim-rpm needs a number", 0)
+      end
+      i = i + 2
     elseif arg == "--axis2-trim" then
       options.axis2Trim = tonumber(args[i + 1])
       if not options.axis2Trim then
         error("--axis2-trim needs a number", 0)
       end
       i = i + 2
+    elseif arg == "--axis2-trim-rpm" then
+      options.axis2TrimRpm = tonumber(args[i + 1])
+      if not options.axis2TrimRpm then
+        error("--axis2-trim-rpm needs a number", 0)
+      end
+      i = i + 2
     elseif arg == "--max-correction" then
       options.maxCorrection = tonumber(args[i + 1])
       if not options.maxCorrection or options.maxCorrection < 0 then
         error("--max-correction needs a non-negative number", 0)
+      end
+      i = i + 2
+    elseif arg == "--max-correction-rpm" then
+      options.maxCorrectionRpm = tonumber(args[i + 1])
+      if not options.maxCorrectionRpm or options.maxCorrectionRpm < 0 then
+        error("--max-correction-rpm needs a non-negative number", 0)
+      end
+      i = i + 2
+    elseif arg == "--throttle-rpm-per-power" then
+      options.throttleRpmPerPower = tonumber(args[i + 1])
+      if not options.throttleRpmPerPower then
+        error("--throttle-rpm-per-power needs a number", 0)
+      end
+      i = i + 2
+    elseif arg == "--write-interval" then
+      options.writeInterval = tonumber(args[i + 1])
+      if not options.writeInterval or options.writeInterval < 0 then
+        error("--write-interval needs a non-negative number", 0)
+      end
+      i = i + 2
+    elseif arg == "--write-deadband-rpm" then
+      options.writeDeadbandRpm = tonumber(args[i + 1])
+      if not options.writeDeadbandRpm or options.writeDeadbandRpm < 0 then
+        error("--write-deadband-rpm needs a non-negative number", 0)
       end
       i = i + 2
     elseif arg == "--max-attitude" then

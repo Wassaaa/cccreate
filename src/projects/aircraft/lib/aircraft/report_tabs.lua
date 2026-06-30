@@ -173,6 +173,20 @@ local function configSections(config)
   add(actuator, config, "actuator.rotationSpeed.sign", "Set to -1 if positive PD power needs negative RPM on this drivetrain.")
   add(actuator, config, "actuator.rotationSpeed.autoRoleSigns", "When true, infer per-role RPM polarity from speed-controller to rotor-bearing geometry in the scan.", "aircraft config rotation-speed-signs auto")
   add(actuator, config, "actuator.rotationSpeed.roleSigns", "Manual per-role polarity override. Values multiply actuator.rotationSpeed.sign.", "aircraft config rotation-speed-signs 1 1 -1 -1")
+  add(actuator, config, "actuator.rotationSpeed.round", "When false, send fractional RPM targets directly to the speed controller.")
+  add(actuator, config, "actuator.rotationSpeed.baseRpm", "Native rotation_speed collective target RPM before damping corrections.", "aircraft config rotation-speed-control <baseRpm> <maxCorrectionRpm> <axis1KpRpm> <axis1KdRpm>")
+  add(actuator, config, "actuator.rotationSpeed.throttleRpmPerPower", "RPM added for each controller throttle power unit in rotation_speed mode.")
+  add(actuator, config, "actuator.rotationSpeed.axis1KpRpm", "Roll proportional gain in RPM per radian for rotation_speed mode.")
+  add(actuator, config, "actuator.rotationSpeed.axis1KdRpm", "Roll damping gain in RPM per radian/second for rotation_speed mode.")
+  add(actuator, config, "actuator.rotationSpeed.axis2KpRpm", "Pitch proportional gain in RPM per radian for rotation_speed mode.")
+  add(actuator, config, "actuator.rotationSpeed.axis2KdRpm", "Pitch damping gain in RPM per radian/second for rotation_speed mode.")
+  add(actuator, config, "actuator.rotationSpeed.axis1TrimRpm", "Constant roll correction bias in RPM for rotation_speed mode.")
+  add(actuator, config, "actuator.rotationSpeed.axis2TrimRpm", "Constant pitch correction bias in RPM for rotation_speed mode.")
+  add(actuator, config, "actuator.rotationSpeed.maxCorrectionRpm", "Per-axis RPM correction cap in rotation_speed mode. 0 leaves corrections uncapped.")
+  add(actuator, config, "actuator.rotationSpeed.minTargetRpm", "Minimum local target RPM before polarity signs are applied.")
+  add(actuator, config, "actuator.rotationSpeed.maxTargetRpm", "Maximum local target RPM before polarity signs are applied.")
+  add(actuator, config, "actuator.rotationSpeed.writeInterval", "Minimum seconds between speed-controller writes unless this is the first write.", "aircraft config rotation-speed-writes 0.1 0.5")
+  add(actuator, config, "actuator.rotationSpeed.writeDeadbandRpm", "Minimum max corner RPM delta required before another speed-controller write.")
 
   local orientation = {}
   add(orientation, config, "frontAxis", "Manual aircraft-front axis. nil lets scan infer it from side peripherals near the computer.", "aircraft config axes +Z +X")
@@ -359,10 +373,13 @@ local function frameStats(report)
     yawActiveFrames = 0,
     yawSkippedFrames = 0,
     controllerActiveFrames = 0,
+    actuatorWriteFrames = 0,
+    actuatorSkippedFrames = 0,
     pressed = {},
     signalRanges = {},
     outputRanges = {},
     powerRanges = {},
+    targetRpmRanges = {},
   }
 
   for _, frame in ipairs(report.frames or {}) do
@@ -405,6 +422,11 @@ local function frameStats(report)
     if controlsActive(control) then
       stats.controllerActiveFrames = stats.controllerActiveFrames + 1
     end
+    if frame.actuatorWrite and frame.actuatorWrite.write == false then
+      stats.actuatorSkippedFrames = stats.actuatorSkippedFrames + 1
+    elseif frame.actuatorWrite and frame.actuatorWrite.write == true then
+      stats.actuatorWriteFrames = stats.actuatorWriteFrames + 1
+    end
 
     for _, key in ipairs(control.pressed or {}) do
       stats.pressed[key] = true
@@ -414,6 +436,7 @@ local function frameStats(report)
       updateRange(stats.signalRanges, role, mixed.signals and mixed.signals[role])
       updateRange(stats.outputRanges, role, mixed.outputs and mixed.outputs[role])
       updateRange(stats.powerRanges, role, mixed.power and mixed.power[role])
+      updateRange(stats.targetRpmRanges, role, mixed.targetRpm and mixed.targetRpm[role])
     end
 
     stats.final = frame
@@ -488,11 +511,15 @@ function reportTabs.flightOverviewTab(report)
   local outputLabel = actuatorSettings.outputLabel or "output"
   local recovery = report.recoverySummary or {}
   local recoveryTest = report.recoveryTest or {}
+  local isRotationSpeed = actuatorSettings.type == "rotation_speed"
 
   local runRows = {}
   addTextRow(runRows, "kind", report.kind, "Report kind.")
   addTextRow(runRows, "applied", report.applied, "true means outputs were actually written. false means dry-run or blocked.")
-  addTextRow(runRows, "basePower", request.basePower or settings.basePower, "Power before stabilizer correction and controller throttle.")
+  addTextRow(runRows, "basePower", request.basePower or settings.basePower, "Redstone backend power before stabilizer correction and controller throttle.")
+  if isRotationSpeed then
+    addTextRow(runRows, "baseRpm", request.baseRpm or actuatorSettings.baseRpm or finalMixed.baseRpm, "rotation_speed base target RPM before damping correction.")
+  end
   addTextRow(runRows, "elapsed", timing.elapsed, "Measured run time in seconds.")
   addTextRow(runRows, "targetHz", timing.targetHz, "Requested loop rate from stabilize.interval.")
   addTextRow(runRows, "actualHz", timing.actualHz, "Cumulative measured loop rate.")
@@ -512,7 +539,12 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(stabilizerRows, "finalAxis2", degText(finalMixed.measured2), "Last pitch measurement in the report.")
   addTextRow(stabilizerRows, "finalRate1", degPerSecondText(finalMixed.rate1), "Last roll angular rate.")
   addTextRow(stabilizerRows, "finalRate2", degPerSecondText(finalMixed.rate2), "Last pitch angular rate.")
-  addTextRow(stabilizerRows, "maxCorrection", settings.maxCorrection, "Per-axis correction cap used by the stabilizer.")
+  addTextRow(stabilizerRows, "maxCorrection", settings.maxCorrection, isRotationSpeed and "Redstone backend correction cap; rotation_speed uses maxCorrectionRpm." or "Per-axis correction cap used by the stabilizer.")
+  if isRotationSpeed then
+    addTextRow(stabilizerRows, "maxCorrectionRpm", actuatorSettings.maxCorrectionRpm, "Per-axis RPM correction cap used by the rotation_speed stabilizer.")
+    addTextRow(stabilizerRows, "finalCorrectionRpm", "A1 " .. valueText(finalMixed.correction1Rpm) .. " | A2 " .. valueText(finalMixed.correction2Rpm), "Last native RPM corrections before corner mixing.")
+    addTextRow(stabilizerRows, "targetRpmRanges", rangeText(stats.targetRpmRanges), "Local unsigned target RPM ranges before global/per-role polarity signs.")
+  end
   addTextRow(stabilizerRows, "correctionLimitedFrames", stats.correctionLimited, "How often the stabilizer hit maxCorrection.")
   addTextRow(stabilizerRows, "desaturate", settings.desaturate, "Whether the mixer shifts all rotor powers before clipping.")
   addTextRow(stabilizerRows, "desaturateHeadroom", settings.desaturateHeadroom, "Power margin reserved before redstone rounding.")
@@ -527,8 +559,10 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(stabilizerRows, "actuator.roleFamily", actuatorSettings.roleFamily, "Scan role family used for actuator writes.")
   addTextRow(stabilizerRows, "actuator.method", finalMixed.actuator and finalMixed.actuator.method or actuatorSettings.setter, "Setter selected for actuator writes.")
   addTextRow(stabilizerRows, "outputRanges", rangeText(stats.outputRanges), "Applied " .. tostring(outputLabel) .. " ranges sent to the four actuator roles.")
+  addTextRow(stabilizerRows, "actuatorWriteFrames", stats.actuatorWriteFrames, "Frames that called the actuator setter.")
+  addTextRow(stabilizerRows, "actuatorSkippedFrames", stats.actuatorSkippedFrames, "Frames skipped by rotation_speed writeInterval/writeDeadbandRpm.")
   addTextRow(stabilizerRows, "signalRanges", rangeText(stats.signalRanges), "Compatibility field: redstone signals, or backend outputs when not using redstone.")
-  addTextRow(stabilizerRows, "powerRanges", rangeText(stats.powerRanges), "Mixed power demand ranges before backend conversion.")
+  addTextRow(stabilizerRows, "powerRanges", rangeText(stats.powerRanges), isRotationSpeed and "Compatibility field: local target RPM ranges in rotation_speed mode." or "Mixed power demand ranges before backend conversion.")
 
   local yawRows = {}
   addTextRow(yawRows, "yaw.enabled", settings.yaw and settings.yaw.enabled, "Whether yaw gyro damping was enabled for this run.")
@@ -858,6 +892,7 @@ local function setMetrics(report, stats)
       { label = "Source", value = report.configSource or "n/a" },
       { label = "Dry Run", value = at(report.configSnapshot or {}, "dryRun") },
       { label = "Base Power", value = at(report.configSnapshot or {}, "stabilize.basePower") },
+      { label = "Base RPM", value = at(report.configSnapshot or {}, "actuator.rotationSpeed.baseRpm") },
       { label = "Controller", value = at(report.configSnapshot or {}, "controller.enabled") },
     }
     return

@@ -198,11 +198,36 @@ local function roleValues(values, digits)
   return table.concat(parts, " ")
 end
 
+local function isRotationSpeed(settings, mixed)
+  return (settings and settings.actuator and settings.actuator.type == "rotation_speed")
+    or (mixed and mixed.actuator and mixed.actuator.type == "rotation_speed")
+end
+
+local function baseText(settings, mixed)
+  if isRotationSpeed(settings, mixed) then
+    return "baseR " .. fixed((mixed and mixed.baseRpm) or (settings and settings.actuator and settings.actuator.baseRpm), 1)
+  end
+
+  return "base " .. fixed(settings and settings.basePower, 1)
+end
+
+local function correctionText(settings, mixed)
+  if isRotationSpeed(settings, mixed) then
+    return "corr rpm A1=" .. signed(mixed and mixed.correction1Rpm, 2)
+      .. " A2=" .. signed(mixed and mixed.correction2Rpm, 2)
+  end
+
+  return "corr A1=" .. signed(mixed and mixed.correction1, 2)
+    .. " A2=" .. signed(mixed and mixed.correction2, 2)
+end
+
 local function statusText(frame, mixed, settings)
   if frame.abortReason then
     return frame.abortReason
   elseif mixed.correctionLimited then
     return "correction capped"
+  elseif isRotationSpeed(settings, mixed) then
+    return "maxCorrR " .. fixed(settings and settings.actuator and settings.actuator.maxCorrectionRpm, 1)
   end
 
   return "maxCorr " .. fixed(settings.maxCorrection, 2)
@@ -276,6 +301,7 @@ local function roleText(role, mixed, telemetry)
   local outputLabel = actuator.outputLabel or "signal"
   local output = mixed.outputs and mixed.outputs[role] or mixed.signals and mixed.signals[role]
   local power = mixed.power and mixed.power[role]
+  local powerLabel = isRotationSpeed(nil, mixed) and "rpm" or "pwr"
   local rotorThrust = telemetryNumber(telemetry, role, "rotorThrust")
   local handedness = telemetryValue(telemetry, role, "thrustHandedness")
   local powerText = "?"
@@ -295,7 +321,7 @@ local function roleText(role, mixed, telemetry)
 
   return {
     ROLE_LABELS[role] .. " " .. tostring(outputLabel) .. " " .. tostring(output or "?"),
-    "pwr " .. powerText .. thrustText .. handText,
+    powerLabel .. " " .. powerText .. thrustText .. handText,
   }
 end
 
@@ -311,12 +337,16 @@ local function drawCompact(target, frame, settings, active, status, width, heigh
   local outputLabel = mixed.actuator and mixed.actuator.outputLabel or "signal"
 
   writeLine(target, 1, "AIRCRAFT STABILIZE " .. status, width)
-  writeLine(target, 2, timeText(frame, settings) .. " base " .. fixed(settings.basePower, 1), width)
+  writeLine(target, 2, timeText(frame, settings) .. " " .. baseText(settings, mixed), width)
   writeLine(target, 3, "err A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1) .. " deg", width)
   writeLine(target, 4, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
-  writeLine(target, 5, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
+  writeLine(target, 5, correctionText(settings, mixed), width)
   writeLine(target, 6, tostring(outputLabel) .. " " .. roleValues(mixed.outputs or mixed.signals), width)
-  writeLine(target, 7, "power  " .. roleValues(mixed.power, 1), width)
+  if isRotationSpeed(settings, mixed) then
+    writeLine(target, 7, "local  " .. roleValues(mixed.targetRpm or mixed.power, 1), width)
+  else
+    writeLine(target, 7, "power  " .. roleValues(mixed.power, 1), width)
+  end
   if height and height >= 9 then
     writeLine(target, 8, timingText(frame, settings), width)
     writeLine(target, 9, statusText(frame, mixed, settings), width)
@@ -334,7 +364,7 @@ local function drawCornerLayout(target, frame, settings, status, width, height)
   local centerY = math.max(5, math.floor(height / 2) - 1)
 
   writeCentered(target, 1, "AIRCRAFT STABILIZE " .. status, width)
-  writeCentered(target, 2, timeText(frame, settings) .. "  base " .. fixed(settings.basePower, 1), width)
+  writeCentered(target, 2, timeText(frame, settings) .. "  " .. baseText(settings, mixed), width)
 
   drawRolePanel(target, "front_left", 1, 3, panelWidth, mixed, telemetry, false)
   drawRolePanel(target, "front_right", rightX, 3, panelWidth, mixed, telemetry, true)
@@ -344,7 +374,7 @@ local function drawCornerLayout(target, frame, settings, status, width, height)
   if centerY + 4 < bottomY then
     writeCentered(target, centerY, "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1), width)
     writeCentered(target, centerY + 1, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
-    writeCentered(target, centerY + 2, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
+    writeCentered(target, centerY + 2, correctionText(settings, mixed), width)
     writeCentered(target, centerY + 3, timingText(frame, settings), width)
   elseif centerY + 3 < bottomY then
     writeCentered(target, centerY, "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1), width)

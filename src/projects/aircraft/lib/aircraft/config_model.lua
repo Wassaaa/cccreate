@@ -37,6 +37,20 @@ local ORDERS = {
     "autoRoleSigns",
     "roleSigns",
     "round",
+    "baseRpm",
+    "throttleRpmPerPower",
+    "axisPowerRpmPerPower",
+    "axis1KpRpm",
+    "axis1KdRpm",
+    "axis2KpRpm",
+    "axis2KdRpm",
+    "axis1TrimRpm",
+    "axis2TrimRpm",
+    "maxCorrectionRpm",
+    "minTargetRpm",
+    "maxTargetRpm",
+    "writeInterval",
+    "writeDeadbandRpm",
     "maxPower",
   },
   roleSigns = { "front_left", "front_right", "rear_left", "rear_right" },
@@ -210,6 +224,10 @@ end
 local function orderFor(path)
   if path == "" then
     return ROOT_ORDER
+  elseif path == "actuator.redstoneSignal" then
+    return ORDERS.actuatorRedstoneSignal
+  elseif path == "actuator.rotationSpeed" then
+    return ORDERS.actuatorRotationSpeed
   end
 
   return ORDERS[path]
