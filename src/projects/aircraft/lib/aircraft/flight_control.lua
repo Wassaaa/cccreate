@@ -692,6 +692,8 @@ local function stabilizeConfig(config, options)
       sign = yawSign(options.yawSign or yaw.sign or 1),
       commandLateral = math.max(0, tonumber(options.yawCommandLateral) or tonumber(yaw.commandLateral) or 0.08),
       clearOnExit = yaw.clearOnExit ~= false,
+      writeInterval = math.max(0, tonumber(options.yawWriteInterval) or tonumber(yaw.writeInterval) or 0.1),
+      writeDeadband = math.max(0, tonumber(options.yawWriteDeadband) or tonumber(yaw.writeDeadband) or 0.01),
     },
     killSwitch = {
       enabled = killSwitchEnabled,
@@ -1011,13 +1013,20 @@ local function rangeOfPower(power)
   return minValue or 0, maxValue or 0
 end
 
-local function desaturatePower(power, maxPower, enabled, headroom)
+local function desaturateRange(power, minValue, maxValue, enabled, headroom)
+  minValue = tonumber(minValue) or 0
+  maxValue = tonumber(maxValue) or minValue
+  if minValue > maxValue then
+    minValue, maxValue = maxValue, minValue
+  end
+
   local inputMin, inputMax = rangeOfPower(power)
   local rawInputMin = inputMin
   local rawInputMax = inputMax
-  local margin = clamp(tonumber(headroom) or 0, 0, math.max(0, maxPower / 2 - 0.01))
-  local minAllowed = margin
-  local maxAllowed = maxPower - margin
+  local range = math.max(0, maxValue - minValue)
+  local margin = clamp(tonumber(headroom) or 0, 0, math.max(0, range / 2 - 0.01))
+  local minAllowed = minValue + margin
+  local maxAllowed = maxValue - margin
   local available = math.max(0.01, maxAllowed - minAllowed)
   local span = inputMax - inputMin
   local adjusted = {}
@@ -1055,7 +1064,7 @@ local function desaturatePower(power, maxPower, enabled, headroom)
 
   for _, role in ipairs(ROLE_ORDER) do
     local shifted = (tonumber(adjusted[role]) or 0) + shift
-    local clamped = clamp(shifted, 0, maxPower)
+    local clamped = clamp(shifted, minValue, maxValue)
     result[role] = clamped
     if math.abs(clamped - shifted) > 0.000001 then
       saturated = true
@@ -1078,7 +1087,23 @@ local function desaturatePower(power, maxPower, enabled, headroom)
     outputMin = outputMin,
     outputMax = outputMax,
     saturated = saturated,
+    minValue = minValue,
+    maxValue = maxValue,
   }
+end
+
+local function desaturatePower(power, maxPower, enabled, headroom)
+  return desaturateRange(power, 0, maxPower, enabled, headroom)
+end
+
+local function rpmDesaturateHeadroom(settings, rpm)
+  local configured = tonumber(rpm and rpm.desaturateHeadroomRpm)
+  if configured then
+    return math.max(0, configured)
+  end
+
+  local throttleRpmPerPower = math.abs(tonumber(rpm and rpm.throttleRpmPerPower) or 0)
+  return math.max(0, tonumber(settings and settings.desaturateHeadroom) or 0) * throttleRpmPerPower
 end
 
 local function tiltCompensationPower(settings, target1, target2, basePower)
@@ -1162,18 +1187,16 @@ local function mixerSignals(settings, state, control, signalResiduals)
       rear_left = baseRpm + correction1Rpm + correction2Rpm,
       rear_right = baseRpm - correction1Rpm + correction2Rpm,
     }
-    local targetRpm = {}
     local minTarget = math.max(0, tonumber(rpm.minTargetRpm) or 0)
     local maxTarget = math.max(minTarget, tonumber(rpm.maxTargetRpm) or 256)
-    local saturated = false
-
-    for _, role in ipairs(ROLE_ORDER) do
-      local raw = tonumber(rawTargetRpm[role]) or 0
-      targetRpm[role] = clamp(raw, minTarget, maxTarget)
-      if math.abs(targetRpm[role] - raw) > 0.000001 then
-        saturated = true
-      end
-    end
+    local targetRpm, desaturation = desaturateRange(
+      rawTargetRpm,
+      minTarget,
+      maxTarget,
+      settings.desaturate,
+      rpmDesaturateHeadroom(settings, rpm)
+    )
+    desaturation.unit = "rpm"
 
     local actuatorFrame = actuators.outputsFromRpm(rpm, targetRpm)
 
@@ -1237,12 +1260,7 @@ local function mixerSignals(settings, state, control, signalResiduals)
       power = targetRpm,
       rawTargetRpm = rawTargetRpm,
       targetRpm = targetRpm,
-      desaturation = {
-        enabled = false,
-        saturated = saturated,
-        outputMin = select(1, rangeOfPower(targetRpm)),
-        outputMax = select(2, rangeOfPower(targetRpm)),
-      },
+      desaturation = desaturation,
       control = copyPlain(control),
       desiredSignals = actuatorFrame.desiredSignals,
       signals = actuatorFrame.signals or actuatorFrame.outputs,
@@ -1618,6 +1636,110 @@ local function applyYawTargets(gyroDevices, yawFrame, active)
   }
 end
 
+local function yawTargetsFromFrame(yawFrame)
+  local targets = {}
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local command = yawFrame
+      and yawFrame.commands
+      and yawFrame.commands[role]
+
+    if command and command.target then
+      targets[role] = copyPlain(command.target)
+    end
+  end
+
+  return targets
+end
+
+local function yawTargetDelta(previousTargets, yawFrame)
+  if not previousTargets then
+    return nil
+  end
+
+  local maxDelta = 0
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local previous = previousTargets[role]
+    local command = yawFrame
+      and yawFrame.commands
+      and yawFrame.commands[role]
+    local current = command and command.target
+
+    if not previous or not current then
+      return nil
+    end
+
+    for index = 1, 3 do
+      local before = tonumber(previous[index])
+      local after = tonumber(current[index])
+
+      if before == nil or after == nil then
+        return nil
+      end
+
+      maxDelta = math.max(maxDelta, math.abs(after - before))
+    end
+  end
+
+  return maxDelta
+end
+
+local function shouldWriteYawTargets(yawSettings, yawFrame, previousTargets, elapsed, lastWriteElapsed)
+  if not yawFrame or not yawFrame.enabled or yawFrame.skipped then
+    return false, {
+      write = false,
+      reason = yawFrame and yawFrame.skipped or "yaw unavailable",
+    }
+  end
+
+  local interval = math.max(0, tonumber(yawSettings and yawSettings.writeInterval) or 0.1)
+  local deadband = math.max(0, tonumber(yawSettings and yawSettings.writeDeadband) or 0.01)
+  local delta = yawTargetDelta(previousTargets, yawFrame)
+
+  if not previousTargets or lastWriteElapsed == nil then
+    return true, {
+      write = true,
+      reason = "first_write",
+      delta = delta,
+      interval = interval,
+      deadband = deadband,
+    }
+  end
+
+  local elapsedSinceWrite = (tonumber(elapsed) or 0) - (tonumber(lastWriteElapsed) or 0)
+  local due = interval <= 0 or elapsedSinceWrite >= interval
+  local changed = delta == nil or delta >= deadband
+
+  if due and changed then
+    return true, {
+      write = true,
+      reason = "due_changed",
+      delta = delta,
+      elapsedSinceWrite = elapsedSinceWrite,
+      interval = interval,
+      deadband = deadband,
+    }
+  end
+
+  return false, {
+    write = false,
+    reason = due and "deadband" or "interval",
+    delta = delta,
+    elapsedSinceWrite = elapsedSinceWrite,
+    interval = interval,
+    deadband = deadband,
+  }
+end
+
+local function skippedYawWriteResult(yawWrite)
+  return {
+    applied = false,
+    skipped = yawWrite and yawWrite.reason or "write skipped",
+    write = copyPlain(yawWrite),
+  }
+end
+
 local function clearGyroTargets(gyroDevices)
   local results = {}
   local tasks = {}
@@ -1768,20 +1890,20 @@ local function emptyTimingHealth(settings)
 end
 
 local function outputDelta(previous, current)
-  local maxDelta = 0
+  local maxDelta = nil
 
   for _, role in ipairs(ROLE_ORDER) do
     local before = tonumber(previous and previous[role])
     local after = tonumber(current and current[role])
 
     if before == nil or after == nil then
-      return math.huge
+      return nil
     end
 
-    maxDelta = math.max(maxDelta, math.abs(after - before))
+    maxDelta = math.max(maxDelta or 0, math.abs(after - before))
   end
 
-  return maxDelta
+  return maxDelta or 0
 end
 
 local function shouldWriteActuators(settings, outputs, previousOutputs, elapsed, lastWriteElapsed)
@@ -1808,7 +1930,7 @@ local function shouldWriteActuators(settings, outputs, previousOutputs, elapsed,
 
   local elapsedSinceWrite = (tonumber(elapsed) or 0) - (tonumber(lastWriteElapsed) or 0)
   local due = interval <= 0 or elapsedSinceWrite >= interval
-  local changed = delta >= deadband
+  local changed = delta == nil or delta >= deadband
 
   if due and changed then
     return true, {
@@ -2102,6 +2224,8 @@ function flightControl.stabilize(config, options)
     }
     local previousActuatorOutputs = nil
     local previousActuatorWriteElapsed = nil
+    local previousYawTargets = nil
+    local previousYawWriteElapsed = nil
     local recentTimingFrames = {}
     local previousTimingHealth = emptyTimingHealth(settings)
 
@@ -2183,13 +2307,43 @@ function flightControl.stabilize(config, options)
           frame.elapsed,
           previousActuatorWriteElapsed
         )
+        local writeYawTargets, yawWrite = shouldWriteYawTargets(
+          settings.yaw,
+          yawFrame,
+          previousYawTargets,
+          frame.elapsed,
+          previousYawWriteElapsed
+        )
         frame.actuatorWrite = actuatorWrite
-        if writeActuators then
+        frame.yaw.write = yawWrite
+
+        if writeActuators and writeYawTargets then
+          parallel.waitForAll(
+            function()
+              frame.setResults = actuators.apply(actuatorContext, mixed.outputs)
+            end,
+            function()
+              frame.yawSetResults = applyYawTargets(gyroDevices, yawFrame, true)
+            end
+          )
+        elseif writeActuators then
           frame.setResults = actuators.apply(actuatorContext, mixed.outputs)
+          frame.yawSetResults = skippedYawWriteResult(yawWrite)
+        elseif writeYawTargets then
+          frame.yawSetResults = applyYawTargets(gyroDevices, yawFrame, true)
+        else
+          frame.yawSetResults = skippedYawWriteResult(yawWrite)
+        end
+
+        if writeActuators then
           previousActuatorOutputs = copyPlain(mixed.outputs)
           previousActuatorWriteElapsed = frame.elapsed
         end
-        frame.yawSetResults = applyYawTargets(gyroDevices, yawFrame, true)
+
+        if writeYawTargets then
+          previousYawTargets = yawTargetsFromFrame(yawFrame)
+          previousYawWriteElapsed = frame.elapsed
+        end
       else
         frame.dryRun = true
         frame.yawSetResults = applyYawTargets(gyroDevices, yawFrame, false)

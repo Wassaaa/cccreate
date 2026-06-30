@@ -49,6 +49,7 @@ local ORDERS = {
     "maxCorrectionRpm",
     "minTargetRpm",
     "maxTargetRpm",
+    "desaturateHeadroomRpm",
     "writeInterval",
     "writeDeadbandRpm",
     "maxPower",
@@ -82,6 +83,8 @@ local ORDERS = {
     "sign",
     "commandLateral",
     "clearOnExit",
+    "writeInterval",
+    "writeDeadband",
   },
   controller = {
     "enabled",

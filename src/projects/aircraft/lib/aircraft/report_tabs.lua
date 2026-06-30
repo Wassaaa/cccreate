@@ -185,6 +185,7 @@ local function configSections(config)
   add(actuator, config, "actuator.rotationSpeed.maxCorrectionRpm", "Per-axis RPM correction cap in rotation_speed mode. 0 leaves corrections uncapped.")
   add(actuator, config, "actuator.rotationSpeed.minTargetRpm", "Minimum local target RPM before polarity signs are applied.")
   add(actuator, config, "actuator.rotationSpeed.maxTargetRpm", "Maximum local target RPM before polarity signs are applied.")
+  add(actuator, config, "actuator.rotationSpeed.desaturateHeadroomRpm", "Optional RPM-specific headroom for stabilize.desaturate. nil derives it from desaturateHeadroom and throttleRpmPerPower.")
   add(actuator, config, "actuator.rotationSpeed.writeInterval", "Minimum seconds between speed-controller writes unless this is the first write.", "aircraft config rotation-speed-writes 0.1 0.5")
   add(actuator, config, "actuator.rotationSpeed.writeDeadbandRpm", "Minimum max corner RPM delta required before another speed-controller write.")
 
@@ -228,6 +229,8 @@ local function configSections(config)
   add(yaw, config, "yaw.sign", "Use -1 if the first small applied yaw run increases spin instead of damping it.")
   add(yaw, config, "yaw.commandLateral", "How hard a held Q/E controller yaw command pushes before maxTiltDeg clamps the gyro target.", "aircraft stabilize --controller --yaw-command 0.08")
   add(yaw, config, "yaw.clearOnExit", "When true, stabilize clears manual gyro bearing targets on exit.")
+  add(yaw, config, "yaw.writeInterval", "Minimum seconds between manual yaw target writes unless this is the first write.", "aircraft config yaw-writes 0.1 0.01")
+  add(yaw, config, "yaw.writeDeadband", "Minimum max component delta before another manual yaw target write.")
 
   local controller = {}
   add(controller, config, "controller.enabled", "Default controller enable flag. A run can still use --controller or --no-controller.", "aircraft config controller true")
@@ -372,6 +375,8 @@ local function frameStats(report)
     tiltedCompensatedFrames = 0,
     yawActiveFrames = 0,
     yawSkippedFrames = 0,
+    yawWriteFrames = 0,
+    yawWriteSkippedFrames = 0,
     controllerActiveFrames = 0,
     actuatorWriteFrames = 0,
     actuatorSkippedFrames = 0,
@@ -415,6 +420,11 @@ local function frameStats(report)
       stats.yawActiveFrames = stats.yawActiveFrames + 1
     elseif yaw.enabled and yaw.skipped then
       stats.yawSkippedFrames = stats.yawSkippedFrames + 1
+    end
+    if yaw.write and yaw.write.write == true then
+      stats.yawWriteFrames = stats.yawWriteFrames + 1
+    elseif yaw.write and yaw.write.write == false then
+      stats.yawWriteSkippedFrames = stats.yawWriteSkippedFrames + 1
     end
     if type(yaw.yawRate) == "number" then
       stats.peakYawRate = math.max(stats.peakYawRate or 0, math.abs(yaw.yawRate))
@@ -568,6 +578,8 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(yawRows, "yaw.enabled", settings.yaw and settings.yaw.enabled, "Whether yaw gyro damping was enabled for this run.")
   addTextRow(yawRows, "yawActiveFrames", stats.yawActiveFrames, "Frames where yaw targets were computed from nav orientation and gyro bearing roles.")
   addTextRow(yawRows, "yawSkippedFrames", stats.yawSkippedFrames, "Frames where yaw was enabled but skipped because a dependency was missing or errored.")
+  addTextRow(yawRows, "yawWriteFrames", stats.yawWriteFrames, "Frames that wrote manual yaw targets to gyro bearings.")
+  addTextRow(yawRows, "yawWriteSkippedFrames", stats.yawWriteSkippedFrames, "Frames skipped by yaw.writeInterval/yaw.writeDeadband.")
   addTextRow(yawRows, "finalYawRate", degPerSecondText(finalYaw.yawRate), "Last yaw angular rate from gimbal getAngularRatesRad()[2].")
   addTextRow(yawRows, "peakYawRate", degPerSecondText(stats.peakYawRate), "Largest absolute yaw rate kept in the report.")
   addTextRow(yawRows, "finalYawTilt", finalYaw.tiltDeg and (valueText(finalYaw.tiltDeg) .. " deg") or "n/a", "Last manual gyro tilt requested for yaw damping.")

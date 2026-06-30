@@ -58,6 +58,7 @@ local DEFAULT_CONFIG = {
       maxCorrectionRpm = 0,
       minTargetRpm = 0,
       maxTargetRpm = 256,
+      desaturateHeadroomRpm = nil,
       writeInterval = 0.1,
       writeDeadbandRpm = 0.5,
     },
@@ -93,6 +94,8 @@ local DEFAULT_CONFIG = {
     sign = 1,
     commandLateral = 0.08,
     clearOnExit = true,
+    writeInterval = 0.1,
+    writeDeadband = 0.01,
   },
   display = {
     enabled = true,
@@ -152,6 +155,7 @@ local function usage()
   print("aircraft config stabilize-tilt-comp <true|false> [gain] [maxPower]")
   print("aircraft config stabilize-dither <true|false>")
   print("aircraft config yaw <true|false> [rateKd] [maxTiltDeg] [sign] [commandLateral]")
+  print("aircraft config yaw-writes <intervalSeconds> [deadband]")
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
   print("aircraft config hud <true|false>")
@@ -197,6 +201,8 @@ local function usage()
   print("  --yaw-deadband-deg <n> ignore smaller yaw rates")
   print("  --yaw-sign <-1|1>  invert yaw correction if needed")
   print("  --yaw-command <n>  Q/E yaw command strength before max-tilt clamp")
+  print("  --yaw-write-interval <n> minimum seconds between yaw gyro target writes")
+  print("  --yaw-write-deadband <n> minimum target-vector delta for yaw writes")
   print("  --actuator-type <type> override actuator backend for this run")
   print("")
   print("signal/brake are dry-run unless --apply is used and config dryRun=false.")
@@ -731,6 +737,7 @@ local function printConfig(config, source)
   print("  actuator.rotationSpeed.maxCorrectionRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.maxCorrectionRpm))
   print("  actuator.rotationSpeed.minTargetRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.minTargetRpm))
   print("  actuator.rotationSpeed.maxTargetRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.maxTargetRpm))
+  print("  actuator.rotationSpeed.desaturateHeadroomRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.desaturateHeadroomRpm))
   print("  actuator.rotationSpeed.writeInterval=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.writeInterval))
   print("  actuator.rotationSpeed.writeDeadbandRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.writeDeadbandRpm))
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
@@ -757,6 +764,8 @@ local function printConfig(config, source)
   print("  yaw.sign=" .. tostring(config.yaw and config.yaw.sign))
   print("  yaw.commandLateral=" .. tostring(config.yaw and config.yaw.commandLateral))
   print("  yaw.clearOnExit=" .. tostring(config.yaw and config.yaw.clearOnExit))
+  print("  yaw.writeInterval=" .. tostring(config.yaw and config.yaw.writeInterval))
+  print("  yaw.writeDeadband=" .. tostring(config.yaw and config.yaw.writeDeadband))
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
   print("  display.stabilizeEnabled=" .. tostring(config.display and config.display.stabilizeEnabled))
   print("  display.stabilizeInterval=" .. tostring(config.display and config.display.stabilizeInterval))
@@ -1173,6 +1182,12 @@ local function runConfig()
     if config.yaw.clearOnExit == nil then
       config.yaw.clearOnExit = true
     end
+    if config.yaw.writeInterval == nil then
+      config.yaw.writeInterval = 0.1
+    end
+    if config.yaw.writeDeadband == nil then
+      config.yaw.writeDeadband = 0.01
+    end
 
     saveConfig(config)
     print("Saved yaw control to " .. CONFIG_PATH)
@@ -1183,6 +1198,29 @@ local function runConfig()
     print("  sign=" .. tostring(config.yaw.sign))
     print("  commandLateral=" .. tostring(config.yaw.commandLateral))
     print("  clearOnExit=" .. tostring(config.yaw.clearOnExit))
+    print("  writeInterval=" .. tostring(config.yaw.writeInterval))
+    print("  writeDeadband=" .. tostring(config.yaw.writeDeadband))
+    return
+  elseif subcommand == "yaw-writes" then
+    config.yaw = config.yaw or {}
+    config.yaw.writeInterval = parseNumber(args[3], "intervalSeconds")
+    if config.yaw.writeInterval < 0 then
+      error("intervalSeconds must be non-negative", 0)
+    end
+
+    if args[4] then
+      config.yaw.writeDeadband = parseNumber(args[4], "deadband")
+      if config.yaw.writeDeadband < 0 then
+        error("deadband must be non-negative", 0)
+      end
+    elseif config.yaw.writeDeadband == nil then
+      config.yaw.writeDeadband = 0.01
+    end
+
+    saveConfig(config)
+    print("Saved yaw write cadence to " .. CONFIG_PATH)
+    print("  writeInterval=" .. tostring(config.yaw.writeInterval))
+    print("  writeDeadband=" .. tostring(config.yaw.writeDeadband))
     return
   elseif subcommand == "display" then
     config.display = config.display or {}
@@ -1539,6 +1577,18 @@ local function parseCommandOptions(startIndex)
       options.yawCommandLateral = tonumber(args[i + 1])
       if not options.yawCommandLateral or options.yawCommandLateral < 0 then
         error(arg .. " needs a non-negative number", 0)
+      end
+      i = i + 2
+    elseif arg == "--yaw-write-interval" then
+      options.yawWriteInterval = tonumber(args[i + 1])
+      if not options.yawWriteInterval or options.yawWriteInterval < 0 then
+        error("--yaw-write-interval needs a non-negative number", 0)
+      end
+      i = i + 2
+    elseif arg == "--yaw-write-deadband" then
+      options.yawWriteDeadband = tonumber(args[i + 1])
+      if not options.yawWriteDeadband or options.yawWriteDeadband < 0 then
+        error("--yaw-write-deadband needs a non-negative number", 0)
       end
       i = i + 2
     elseif arg == "--killswitch" then

@@ -37,6 +37,7 @@ actuator = {
     maxCorrectionRpm = 0,
     minTargetRpm = 0,
     maxTargetRpm = 256,
+    desaturateHeadroomRpm = nil,
     writeInterval = 0.1,
     writeDeadbandRpm = 0.5,
   },
@@ -55,7 +56,9 @@ The active stabilizer path for `rotation_speed` does not use `stabilize.basePowe
 baseRpm + controllerThrottle * throttleRpmPerPower +/- axis RPM corrections
 ```
 
-The local unsigned target is clamped to `minTargetRpm..maxTargetRpm`, then multiplied by global `sign` and per-corner `roleSign`, then clamped to `minRpm..maxRpm` before writing. Fractional RPM is sent by default; set `round=true` only for a future block that rejects floats. `roleSign` defaults to scan-derived controller-to-rotor geometry when `autoRoleSigns=true`; use `aircraft config rotation-speed-signs 1 1 -1 -1` for an explicit override.
+Before local unsigned targets are clamped, rotation-speed mode now uses the same `stabilize.desaturate` shift/scale pass as the redstone backend. This matters during descent: if the requested correction would push one rotor below `minTargetRpm`, the mixer raises or scales the whole RPM set instead of silently throwing away one side of the stabilizer. `desaturateHeadroomRpm=nil` derives RPM headroom from `stabilize.desaturateHeadroom * throttleRpmPerPower`; set a number only when a rig needs a different minimum spinning margin.
+
+The local unsigned target is then clamped to `minTargetRpm..maxTargetRpm`, multiplied by global `sign` and per-corner `roleSign`, and clamped to `minRpm..maxRpm` before writing. Fractional RPM is sent by default; set `round=true` only for a future block that rejects floats. `roleSign` defaults to scan-derived controller-to-rotor geometry when `autoRoleSigns=true`; use `aircraft config rotation-speed-signs 1 1 -1 -1` for an explicit override.
 
 ## Migration Flow
 

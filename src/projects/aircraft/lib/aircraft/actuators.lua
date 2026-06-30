@@ -269,6 +269,7 @@ function actuators.settings(config, options)
       maxCorrectionRpm = math.abs(tonumber(options.maxCorrectionRpm) or tonumber(speedConfig.maxCorrectionRpm) or 0),
       minTargetRpm = math.max(0, tonumber(options.minTargetRpm) or tonumber(speedConfig.minTargetRpm) or 0),
       maxTargetRpm = math.abs(tonumber(options.maxTargetRpm) or maxTargetRpm),
+      desaturateHeadroomRpm = tonumber(speedConfig.desaturateHeadroomRpm),
       writeInterval = math.max(0, tonumber(options.writeInterval) or tonumber(speedConfig.writeInterval) or 0.1),
       writeDeadbandRpm = math.max(0, tonumber(options.writeDeadbandRpm) or tonumber(speedConfig.writeDeadbandRpm) or 0.5),
     }

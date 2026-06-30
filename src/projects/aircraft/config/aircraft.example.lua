@@ -66,6 +66,10 @@ return {
       -- Local unsigned target range before sign/roleSign polarity is applied.
       minTargetRpm = 0,
       maxTargetRpm = 256,
+      -- Optional RPM headroom override for stabilize.desaturate in
+      -- rotation_speed mode. nil derives it from desaturateHeadroom and
+      -- throttleRpmPerPower.
+      desaturateHeadroomRpm = nil,
       -- setTargetSpeed yields until the next server tick, so avoid rewriting
       -- identical targets every control frame.
       writeInterval = 0.1,
@@ -110,6 +114,11 @@ return {
     sign = 1,
     commandLateral = 0.08,
     clearOnExit = true,
+    -- setManualTarget yields until the next server tick. Keep these high enough
+    -- that yaw damping remains responsive but near-identical targets are not
+    -- rewritten every pitch/roll frame.
+    writeInterval = 0.1,
+    writeDeadband = 0.01,
   },
   display = {
     enabled = true,
