@@ -416,8 +416,37 @@ local function statusColorOffsets(cells)
     throttleStart = 0,
     throttleEnd = statusCellOffset(math.max(1, throttleLength)),
     hold = statusCellOffset(throttleLength + 2),
-    moveTarget = statusCellOffset(throttleLength + 4),
+    moveTarget = statusCellOffset(throttleLength + 3),
   }
+end
+
+local function mergedModeColor(hold, moveTarget)
+  if (hold and hold.state == "skipped") or (moveTarget and moveTarget.state == "skipped") then
+    return "orange"
+  elseif (hold and hold.state == "active") or (moveTarget and moveTarget.state == "active") then
+    return "lime"
+  elseif (hold and hold.state == "disabled") and (moveTarget and moveTarget.state == "disabled") then
+    return "gray"
+  end
+
+  return "red"
+end
+
+local function statusColorsByOffset(cells, offsets)
+  local colorsByOffset = {}
+
+  for offset = offsets.throttleStart, offsets.throttleEnd do
+    colorsByOffset[offset] = cells.throttle.color
+  end
+
+  if offsets.hold == offsets.moveTarget then
+    colorsByOffset[offsets.hold] = mergedModeColor(cells.hold, cells.moveTarget)
+  else
+    colorsByOffset[offsets.hold] = cells.hold.color
+    colorsByOffset[offsets.moveTarget] = cells.moveTarget.color
+  end
+
+  return colorsByOffset
 end
 
 local function updateStatusStrip(context, frame, report, tasks)
@@ -432,8 +461,9 @@ local function updateStatusStrip(context, frame, report, tasks)
   }
 
   local cells = statusStripCells(frame)
-  local textValue = cells.throttle.text .. " " .. cells.hold.text .. " " .. cells.moveTarget.text
+  local textValue = cells.throttle.text .. " " .. cells.hold.text .. cells.moveTarget.text
   local offsets = statusColorOffsets(cells)
+  local colorsByOffset = statusColorsByOffset(cells, offsets)
   report.statusStrip.text = textValue
   report.statusStrip.colorOffsets = copyPlain(offsets)
 
@@ -449,41 +479,80 @@ local function updateStatusStrip(context, frame, report, tasks)
     end
   end
 
+  strip.lastColors = strip.lastColors or {}
+
   if strip.devices.text then
     local textDevice = strip.devices.text
     report.statusStrip.coord = copyPlain(textDevice.coord)
-    report.updated = true
-    table.insert(tasks, function()
-      report.statusStrip.results = writeText(textDevice.object, textValue, nil)
-      report.statusStrip.colorResults = {}
+    local textChanged = strip.lastText ~= textValue
+    local colorChanges = {}
 
-      for offset = offsets.throttleStart, offsets.throttleEnd do
-        local device = strip.cellsByOffset and strip.cellsByOffset[offset]
-        if device then
-          table.insert(report.statusStrip.colorResults, {
-            key = "throttle",
-            offset = offset,
-            coord = copyPlain(device.coord),
-            results = writeColor(device.object, cells.throttle.color),
-          })
-        end
+    for offset, color in pairs(colorsByOffset) do
+      if strip.lastColors[offset] ~= color then
+        table.insert(colorChanges, {
+          offset = offset,
+          color = color,
+        })
       end
+    end
 
-      for _, key in ipairs({ "hold", "moveTarget" }) do
-        local offset = offsets[key]
-        local device = strip.cellsByOffset and strip.cellsByOffset[offset]
-        local value = cells[key]
+    report.statusStrip.changed = {
+      text = textChanged,
+      colorCount = #colorChanges,
+    }
 
-        if device and value then
-          report.statusStrip.cells[key].coord = copyPlain(device.coord)
-          report.statusStrip.cells[key].offset = offset
-          report.statusStrip.cells[key].colorResults = writeColor(device.object, value.color)
-        elseif value then
-          report.statusStrip.cells[key].offset = offset
-          report.statusStrip.cells[key].skipped = "missing display at offset " .. tostring(offset)
+    if textChanged or #colorChanges > 0 then
+      report.updated = true
+      table.insert(tasks, function()
+        if textChanged then
+          report.statusStrip.results = writeText(textDevice.object, textValue, nil)
+          strip.lastText = textValue
+        else
+          report.statusStrip.results = {
+            skipped = "text unchanged",
+          }
         end
-      end
-    end)
+
+        report.statusStrip.colorResults = {}
+
+        for _, change in ipairs(colorChanges) do
+          local device = strip.cellsByOffset and strip.cellsByOffset[change.offset]
+          if device then
+            local results = writeColor(device.object, change.color)
+            strip.lastColors[change.offset] = change.color
+            table.insert(report.statusStrip.colorResults, {
+              offset = change.offset,
+              color = change.color,
+              coord = copyPlain(device.coord),
+              results = results,
+            })
+          else
+            table.insert(report.statusStrip.colorResults, {
+              offset = change.offset,
+              color = change.color,
+              skipped = "missing display",
+            })
+          end
+        end
+
+        for _, key in ipairs({ "hold", "moveTarget" }) do
+          local offset = offsets[key]
+          local device = strip.cellsByOffset and strip.cellsByOffset[offset]
+          local value = cells[key]
+
+          if device and value then
+            report.statusStrip.cells[key].coord = copyPlain(device.coord)
+            report.statusStrip.cells[key].offset = offset
+            report.statusStrip.cells[key].color = colorsByOffset[offset] or value.color
+          elseif value then
+            report.statusStrip.cells[key].offset = offset
+            report.statusStrip.cells[key].skipped = "missing display at offset " .. tostring(offset)
+          end
+        end
+      end)
+    else
+      report.statusStrip.skipped = "unchanged"
+    end
   else
     report.statusStrip.skipped = "missing text display"
   end

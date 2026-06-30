@@ -103,7 +103,6 @@ local ORDERS = {
     "maxVelocity",
     "targetKp",
     "deadband",
-    "captureRadius",
     "velocitySlew",
   },
   controller = {

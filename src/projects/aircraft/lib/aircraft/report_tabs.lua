@@ -255,7 +255,6 @@ local function configSections(config)
   add(hold, config, "moveTarget.maxVelocity", "Maximum desired body-frame velocity toward the nav target.")
   add(hold, config, "moveTarget.targetKp", "Target-distance to desired-velocity gain.")
   add(hold, config, "moveTarget.deadband", "Horizontal distance inside which move-target asks for zero velocity.")
-  add(hold, config, "moveTarget.captureRadius", "Move-target only acts inside this horizontal radius; outside it falls back to velocity hold.")
   add(hold, config, "moveTarget.velocitySlew", "Maximum change in desired velocity per second while move-target is active.")
 
   local controller = {}

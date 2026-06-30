@@ -112,7 +112,6 @@ local DEFAULT_CONFIG = {
     maxVelocity = 1,
     targetKp = 0.2,
     deadband = 1,
-    captureRadius = 8,
     velocitySlew = 0.5,
   },
   display = {
@@ -178,7 +177,7 @@ local function usage()
   print("aircraft config hold <true|false> [maxTiltDeg] [velocityKp] [velocityDeadband]")
   print("aircraft config hold-default <true|false>")
   print("aircraft config hold-signs <axis1Sign> <axis2Sign>")
-  print("aircraft config move-target <true|false> [maxVelocity] [targetKp] [captureRadius] [deadband] [velocitySlew]")
+  print("aircraft config move-target <true|false> [maxVelocity] [targetKp] [deadband] [velocitySlew]")
   print("aircraft config move-target-default <true|false>")
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
@@ -859,7 +858,6 @@ local function printConfig(config, source)
   print("  moveTarget.maxVelocity=" .. tostring(config.moveTarget and config.moveTarget.maxVelocity))
   print("  moveTarget.targetKp=" .. tostring(config.moveTarget and config.moveTarget.targetKp))
   print("  moveTarget.deadband=" .. tostring(config.moveTarget and config.moveTarget.deadband))
-  print("  moveTarget.captureRadius=" .. tostring(config.moveTarget and config.moveTarget.captureRadius))
   print("  moveTarget.velocitySlew=" .. tostring(config.moveTarget and config.moveTarget.velocitySlew))
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
   print("  display.stabilizeEnabled=" .. tostring(config.display and config.display.stabilizeEnabled))
@@ -1413,17 +1411,23 @@ local function runConfig()
       config.moveTarget.targetKp = 0.2
     end
 
-    if args[6] then
-      config.moveTarget.captureRadius = parseNumber(args[6], "captureRadius")
-      if config.moveTarget.captureRadius < 0 then
-        error("captureRadius must be non-negative", 0)
+    local deadbandIndex = 6
+    local velocitySlewIndex = 7
+    local legacyCaptureRadius = nil
+
+    if args[8] then
+      legacyCaptureRadius = parseNumber(args[6], "legacyCaptureRadius")
+      if legacyCaptureRadius < 0 then
+        error("legacyCaptureRadius must be non-negative", 0)
       end
-    elseif config.moveTarget.captureRadius == nil then
-      config.moveTarget.captureRadius = 8
+      deadbandIndex = 7
+      velocitySlewIndex = 8
     end
 
-    if args[7] then
-      config.moveTarget.deadband = parseNumber(args[7], "deadband")
+    config.moveTarget.captureRadius = nil
+
+    if args[deadbandIndex] then
+      config.moveTarget.deadband = parseNumber(args[deadbandIndex], "deadband")
       if config.moveTarget.deadband < 0 then
         error("deadband must be non-negative", 0)
       end
@@ -1431,8 +1435,8 @@ local function runConfig()
       config.moveTarget.deadband = 1
     end
 
-    if args[8] then
-      config.moveTarget.velocitySlew = parseNumber(args[8], "velocitySlew")
+    if args[velocitySlewIndex] then
+      config.moveTarget.velocitySlew = parseNumber(args[velocitySlewIndex], "velocitySlew")
       if config.moveTarget.velocitySlew < 0 then
         error("velocitySlew must be non-negative", 0)
       end
@@ -1450,9 +1454,11 @@ local function runConfig()
     print("  defaultActive=" .. tostring(config.moveTarget.defaultActive))
     print("  maxVelocity=" .. tostring(config.moveTarget.maxVelocity))
     print("  targetKp=" .. tostring(config.moveTarget.targetKp))
-    print("  captureRadius=" .. tostring(config.moveTarget.captureRadius))
     print("  deadband=" .. tostring(config.moveTarget.deadband))
     print("  velocitySlew=" .. tostring(config.moveTarget.velocitySlew))
+    if legacyCaptureRadius ~= nil then
+      print("  ignored legacyCaptureRadius=" .. tostring(legacyCaptureRadius))
+    end
     return
   elseif subcommand == "move-target-default" then
     config.moveTarget = config.moveTarget or {}

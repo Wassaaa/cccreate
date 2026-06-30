@@ -878,7 +878,6 @@ local function stabilizeConfig(config, options)
       maxVelocity = math.max(0, tonumber(moveTarget.maxVelocity) or 1),
       targetKp = math.max(0, tonumber(moveTarget.targetKp) or 0.2),
       deadband = math.max(0, tonumber(moveTarget.deadband) or 1),
-      captureRadius = math.max(0, tonumber(moveTarget.captureRadius) or 8),
       velocitySlew = math.max(0, tonumber(moveTarget.velocitySlew) or 0.5),
     },
     killSwitch = {
@@ -1318,19 +1317,6 @@ local function desiredVelocityFromTarget(moveSettings, navigation)
 
   local verticalOffset = readNumber(navigation.verticalOffsetToTarget)
   local horizontal = horizontalDistance(distance, verticalOffset)
-  local captureRadius = tonumber(moveSettings.captureRadius) or 0
-  if horizontal > captureRadius then
-    return {
-      front = 0,
-      left = 0,
-      skipped = "outside capture radius",
-      bearingRad = bearing,
-      distance = distance,
-      horizontalDistance = horizontal,
-      verticalOffset = verticalOffset,
-      captureRadius = captureRadius,
-    }
-  end
 
   local deadband = tonumber(moveSettings.deadband) or 0
   local maxVelocity = tonumber(moveSettings.maxVelocity) or 0
@@ -1346,7 +1332,6 @@ local function desiredVelocityFromTarget(moveSettings, navigation)
     distance = distance,
     horizontalDistance = horizontal,
     verticalOffset = verticalOffset,
-    captureRadius = captureRadius,
     speed = speed,
     closureRate = readNumber(navigation.closureRate),
   }
@@ -1432,7 +1417,6 @@ local function buildHoldFrame(settings, sensors, control, modeState, dt)
       moveTargetFrame.distance = desired.distance
       moveTargetFrame.horizontalDistance = desired.horizontalDistance
       moveTargetFrame.verticalOffset = desired.verticalOffset
-      moveTargetFrame.captureRadius = desired.captureRadius
       moveTargetFrame.speed = desired.speed
       moveTargetFrame.closureRate = desired.closureRate
     end
@@ -2839,7 +2823,6 @@ local function compactHoldFrame(hold)
       distance = hold.moveTarget.distance,
       horizontalDistance = hold.moveTarget.horizontalDistance,
       verticalOffset = hold.moveTarget.verticalOffset,
-      captureRadius = hold.moveTarget.captureRadius,
       speed = hold.moveTarget.speed,
       closureRate = hold.moveTarget.closureRate,
     } or nil,

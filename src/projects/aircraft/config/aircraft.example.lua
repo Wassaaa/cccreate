@@ -134,14 +134,13 @@ return {
     axis2Sign = -1,
   },
   moveTarget = {
-    -- T toggles move-target during stabilize. It only acts while velocity hold
-    -- is active and a navigation table has a live target inside captureRadius.
+    -- T toggles move-target during stabilize. It acts while velocity hold is
+    -- active and a navigation table has a live target.
     enabled = true,
     defaultActive = false,
     maxVelocity = 1,
     targetKp = 0.2,
     deadband = 1,
-    captureRadius = 8,
     velocitySlew = 0.5,
   },
   display = {
