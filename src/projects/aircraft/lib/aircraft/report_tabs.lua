@@ -161,6 +161,14 @@ local function configSections(config)
   add(orientation, config, "frontAxis", "Manual aircraft-front axis. nil lets scan infer it from side peripherals near the computer.", "aircraft config axes +Z +X")
   add(orientation, config, "leftAxis", "Manual aircraft-left axis. This combines with frontAxis to map front_left/front_right/rear_left/rear_right.")
 
+  local scan = {}
+  add(scan, config, "scan.xRadius", "Horizontal scan radius to aircraft left/right.", "aircraft scan --x-radius 8")
+  add(scan, config, "scan.yRadius", "Vertical scan radius above/below the router.")
+  add(scan, config, "scan.zRadius", "Horizontal scan radius to aircraft front/back.")
+  add(scan, config, "scan.sampleLimit", "Maximum number of safe getter samples captured per found peripheral.")
+  add(scan, config, "scan.errorLimit", "Maximum stored scan errors per error list.")
+  add(scan, config, "scan.parallelism", "Bounded worker count for routed scan calls. 1 is sequential.", "aircraft config scan-parallelism 12")
+
   local stabilize = {}
   add(stabilize, config, "stabilize.interval", "Requested control-loop interval in seconds. Lower is faster but costs more peripheral work.")
   add(stabilize, config, "stabilize.seconds", "Default stabilize duration when --seconds is not provided.")
@@ -227,6 +235,7 @@ local function configSections(config)
 
   return {
     section("Safety and Output", safety),
+    section("Scan", scan),
     section("Orientation and Level", orientation),
     section("Stabilizer", stabilize, "axis1 is roll/A-D/left-right. axis2 is pitch/W-S/front-back."),
     section("Controller", controller),
@@ -808,9 +817,13 @@ local function setMetrics(report, stats)
 
   if report.kind == "aircraft_scan" or report.kind == "aircraft_status" then
     local scada = report.kineticScada or {}
+    local scanSummary = report.summary or {}
     local summary = scada.summary or (report.summary and report.summary.kineticScada) or {}
     human.metrics = {
       { label = "Kind", value = report.kind },
+      { label = "Scanned", value = scanSummary.scanned or "n/a" },
+      { label = "Found", value = scanSummary.found or "n/a" },
+      { label = "Scan Workers", value = scanSummary.parallelism or "n/a" },
       { label = "SCADA Nodes", value = summary.nodes or 0 },
       { label = "Networks", value = summary.networks or 0 },
       { label = "Drivers", value = summary.drivers or 0 },

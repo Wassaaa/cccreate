@@ -3,6 +3,8 @@ local coords = require("lib.aircraft.coords")
 local kineticScada = require("lib.aircraft.kinetic_scada")
 
 local scanner = {}
+local MAX_SCAN_PARALLELISM = 32
+local DEFAULT_SCAN_PARALLELISM = 12
 
 local SIDE_NAMES = {
   front = true,
@@ -421,6 +423,105 @@ local function makeEntry(object, x, y, z, config)
   }
 end
 
+local function scanParallelism(config)
+  local requested = tonumber(config and config.scan and config.scan.parallelism) or DEFAULT_SCAN_PARALLELISM
+  requested = math.floor(requested)
+
+  if requested < 1 then
+    return 1
+  elseif requested > MAX_SCAN_PARALLELISM then
+    return MAX_SCAN_PARALLELISM
+  end
+
+  return requested
+end
+
+local function scanCoordinate(router, report, x, y, z, config, errorLimit)
+  report.summary.scanned = report.summary.scanned + 1
+
+  if not shouldWrapCoordinate(router, report, x, y, z, errorLimit) then
+    return
+  end
+
+  report.summary.wrapAttempts = report.summary.wrapAttempts + 1
+  local ok, objectOrError = pcall(router.wrap, x, y, z)
+
+  if not ok then
+    report.summary.wrapErrors = report.summary.wrapErrors + 1
+    includeError(report, {
+      phase = "wrap",
+      coord = {
+        x = x,
+        y = y,
+        z = z,
+        key = coords.key(x, y, z),
+      },
+      error = tostring(objectOrError),
+    }, errorLimit)
+    return
+  end
+
+  if not objectOrError then
+    return
+  end
+
+  local entry = makeEntry(objectOrError, x, y, z, config)
+  table.insert(report.peripherals, entry)
+  report.summary.found = report.summary.found + 1
+
+  for _, category in ipairs(entry.categories) do
+    report.summary.categories[category] = (report.summary.categories[category] or 0) + 1
+  end
+end
+
+local function scanCoordinateList(bounds)
+  local list = {}
+
+  coords.iterate(bounds, function(x, y, z)
+    table.insert(list, {
+      x = x,
+      y = y,
+      z = z,
+    })
+  end)
+
+  return list
+end
+
+local function runCoordinateScan(router, report, coordinateList, config, errorLimit, workerCount)
+  local nextIndex = 1
+
+  local function worker()
+    while true do
+      local index = nextIndex
+      nextIndex = nextIndex + 1
+      local coord = coordinateList[index]
+
+      if not coord then
+        return
+      end
+
+      scanCoordinate(router, report, coord.x, coord.y, coord.z, config, errorLimit)
+    end
+  end
+
+  if workerCount <= 1 or type(parallel) ~= "table" or type(parallel.waitForAll) ~= "function" then
+    worker()
+    return
+  end
+
+  local tasks = {}
+  local count = math.min(workerCount, #coordinateList)
+
+  for _ = 1, count do
+    table.insert(tasks, worker)
+  end
+
+  if #tasks > 0 then
+    parallel.waitForAll(unpack(tasks))
+  end
+end
+
 local function directComputerCoord(routerName)
   local sideAxis = SIDE_AXIS[routerName]
   if not sideAxis then
@@ -795,6 +896,7 @@ function scanner.scan(config)
       dryRun = config.dryRun ~= false,
       absoluteSignalMax = config.absoluteSignalMax,
       maxAttitudeDelta = config.maxAttitudeDelta,
+      scanParallelism = scanParallelism(config),
     },
     router = {
       name = routerName,
@@ -814,6 +916,7 @@ function scanner.scan(config)
       presenceErrors = 0,
       wrapAttempts = 0,
       wrapErrors = 0,
+      parallelism = scanParallelism(config),
       categories = {},
     },
   }
@@ -829,43 +932,9 @@ function scanner.scan(config)
 
   local errorLimit = tonumber(config.scan.errorLimit) or 12
 
-  coords.iterate(bounds, function(x, y, z)
-    report.summary.scanned = report.summary.scanned + 1
-
-    if not shouldWrapCoordinate(router, report, x, y, z, errorLimit) then
-      return
-    end
-
-    report.summary.wrapAttempts = report.summary.wrapAttempts + 1
-    local ok, objectOrError = pcall(router.wrap, x, y, z)
-
-    if not ok then
-      report.summary.wrapErrors = report.summary.wrapErrors + 1
-      includeError(report, {
-        phase = "wrap",
-        coord = {
-          x = x,
-          y = y,
-          z = z,
-          key = coords.key(x, y, z),
-        },
-        error = tostring(objectOrError),
-      }, errorLimit)
-      return
-    end
-
-    if not objectOrError then
-      return
-    end
-
-    local entry = makeEntry(objectOrError, x, y, z, config)
-    table.insert(report.peripherals, entry)
-    report.summary.found = report.summary.found + 1
-
-    for _, category in ipairs(entry.categories) do
-      report.summary.categories[category] = (report.summary.categories[category] or 0) + 1
-    end
-  end)
+  local coordinateList = scanCoordinateList(bounds)
+  report.summary.coordinateCount = #coordinateList
+  runCoordinateScan(router, report, coordinateList, config, errorLimit, report.summary.parallelism)
 
   table.sort(report.peripherals, function(left, right)
     if left.coord.y ~= right.coord.y then

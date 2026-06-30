@@ -19,7 +19,7 @@ local ROOT_ORDER = {
 }
 
 local ORDERS = {
-  scan = { "xRadius", "yRadius", "zRadius", "sampleLimit", "errorLimit" },
+  scan = { "xRadius", "yRadius", "zRadius", "sampleLimit", "errorLimit", "parallelism" },
   stabilize = {
     "interval",
     "seconds",

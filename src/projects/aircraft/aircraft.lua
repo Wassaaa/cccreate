@@ -19,6 +19,7 @@ local DEFAULT_CONFIG = {
     zRadius = 8,
     sampleLimit = 12,
     errorLimit = 12,
+    parallelism = 12,
   },
   frontAxis = nil,
   leftAxis = nil,
@@ -90,6 +91,7 @@ local function usage()
   print("aircraft status")
   print("aircraft config show")
   print("aircraft config axes <frontAxis> <leftAxis>")
+  print("aircraft config scan-parallelism <1-32>")
   print("aircraft config dry-run <true|false>")
   print("aircraft config max-signal <0-15>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
@@ -129,6 +131,7 @@ local function usage()
   print("  --y-radius <n>     set y scan radius")
   print("  --z-radius <n>     set z scan radius")
   print("  --sample-limit <n> max getter samples per peripheral")
+  print("  --parallelism <n>  scan worker count, 1-32")
   print("  --out <path>       default /aircraft_scan.txt")
   print("  --no-webhook       skip webhook output")
   print("  --hud-interval <n> stabilize HUD refresh seconds")
@@ -282,6 +285,16 @@ local function parseNonNegativeInteger(value, label)
   return number
 end
 
+local function parseScanParallelism(value, label)
+  local number = parseInteger(value, label or "scan parallelism")
+
+  if number < 1 or number > 32 then
+    error((label or "scan parallelism") .. " must be from 1 to 32", 0)
+  end
+
+  return number
+end
+
 local function parseNumber(value, label)
   local number = tonumber(value)
   if not number then
@@ -313,6 +326,9 @@ local function parseOptions(config)
       i = i + 2
     elseif arg == "--sample-limit" then
       config.scan.sampleLimit = parseNonNegativeInteger(args[i + 1], "--sample-limit")
+      i = i + 2
+    elseif arg == "--parallelism" then
+      config.scan.parallelism = parseScanParallelism(args[i + 1], "--parallelism")
       i = i + 2
     elseif arg == "--out" then
       config.reportPath = args[i + 1]
@@ -382,6 +398,7 @@ local function printSummary(report, path)
   print("Router: " .. tostring(report.router and report.router.name))
   print("Router presence method: " .. tostring(report.router and report.router.presenceMethod))
   print("Bounds: " .. coords.boundsLabel(report.scanBounds))
+  print("Scan workers: " .. tostring(report.summary.parallelism or 1))
   print("Scanned positions: " .. tostring(report.summary.scanned or 0))
   print("Presence checks: " .. tostring(report.summary.presenceChecks or 0))
   print("Presence misses: " .. tostring(report.summary.presenceMisses or 0))
@@ -589,6 +606,12 @@ end
 
 local function printConfig(config, source)
   print("aircraft config from " .. tostring(source))
+  print("  scan.xRadius=" .. tostring(config.scan and config.scan.xRadius))
+  print("  scan.yRadius=" .. tostring(config.scan and config.scan.yRadius))
+  print("  scan.zRadius=" .. tostring(config.scan and config.scan.zRadius))
+  print("  scan.sampleLimit=" .. tostring(config.scan and config.scan.sampleLimit))
+  print("  scan.errorLimit=" .. tostring(config.scan and config.scan.errorLimit))
+  print("  scan.parallelism=" .. tostring(config.scan and config.scan.parallelism))
   print("  frontAxis=" .. tostring(config.frontAxis))
   print("  leftAxis=" .. tostring(config.leftAxis))
   print("  dryRun=" .. tostring(config.dryRun))
@@ -691,6 +714,12 @@ local function runConfig()
     print("  frontAxis=" .. tostring(config.frontAxis))
     print("  leftAxis=" .. tostring(config.leftAxis))
     print("Next: run aircraft scan to refresh role mappings.")
+    return
+  elseif subcommand == "scan-parallelism" then
+    config.scan = config.scan or {}
+    config.scan.parallelism = parseScanParallelism(args[3], "scan parallelism")
+    saveConfig(config)
+    print("Saved scan.parallelism=" .. tostring(config.scan.parallelism) .. " to " .. CONFIG_PATH)
     return
   elseif subcommand == "dry-run" then
     config.dryRun = parseBoolean(args[3])
