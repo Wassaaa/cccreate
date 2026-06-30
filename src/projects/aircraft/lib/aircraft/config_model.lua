@@ -11,6 +11,7 @@ local ROOT_ORDER = {
   "maxAttitudeDelta",
   "statusReadLimit",
   "stabilize",
+  "verticalAssist",
   "yaw",
   "controller",
   "display",
@@ -73,6 +74,15 @@ local ORDERS = {
     "signalDither",
     "brakeOnExit",
     "reportFrameLimit",
+  },
+  verticalAssist = {
+    "enabled",
+    "targetVerticalSpeed",
+    "deadband",
+    "powerPerVerticalSpeed",
+    "maxPower",
+    "rpmPerVerticalSpeed",
+    "maxRpm",
   },
   yaw = {
     "enabled",
@@ -181,6 +191,7 @@ function configModel.normalize(config)
   set(result, "maxAttitudeDelta", config.maxAttitudeDelta)
   set(result, "statusReadLimit", config.statusReadLimit)
   result.stabilize = pick(config.stabilize, ORDERS.stabilize)
+  result.verticalAssist = pick(config.verticalAssist, ORDERS.verticalAssist)
   result.yaw = pick(config.yaw, ORDERS.yaw)
   result.controller = pick(config.controller, ORDERS.controller)
   result.controller.bindings = normalizeBindings(config.controller and config.controller.bindings)

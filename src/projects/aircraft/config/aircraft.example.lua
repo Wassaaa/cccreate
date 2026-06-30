@@ -99,6 +99,19 @@ return {
     brakeOnExit = true,
     reportFrameLimit = 600,
   },
+  verticalAssist = {
+    -- Optional descent arrest. When enabled, stabilize reads the altitude
+    -- sensor vertical speed every frame and adds collective only while the
+    -- craft is below targetVerticalSpeed by more than deadband.
+    enabled = false,
+    targetVerticalSpeed = 0,
+    deadband = 0.05,
+    -- Redstone backend adds power; rotation_speed backend adds RPM.
+    powerPerVerticalSpeed = 0.8,
+    maxPower = 3,
+    rpmPerVerticalSpeed = 35,
+    maxRpm = 80,
+  },
   yaw = {
     -- Damps spin around the craft up axis by tilting gyroscopic propeller
     -- bearings with setManualTarget. Requires a navigation table in the scan

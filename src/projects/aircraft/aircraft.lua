@@ -85,6 +85,15 @@ local DEFAULT_CONFIG = {
     brakeOnExit = true,
     reportFrameLimit = 600,
   },
+  verticalAssist = {
+    enabled = false,
+    targetVerticalSpeed = 0,
+    deadband = 0.05,
+    powerPerVerticalSpeed = 0.8,
+    maxPower = 3,
+    rpmPerVerticalSpeed = 35,
+    maxRpm = 80,
+  },
   yaw = {
     enabled = true,
     rateKd = 0.15,
@@ -151,6 +160,7 @@ local function usage()
   print("aircraft config stabilize-desaturate <true|false> [headroomPower]")
   print("aircraft config stabilize-tilt-comp <true|false> [gain] [maxPower]")
   print("aircraft config stabilize-dither <true|false>")
+  print("aircraft config vertical-assist <true|false> [targetVerticalSpeed] [deadband] [powerPerVs] [maxPower] [rpmPerVs] [maxRpm]")
   print("aircraft config yaw <true|false> [rateKd] [maxTiltDeg] [sign] [commandLateral]")
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
@@ -750,6 +760,13 @@ local function printConfig(config, source)
   print("  stabilize.tiltCompensationGain=" .. tostring(config.stabilize.tiltCompensationGain))
   print("  stabilize.tiltCompensationMaxPower=" .. tostring(config.stabilize.tiltCompensationMaxPower))
   print("  stabilize.signalDither=" .. tostring(config.stabilize.signalDither))
+  print("  verticalAssist.enabled=" .. tostring(config.verticalAssist and config.verticalAssist.enabled))
+  print("  verticalAssist.targetVerticalSpeed=" .. tostring(config.verticalAssist and config.verticalAssist.targetVerticalSpeed))
+  print("  verticalAssist.deadband=" .. tostring(config.verticalAssist and config.verticalAssist.deadband))
+  print("  verticalAssist.powerPerVerticalSpeed=" .. tostring(config.verticalAssist and config.verticalAssist.powerPerVerticalSpeed))
+  print("  verticalAssist.maxPower=" .. tostring(config.verticalAssist and config.verticalAssist.maxPower))
+  print("  verticalAssist.rpmPerVerticalSpeed=" .. tostring(config.verticalAssist and config.verticalAssist.rpmPerVerticalSpeed))
+  print("  verticalAssist.maxRpm=" .. tostring(config.verticalAssist and config.verticalAssist.maxRpm))
   print("  yaw.enabled=" .. tostring(config.yaw and config.yaw.enabled))
   print("  yaw.rateKd=" .. tostring(config.yaw and config.yaw.rateKd))
   print("  yaw.maxTiltDeg=" .. tostring(config.yaw and config.yaw.maxTiltDeg))
@@ -1128,6 +1145,73 @@ local function runConfig()
     config.stabilize.signalDither = parseBoolean(args[3])
     saveConfig(config)
     print("Saved stabilize.signalDither=" .. tostring(config.stabilize.signalDither) .. " to " .. CONFIG_PATH)
+    return
+  elseif subcommand == "vertical-assist" then
+    config.verticalAssist = config.verticalAssist or {}
+    local assist = config.verticalAssist
+
+    assist.enabled = parseBoolean(args[3])
+
+    if args[4] then
+      assist.targetVerticalSpeed = parseNumber(args[4], "targetVerticalSpeed")
+    elseif assist.targetVerticalSpeed == nil then
+      assist.targetVerticalSpeed = 0
+    end
+
+    if args[5] then
+      assist.deadband = parseNumber(args[5], "deadband")
+      if assist.deadband < 0 then
+        error("deadband must be non-negative", 0)
+      end
+    elseif assist.deadband == nil then
+      assist.deadband = 0.05
+    end
+
+    if args[6] then
+      assist.powerPerVerticalSpeed = parseNumber(args[6], "powerPerVs")
+      if assist.powerPerVerticalSpeed < 0 then
+        error("powerPerVs must be non-negative", 0)
+      end
+    elseif assist.powerPerVerticalSpeed == nil then
+      assist.powerPerVerticalSpeed = 0.8
+    end
+
+    if args[7] then
+      assist.maxPower = parseNumber(args[7], "maxPower")
+      if assist.maxPower < 0 then
+        error("maxPower must be non-negative", 0)
+      end
+    elseif assist.maxPower == nil then
+      assist.maxPower = 3
+    end
+
+    if args[8] then
+      assist.rpmPerVerticalSpeed = parseNumber(args[8], "rpmPerVs")
+      if assist.rpmPerVerticalSpeed < 0 then
+        error("rpmPerVs must be non-negative", 0)
+      end
+    elseif assist.rpmPerVerticalSpeed == nil then
+      assist.rpmPerVerticalSpeed = 35
+    end
+
+    if args[9] then
+      assist.maxRpm = parseNumber(args[9], "maxRpm")
+      if assist.maxRpm < 0 then
+        error("maxRpm must be non-negative", 0)
+      end
+    elseif assist.maxRpm == nil then
+      assist.maxRpm = 80
+    end
+
+    saveConfig(config)
+    print("Saved vertical assist to " .. CONFIG_PATH)
+    print("  enabled=" .. tostring(assist.enabled))
+    print("  targetVerticalSpeed=" .. tostring(assist.targetVerticalSpeed))
+    print("  deadband=" .. tostring(assist.deadband))
+    print("  powerPerVerticalSpeed=" .. tostring(assist.powerPerVerticalSpeed))
+    print("  maxPower=" .. tostring(assist.maxPower))
+    print("  rpmPerVerticalSpeed=" .. tostring(assist.rpmPerVerticalSpeed))
+    print("  maxRpm=" .. tostring(assist.maxRpm))
     return
   elseif subcommand == "yaw" then
     config.yaw = config.yaw or {}
