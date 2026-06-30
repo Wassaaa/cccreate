@@ -9,6 +9,9 @@ local ROLE_ORDER = {
   "rear_right",
 }
 
+-- Create Nixie tubes render two text characters per block.
+local STATUS_TEXT_CELL_WIDTH = 2
+
 local function copyPlain(value, depth)
   if type(value) ~= "table" then
     return value
@@ -27,17 +30,6 @@ local function copyPlain(value, depth)
   end
 
   return result
-end
-
-local function ccColor(name)
-  local palette = nil
-  if type(colors) == "table" then
-    palette = colors
-  elseif type(colours) == "table" then
-    palette = colours
-  end
-
-  return palette and palette[name] or nil
 end
 
 local function call(object, method, ...)
@@ -84,19 +76,35 @@ local function formatSignal(signal)
   return tostring(math.floor(number + 0.5))
 end
 
+local function writeColor(object, color)
+  local results = {}
+
+  if color and type(object.setTextColor) == "function" then
+    results.setTextColor = call(object, "setTextColor", color)
+  elseif color and type(object.setTextColour) == "function" then
+    results.setTextColour = call(object, "setTextColour", color)
+  else
+    results.skipped = "missing setTextColor"
+  end
+
+  return results
+end
+
 local function writeText(object, text, color)
   local results = {}
 
-  if color then
-    if type(object.setTextColor) == "function" then
-      results.setTextColor = call(object, "setTextColor", color)
-    elseif type(object.setTextColour) == "function" then
-      results.setTextColour = call(object, "setTextColour", color)
-    end
-  end
-
   if type(object.setText) == "function" then
+    if color then
+      results.setTextWithColour = call(object, "setText", text, color)
+      if results.setTextWithColour.ok then
+        return results
+      end
+    end
+
     results.setText = call(object, "setText", text)
+    if color then
+      results.setTextColour = writeColor(object, color)
+    end
     return results
   end
 
@@ -127,18 +135,12 @@ local function wrapDisplay(router, mapped)
   }, nil
 end
 
-local function writeColor(object, color)
-  local results = {}
-
-  if color and type(object.setTextColor) == "function" then
-    results.setTextColor = call(object, "setTextColor", color)
-  elseif color and type(object.setTextColour) == "function" then
-    results.setTextColour = call(object, "setTextColour", color)
-  else
-    results.skipped = "missing setTextColor"
-  end
-
-  return results
+local function coordAt(anchor, axis, offset)
+  return {
+    x = anchor.x + axis.x * offset,
+    y = anchor.y + axis.y * offset,
+    z = anchor.z + axis.z * offset,
+  }
 end
 
 local function reserveStatusStripKey(context, coord)
@@ -161,6 +163,7 @@ local function collectStatusStrip(context, router, scan)
     axis = strip and strip.axis,
     length = strip and strip.length,
     devices = {},
+    cellsByOffset = {},
     errors = {},
     reservedKeys = {},
   }
@@ -171,20 +174,41 @@ local function collectStatusStrip(context, router, scan)
 
   context.statusStrip.enabled = true
 
-  local textDevice, textError = wrapDisplay(router, { coord = strip.coord })
-  if textDevice then
-    context.statusStrip.devices.text = textDevice
-  else
-    context.statusStrip.errors.text = textError
-  end
+  local axis = coords.parseAxis(strip.axis)
+  local length = tonumber(strip.length)
 
-  for key, cell in pairs(strip.cells or {}) do
-    if type(cell) == "table" and cell.coord then
-      reserveStatusStripKey(context, cell.coord)
-      if key == "hold" or key == "moveTarget" then
+  if axis and length and length > 0 then
+    for offset = 0, length - 1 do
+      local coord = coordAt(strip.coord, axis, offset)
+      reserveStatusStripKey(context, coord)
+      local device, errorMessage = wrapDisplay(router, { coord = coord })
+      if device then
+        context.statusStrip.cellsByOffset[offset] = device
+        if offset == 0 then
+          context.statusStrip.devices.text = device
+        end
+      else
+        context.statusStrip.errors["offset" .. tostring(offset)] = errorMessage
+      end
+    end
+  else
+    local textDevice, textError = wrapDisplay(router, { coord = strip.coord })
+    if textDevice then
+      context.statusStrip.devices.text = textDevice
+      context.statusStrip.cellsByOffset[0] = textDevice
+    else
+      context.statusStrip.errors.text = textError
+    end
+
+    for key, cell in pairs(strip.cells or {}) do
+      if type(cell) == "table" and cell.coord then
+        reserveStatusStripKey(context, cell.coord)
         local device, errorMessage = wrapDisplay(router, { coord = cell.coord })
         if device then
           context.statusStrip.devices[key] = device
+          if type(cell.offset) == "number" then
+            context.statusStrip.cellsByOffset[cell.offset] = device
+          end
         else
           context.statusStrip.errors[key] = errorMessage
         end
@@ -270,6 +294,7 @@ function displays.describe(context)
       axis = context.statusStrip.axis,
       length = context.statusStrip.length,
       devices = {},
+      offsets = {},
       errors = copyPlain(context.statusStrip.errors),
     } or nil,
   }
@@ -292,6 +317,13 @@ function displays.describe(context)
           coord = copyPlain(device.coord),
         }
       end
+    end
+
+    for offset, device in pairs(context.statusStrip.cellsByOffset or {}) do
+      table.insert(result.statusStrip.offsets, {
+        offset = offset,
+        coord = copyPlain(device.coord),
+      })
     end
   end
 
@@ -328,14 +360,14 @@ local function modeCell(onText, offText, mode)
   if mode.enabled == false then
     return {
       text = "-",
-      color = ccColor("gray") or ccColor("lightGray"),
+      color = "gray",
       colorName = "gray",
       state = "disabled",
     }
   elseif mode.active == true and mode.skipped then
     return {
       text = "!",
-      color = ccColor("orange") or ccColor("yellow"),
+      color = "orange",
       colorName = "orange",
       state = "skipped",
       skipped = mode.skipped,
@@ -343,7 +375,7 @@ local function modeCell(onText, offText, mode)
   elseif mode.active == true then
     return {
       text = onText,
-      color = ccColor("lime") or ccColor("green"),
+      color = "lime",
       colorName = "lime",
       state = "active",
     }
@@ -351,7 +383,7 @@ local function modeCell(onText, offText, mode)
 
   return {
     text = offText,
-    color = ccColor("red"),
+    color = "red",
     colorName = "red",
     state = "inactive",
   }
@@ -364,12 +396,27 @@ local function statusStripCells(frame)
   return {
     throttle = {
       text = throttleText(frame),
-      color = ccColor("white"),
+      color = "white",
       colorName = "white",
       state = "value",
     },
     hold = modeCell("H", "h", hold),
     moveTarget = modeCell("T", "t", moveTarget),
+  }
+end
+
+local function statusCellOffset(characterIndex)
+  return math.floor((characterIndex - 1) / STATUS_TEXT_CELL_WIDTH)
+end
+
+local function statusColorOffsets(cells)
+  local throttleLength = string.len(cells.throttle.text or "")
+
+  return {
+    throttleStart = 0,
+    throttleEnd = statusCellOffset(math.max(1, throttleLength)),
+    hold = statusCellOffset(throttleLength + 2),
+    moveTarget = statusCellOffset(throttleLength + 4),
   }
 end
 
@@ -385,8 +432,10 @@ local function updateStatusStrip(context, frame, report, tasks)
   }
 
   local cells = statusStripCells(frame)
-  local textValue = cells.throttle.text .. cells.hold.text .. cells.moveTarget.text
+  local textValue = cells.throttle.text .. " " .. cells.hold.text .. " " .. cells.moveTarget.text
+  local offsets = statusColorOffsets(cells)
   report.statusStrip.text = textValue
+  report.statusStrip.colorOffsets = copyPlain(offsets)
 
   for _, key in ipairs({ "throttle", "hold", "moveTarget" }) do
     local value = cells[key]
@@ -405,21 +454,38 @@ local function updateStatusStrip(context, frame, report, tasks)
     report.statusStrip.coord = copyPlain(textDevice.coord)
     report.updated = true
     table.insert(tasks, function()
-      report.statusStrip.results = writeText(textDevice.object, textValue, ccColor("white"))
+      report.statusStrip.results = writeText(textDevice.object, textValue, nil)
+      report.statusStrip.colorResults = {}
+
+      for offset = offsets.throttleStart, offsets.throttleEnd do
+        local device = strip.cellsByOffset and strip.cellsByOffset[offset]
+        if device then
+          table.insert(report.statusStrip.colorResults, {
+            key = "throttle",
+            offset = offset,
+            coord = copyPlain(device.coord),
+            results = writeColor(device.object, cells.throttle.color),
+          })
+        end
+      end
+
+      for _, key in ipairs({ "hold", "moveTarget" }) do
+        local offset = offsets[key]
+        local device = strip.cellsByOffset and strip.cellsByOffset[offset]
+        local value = cells[key]
+
+        if device and value then
+          report.statusStrip.cells[key].coord = copyPlain(device.coord)
+          report.statusStrip.cells[key].offset = offset
+          report.statusStrip.cells[key].colorResults = writeColor(device.object, value.color)
+        elseif value then
+          report.statusStrip.cells[key].offset = offset
+          report.statusStrip.cells[key].skipped = "missing display at offset " .. tostring(offset)
+        end
+      end
     end)
   else
     report.statusStrip.skipped = "missing text display"
-  end
-
-  for _, key in ipairs({ "hold", "moveTarget" }) do
-    local device = strip.devices[key]
-    local value = cells[key]
-    if device and value then
-      report.statusStrip.cells[key].coord = copyPlain(device.coord)
-      table.insert(tasks, function()
-        report.statusStrip.cells[key].colorResults = writeColor(device.object, value.color)
-      end)
-    end
   end
 end
 
@@ -456,7 +522,7 @@ function displays.updateSignals(context, signals, frame)
       report.updated = true
 
       table.insert(tasks, function()
-        report.roles[roleName].results = writeText(displayDevice.object, textValue, ccColor("white"))
+        report.roles[roleName].results = writeText(displayDevice.object, textValue, "white")
       end)
     end
   end
