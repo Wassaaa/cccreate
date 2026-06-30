@@ -2082,7 +2082,7 @@ HTML = r"""<!doctype html>
         <section class="block">
           <h2>Coordinate Map</h2>
           ${metrics}
-          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks. Dashed cells are inferred from decoded SCADA IDs, not confirmed peripherals. NBT exports include this legend as a strip two blocks past the +X side of the map.</div>
+          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks. Dashed cells are inferred from decoded SCADA IDs, not confirmed peripherals. NBT exports add cc_* metadata to each selected block's raw palette entry.</div>
           ${renderNbtLegend()}
           ${layers.map((y) => routerMapLayer(y, bounds, byCoord)).join("")}
         </section>
@@ -2348,6 +2348,7 @@ def coordinate_entries(report):
             "categories": list_value(raw.get("categories")),
             "methods": list_value(raw.get("methods")),
             "methodCount": raw.get("methodCount"),
+            "scadaId": scada.get("id") or scada.get("selfId"),
             "networkId": scada.get("networkId"),
             "subnetworkAnchorId": scada.get("subnetworkAnchorId"),
             "sourceId": scada.get("sourceId"),
@@ -2366,6 +2367,7 @@ def coordinate_entries(report):
             "y": key[1],
             "z": key[2],
             "categories": list_value(node.get("categories")),
+            "scadaId": node.get("id"),
             "networkId": node.get("networkId"),
             "subnetworkAnchorId": node.get("subnetworkAnchorId"),
             "sourceId": node.get("sourceId"),
@@ -2398,6 +2400,8 @@ def coordinate_entries(report):
                 "mapKind": "inferred",
                 "inferred": True,
                 "inferredKind": kind,
+                "inferredWorld": world,
+                "scadaId": missing_id,
                 "networkId": ref_node.get("networkId"),
                 "subnetworkAnchorId": ref_node.get("subnetworkAnchorId"),
                 "sourceId": missing_id if kind == "missing_source" else None,
@@ -2428,31 +2432,133 @@ BLOCK_BY_KIND = {
 }
 
 
-NBT_LEGEND_BLOCKS = [
-    ("origin", BLOCK_BY_KIND["origin"]),
-    ("rotor", BLOCK_BY_KIND["rotor"]),
-    ("scalar", BLOCK_BY_KIND["scalar"]),
-    ("kinetic", BLOCK_BY_KIND["kinetic"]),
-    ("missing_source", BLOCK_BY_KIND["inferred"]),
-    ("missing_anchor", "minecraft:gold_block"),
-    ("wrappable", BLOCK_BY_KIND["wrappable"]),
-    ("error", BLOCK_BY_KIND["error"]),
-    ("attitude", BLOCK_BY_KIND["attitude"]),
-    ("inventory", BLOCK_BY_KIND["inventory"]),
-    ("display", BLOCK_BY_KIND["display"]),
-    ("fluid", BLOCK_BY_KIND["fluid"]),
-    ("energy", BLOCK_BY_KIND["energy"]),
-    ("modem", BLOCK_BY_KIND["modem"]),
-    ("terminal", BLOCK_BY_KIND["terminal"]),
-]
-
-
 def block_for_entry(entry):
     if entry.get("isOverstressed"):
         return BLOCK_BY_KIND["error"]
     if entry.get("inferredKind") == "missing_anchor":
         return "minecraft:gold_block"
     return BLOCK_BY_KIND.get(entry.get("mapKind"), "minecraft:stone")
+
+
+def short_id(value):
+    if value is None or value == "":
+        return None
+    text = str(value)
+    if len(text) <= 12:
+        return text
+    return f"{text[:6]}...{text[-4:]}"
+
+
+def csv_value(value):
+    values = [str(item) for item in list_value(value) if item is not None and str(item) != ""]
+    return ", ".join(values) if values else None
+
+
+def coord_text(value):
+    if not has_coord(value):
+        return None
+    return f"{int(value['x'])},{int(value['y'])},{int(value['z'])}"
+
+
+def metadata_string(value):
+    if value is None:
+        return None
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    text = str(value)
+    return text if text != "" else None
+
+
+def metadata_items(metadata):
+    items = []
+    for key, value in sorted(metadata.items()):
+        text = metadata_string(value)
+        if text is not None:
+            items.append((key, text))
+    return tuple(items)
+
+
+def entry_role(entry):
+    if entry.get("isOverstressed"):
+        return "overstressed"
+    if entry.get("inferredKind"):
+        return entry["inferredKind"]
+    if entry.get("mapKind"):
+        return entry["mapKind"]
+    if entry.get("kind"):
+        return entry["kind"]
+    if entry.get("inventory"):
+        return "inventory"
+    return "unknown"
+
+
+def entry_label(entry):
+    role = entry_role(entry)
+    scada_id = entry.get("scadaId") or entry.get("sourceId")
+    if role == "missing_source":
+        return f"missing source {short_id(scada_id) or ''}".strip()
+    if role == "missing_anchor":
+        return f"missing anchor {short_id(scada_id) or ''}".strip()
+    if role == "rotor":
+        return "rotor / kinetic consumer"
+    if role == "scalar":
+        return "driver / scalar actuator"
+    if role == "wrappable":
+        return "generic wrapped or unknown block"
+    return role.replace("_", " ")
+
+
+def entry_note(entry):
+    role = entry_role(entry)
+    if role == "missing_source":
+        return "decoded from a SCADA source id; not found as a wrapped peripheral in this scan"
+    if role == "missing_anchor":
+        return "decoded from a SCADA subnetwork anchor id; not found as a wrapped peripheral in this scan"
+    if role == "wrappable":
+        return "router mapped this block, but the report has no more specific role classification"
+    if entry.get("isOverstressed"):
+        return "node reported overstressed"
+    if entry.get("hasMissingSource"):
+        return "node references a source id that was not discovered as a peripheral"
+    return None
+
+
+def entry_metadata(entry, block_name):
+    role = entry_role(entry)
+    metadata = {
+        "cc_name": f"cc:{role}@{int(entry['x'])},{int(entry['y'])},{int(entry['z'])}",
+        "cc_label": entry_label(entry),
+        "cc_role": role,
+        "cc_block": block_name,
+        "cc_coord": f"{int(entry['x'])},{int(entry['y'])},{int(entry['z'])}",
+        "cc_categories": csv_value(entry.get("categories")),
+        "cc_scada_id": entry.get("scadaId"),
+        "cc_scada_kind": entry.get("scadaKind"),
+        "cc_network_id": entry.get("networkId"),
+        "cc_subnetwork_anchor_id": entry.get("subnetworkAnchorId"),
+        "cc_source_id": entry.get("sourceId"),
+        "cc_inferred": entry.get("inferred") is True or None,
+        "cc_inferred_kind": entry.get("inferredKind"),
+        "cc_inferred_world": coord_text(entry.get("inferredWorld")),
+        "cc_overstressed": entry.get("isOverstressed") is True or None,
+        "cc_has_missing_source": entry.get("hasMissingSource") is True or None,
+        "cc_method_count": entry.get("methodCount"),
+        "cc_note": entry_note(entry),
+    }
+    return dict(metadata_items(metadata))
+
+
+def origin_metadata():
+    return {
+        "cc_name": "cc:origin@0,0,0",
+        "cc_label": "router origin",
+        "cc_role": "origin",
+        "cc_block": BLOCK_BY_KIND["origin"],
+        "cc_coord": "0,0,0",
+        "cc_note": "black wool marker for the router-relative origin",
+    }
 
 
 def nbt_string(value):
@@ -2506,10 +2612,12 @@ def write_nbt_payload(tag_type, value):
     raise ValueError(f"unsupported NBT tag type {tag_type}")
 
 
-def block_state(name, properties=None):
+def block_state(name, properties=None, metadata=None):
     data = {"Name": tag_string(name)}
     if properties:
         data["Properties"] = tag_compound({key: tag_string(value) for key, value in sorted(properties.items())})
+    for key, value in metadata_items(metadata or {}):
+        data[key] = tag_string(value)
     return data
 
 
@@ -2519,20 +2627,7 @@ def structure_nbt_bytes(entries, author="Codex"):
 
     entry_coords = [(int(entry["x"]), int(entry["y"]), int(entry["z"])) for entry in entries]
     entry_coords.append((0, 0, 0))
-    entry_min_x = min(x for x, _, _ in entry_coords)
-    entry_min_y = min(y for _, y, _ in entry_coords)
-    entry_min_z = min(z for _, _, z in entry_coords)
-    entry_max_x = max(x for x, _, _ in entry_coords)
-
-    legend_x = entry_max_x + 2
-    legend_y = entry_min_y
-    legend_z = entry_min_z
-    legend_blocks = [
-        (legend_x, legend_y, legend_z + index, block_name)
-        for index, (_, block_name) in enumerate(NBT_LEGEND_BLOCKS)
-    ]
-
-    coords = entry_coords + [(x, y, z) for x, y, z, _ in legend_blocks]
+    coords = entry_coords
     min_x = min(x for x, _, _ in coords)
     min_y = min(y for _, y, _ in coords)
     min_z = min(z for _, _, z in coords)
@@ -2544,24 +2639,22 @@ def structure_nbt_bytes(entries, author="Codex"):
     palette_index = {}
     blocks = {}
 
-    def state_index(name, properties=None):
-        key = (name, tuple(sorted((properties or {}).items())))
+    def state_index(name, properties=None, metadata=None):
+        key = (name, tuple(sorted((properties or {}).items())), metadata_items(metadata or {}))
         if key not in palette_index:
             palette_index[key] = len(palette)
-            palette.append(tag_compound(block_state(name, properties)))
+            palette.append(tag_compound(block_state(name, properties, metadata)))
         return palette_index[key]
 
-    def set_block(x, y, z, name, properties=None):
+    def set_block(x, y, z, name, properties=None, metadata=None):
         pos = (x - min_x, y - min_y, z - min_z)
-        blocks[pos] = state_index(name, properties)
+        blocks[pos] = state_index(name, properties, metadata)
 
     for entry in entries:
-        set_block(int(entry["x"]), int(entry["y"]), int(entry["z"]), block_for_entry(entry))
+        block_name = block_for_entry(entry)
+        set_block(int(entry["x"]), int(entry["y"]), int(entry["z"]), block_name, metadata=entry_metadata(entry, block_name))
 
-    set_block(0, 0, 0, BLOCK_BY_KIND["origin"])
-
-    for x, y, z, block_name in legend_blocks:
-        set_block(x, y, z, block_name)
+    set_block(0, 0, 0, BLOCK_BY_KIND["origin"], metadata=origin_metadata())
 
     block_entries = []
     for (x, y, z), state in sorted(blocks.items()):
