@@ -6,6 +6,8 @@ local reporting = require("lib.aircraft.reporting")
 
 local flightControl = {}
 local CONTROLLER_VERSION = "clock-stop-v2"
+local TIMING_WINDOW = 20
+local TIMING_EPSILON = 0.001
 
 local ROLE_ORDER = {
   "front_left",
@@ -477,8 +479,13 @@ local function stabilizeConfig(config, options)
   local defaults = config.stabilize or {}
   local display = config.display or {}
   local killSwitch = config.killSwitch or {}
+  local interval = tonumber(options.interval) or tonumber(defaults.interval) or 0.05
   local nixiesEnabled = display.stabilizeEnabled == true
   local killSwitchEnabled = killSwitch.enabled == true
+
+  if interval <= 0 then
+    error("stabilize interval must be greater than zero", 0)
+  end
 
   if options.nixies ~= nil then
     nixiesEnabled = options.nixies == true
@@ -490,7 +497,7 @@ local function stabilizeConfig(config, options)
   return {
     forever = options.forever == true,
     seconds = tonumber(options.seconds) or tonumber(defaults.seconds) or 1,
-    interval = tonumber(options.interval) or tonumber(defaults.interval) or 0.1,
+    interval = interval,
     basePower = tonumber(options.basePower) or tonumber(defaults.basePower) or 0,
     maxSignal = tonumber(config.absoluteSignalMax) or 15,
     brakeSignal = tonumber(config.brakeSignal) or tonumber(config.absoluteSignalMax) or 15,
@@ -1171,10 +1178,125 @@ local function compactMixedFrame(mixed)
   }
 end
 
+local function hzFromInterval(interval)
+  interval = tonumber(interval) or 0
+  if interval <= 0 then
+    return 0
+  end
+
+  return 1 / interval
+end
+
+local function emptyTimingHealth(settings)
+  return {
+    targetHz = hzFromInterval(settings and settings.interval),
+    actualHz = 0,
+    rollingActualHz = 0,
+    framesRun = 0,
+    missedFrames = 0,
+    deadlineMisses = 0,
+    lateFrames = 0,
+    maxLateness = 0,
+    rollingMaxLateness = 0,
+    avgFrameSeconds = 0,
+    maxFrameSeconds = 0,
+    lastLateness = 0,
+    lastFrameSeconds = 0,
+    lastMissed = false,
+    rollingMissedFrames = 0,
+  }
+end
+
+local function updateTimingSummary(timing, frameTiming, recentFrames)
+  local total = tonumber(frameTiming.total) or 0
+  local finishedAt = tonumber(frameTiming.finishedAt)
+    or tonumber(frameTiming.startedAt)
+    or 0
+  local lateness = tonumber(frameTiming.lateness) or 0
+  local missed = frameTiming.missed == true
+
+  timing.framesRun = (tonumber(timing.framesRun) or 0) + 1
+  timing.totalFrameSeconds = (tonumber(timing.totalFrameSeconds) or 0) + total
+  timing.avgFrameSeconds = timing.totalFrameSeconds / timing.framesRun
+  timing.maxFrameSeconds = math.max(tonumber(timing.maxFrameSeconds) or 0, total)
+
+  if missed then
+    timing.missedFrames = (tonumber(timing.missedFrames) or 0) + 1
+    timing.deadlineMisses = (tonumber(timing.deadlineMisses) or 0) + 1
+  else
+    timing.missedFrames = tonumber(timing.missedFrames) or 0
+    timing.deadlineMisses = tonumber(timing.deadlineMisses) or 0
+  end
+
+  if lateness > TIMING_EPSILON then
+    timing.lateFrames = (tonumber(timing.lateFrames) or 0) + 1
+  else
+    timing.lateFrames = tonumber(timing.lateFrames) or 0
+  end
+  timing.maxLateness = math.max(tonumber(timing.maxLateness) or 0, lateness)
+
+  if finishedAt > 0 then
+    timing.actualHz = timing.framesRun / finishedAt
+  else
+    timing.actualHz = 0
+  end
+
+  table.insert(recentFrames, {
+    startedAt = tonumber(frameTiming.startedAt) or finishedAt,
+    lateness = lateness,
+    total = total,
+    missed = missed,
+  })
+  while #recentFrames > TIMING_WINDOW do
+    table.remove(recentFrames, 1)
+  end
+
+  local rollingActualHz = timing.actualHz
+  if #recentFrames >= 2 then
+    local span = recentFrames[#recentFrames].startedAt - recentFrames[1].startedAt
+    if span > 0 then
+      rollingActualHz = (#recentFrames - 1) / span
+    end
+  end
+
+  local rollingMaxLateness = 0
+  local rollingMissedFrames = 0
+  for _, item in ipairs(recentFrames) do
+    rollingMaxLateness = math.max(rollingMaxLateness, tonumber(item.lateness) or 0)
+    if item.missed then
+      rollingMissedFrames = rollingMissedFrames + 1
+    end
+  end
+
+  timing.targetHz = timing.targetHz or hzFromInterval(timing.interval)
+  timing.rollingActualHz = rollingActualHz
+  timing.rollingMaxLateness = rollingMaxLateness
+  timing.rollingMissedFrames = rollingMissedFrames
+
+  return {
+    targetHz = timing.targetHz,
+    actualHz = timing.actualHz,
+    rollingActualHz = timing.rollingActualHz,
+    framesRun = timing.framesRun,
+    missedFrames = timing.missedFrames,
+    deadlineMisses = timing.deadlineMisses,
+    lateFrames = timing.lateFrames,
+    maxLateness = timing.maxLateness,
+    rollingMaxLateness = timing.rollingMaxLateness,
+    avgFrameSeconds = timing.avgFrameSeconds,
+    maxFrameSeconds = timing.maxFrameSeconds,
+    lastLateness = lateness,
+    lastFrameSeconds = total,
+    lastMissed = missed,
+    rollingMissedFrames = rollingMissedFrames,
+  }
+end
+
 local function compactStabilizeFrame(frame)
   return {
     index = frame.index,
     elapsed = frame.elapsed,
+    timing = copyPlain(frame.timing),
     dryRun = frame.dryRun == true,
     aborted = frame.aborted == true,
     abortReason = frame.abortReason,
@@ -1287,6 +1409,19 @@ function flightControl.stabilize(config, options)
     requestedSeconds = settings.seconds,
     forever = settings.forever,
     interval = settings.interval,
+    targetHz = hzFromInterval(settings.interval),
+    actualHz = 0,
+    rollingActualHz = 0,
+    rollingWindow = TIMING_WINDOW,
+    framesRun = 0,
+    missedFrames = 0,
+    deadlineMisses = 0,
+    lateFrames = 0,
+    maxLateness = 0,
+    rollingMaxLateness = 0,
+    rollingMissedFrames = 0,
+    avgFrameSeconds = 0,
+    maxFrameSeconds = 0,
     reportFrameLimit = settings.reportFrameLimit,
     mode = "scheduled_os_clock",
   }
@@ -1335,6 +1470,8 @@ function flightControl.stabilize(config, options)
       throttlePower = 0,
       heldThrottlePower = 0,
     }
+    local recentTimingFrames = {}
+    local previousTimingHealth = emptyTimingHealth(settings)
 
     while true do
       if active and deadline and frameIndex > 1 and os.clock() >= deadline then
@@ -1342,25 +1479,51 @@ function flightControl.stabilize(config, options)
         break
       end
 
+      local frameStartClock = os.clock()
+      local timing = {
+        scheduledAt = nextFrameTime - startTime,
+        startedAt = frameStartClock - startTime,
+        lateness = math.max(0, frameStartClock - nextFrameTime),
+        targetInterval = settings.interval,
+        phases = {},
+        health = copyPlain(previousTimingHealth),
+      }
+
+      local phaseStart = os.clock()
       local state = readGimbal(gimbal)
+      timing.phases.gimbal = os.clock() - phaseStart
+
       local elapsed = os.clock() - startTime
       local dt = previousMotion and (elapsed - previousMotion.elapsed) or settings.interval
+      timing.dt = dt
+
+      phaseStart = os.clock()
       local rawControl = recoveryControl(options.recoveryTest, elapsed) or controller.sample(controllerContext)
       local controlContext = options.recoveryTest and testControlContext or controllerContext
       local control = smoothControl(controlContext, rawControl, previousControl, dt)
+      timing.phases.controller = os.clock() - phaseStart
+
+      phaseStart = os.clock()
       local mixed = mixerSignals(settings, state, control, signalResiduals)
+      local attitudeExceeded = math.abs(mixed.error1) > settings.maxAttitudeDelta
+          or math.abs(mixed.error2) > settings.maxAttitudeDelta
+      timing.phases.mix = os.clock() - phaseStart
+
+      phaseStart = os.clock()
       local killSwitch = readKillSwitch(settings, control, killSwitchRouter, killSwitchRouterName)
+      timing.phases.killSwitch = os.clock() - phaseStart
+
       local frame = {
         index = frameIndex,
         elapsed = elapsed,
+        timing = timing,
         state = state,
         killSwitch = killSwitch,
         controller = control,
         mixed = mixed,
       }
-      local attitudeExceeded = math.abs(mixed.error1) > settings.maxAttitudeDelta
-          or math.abs(mixed.error2) > settings.maxAttitudeDelta
 
+      phaseStart = os.clock()
       if killSwitch.triggered then
         frame.aborted = true
         if killSwitch.ok == false then
@@ -1380,21 +1543,46 @@ function flightControl.stabilize(config, options)
       else
         frame.dryRun = true
       end
+      timing.phases.applySignals = os.clock() - phaseStart
 
       local forceDisplay = attitudeExceeded or killSwitch.triggered
+      phaseStart = os.clock()
       frame.nixies = updateNixies(frame, forceDisplay)
+      timing.phases.nixies = os.clock() - phaseStart
+
+      phaseStart = os.clock()
       if hud.shouldUpdate(hudContext, frame, forceDisplay) then
         frame.telemetry = readRotorTelemetry(rotorDevices)
       end
+      timing.phases.telemetry = os.clock() - phaseStart
+
+      phaseStart = os.clock()
       frame.hud = hud.update(hudContext, frame, settings, active, forceDisplay)
+      timing.phases.hud = os.clock() - phaseStart
+
+      phaseStart = os.clock()
+      local compactFrame = nil
       if settings.reportFrameLimit == 0 then
         report.timing.framesDropped = (report.timing.framesDropped or 0) + 1
       else
-        table.insert(report.frames, compactStabilizeFrame(frame))
+        compactFrame = compactStabilizeFrame(frame)
+        table.insert(report.frames, compactFrame)
         if #report.frames > settings.reportFrameLimit then
           table.remove(report.frames, 1)
           report.timing.framesDropped = (report.timing.framesDropped or 0) + 1
         end
+      end
+      timing.phases.reportFrame = os.clock() - phaseStart
+
+      local frameFinishClock = os.clock()
+      timing.finishedAt = frameFinishClock - startTime
+      timing.total = frameFinishClock - frameStartClock
+      timing.missed = timing.total > settings.interval + TIMING_EPSILON
+      local timingHealth = updateTimingSummary(report.timing, timing, recentTimingFrames)
+      timing.summary = copyPlain(timingHealth)
+      previousTimingHealth = timingHealth
+      if compactFrame then
+        compactFrame.timing = copyPlain(timing)
       end
 
       if attitudeExceeded or killSwitch.triggered then

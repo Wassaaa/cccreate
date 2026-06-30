@@ -29,7 +29,7 @@ local DEFAULT_CONFIG = {
   statusReadLimit = 8,
   reportPath = "/aircraft_scan.txt",
   stabilize = {
-    interval = 0.1,
+    interval = 0.05,
     seconds = 1,
     basePower = 0,
     axis1Kp = 4,
@@ -94,6 +94,7 @@ local function usage()
   print("aircraft config max-signal <0-15>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
+  print("aircraft config stabilize-interval <seconds>")
   print("aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
   print("aircraft config stabilize-desaturate <true|false> [headroomPower]")
   print("aircraft config stabilize-tilt-comp <true|false> [gain] [maxPower]")
@@ -580,6 +581,9 @@ local function printConfig(config, source)
   print("  absoluteSignalMax=" .. tostring(config.absoluteSignalMax))
   print("  brakeSignal=" .. tostring(config.brakeSignal))
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
+  print("  stabilize.interval=" .. tostring(config.stabilize.interval))
+  print("  stabilize.seconds=" .. tostring(config.stabilize.seconds))
+  print("  stabilize.basePower=" .. tostring(config.stabilize.basePower))
   print("  stabilize.axis1Kp=" .. tostring(config.stabilize.axis1Kp))
   print("  stabilize.axis1Kd=" .. tostring(config.stabilize.axis1Kd))
   print("  stabilize.axis2Kp=" .. tostring(config.stabilize.axis2Kp))
@@ -707,6 +711,17 @@ local function runConfig()
     print("Saved stabilize trim to " .. CONFIG_PATH)
     print("  axis1Trim=" .. tostring(config.stabilize.axis1Trim))
     print("  axis2Trim=" .. tostring(config.stabilize.axis2Trim))
+    return
+  elseif subcommand == "stabilize-interval" then
+    local interval = parseNumber(args[3], "seconds")
+    if interval <= 0 then
+      error("stabilize interval must be greater than zero", 0)
+    end
+
+    config.stabilize.interval = interval
+    saveConfig(config)
+    print("Saved stabilize interval to " .. CONFIG_PATH)
+    print("  interval=" .. tostring(config.stabilize.interval))
     return
   elseif subcommand == "stabilize-limits" then
     local maxCorrection = parseNumber(args[3], "maxCorrection")
@@ -1068,8 +1083,13 @@ local function parseCommandOptions(startIndex)
       end
       i = i + 2
     elseif arg == "--nixies" then
-      options.nixies = true
-      i = i + 1
+      if args[i + 1] and string.sub(tostring(args[i + 1]), 1, 2) ~= "--" then
+        options.nixies = parseBoolean(args[i + 1])
+        i = i + 2
+      else
+        options.nixies = true
+        i = i + 1
+      end
     elseif arg == "--no-nixies" then
       options.nixies = false
       i = i + 1
@@ -1087,8 +1107,8 @@ local function parseCommandOptions(startIndex)
       i = i + 2
     elseif arg == "--interval" then
       options.interval = tonumber(args[i + 1])
-      if not options.interval then
-        error("--interval needs a number", 0)
+      if not options.interval or options.interval <= 0 then
+        error("--interval needs a positive number", 0)
       end
       i = i + 2
     elseif arg == "--kp" then

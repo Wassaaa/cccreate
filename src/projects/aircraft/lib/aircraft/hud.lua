@@ -216,6 +216,44 @@ local function timeText(frame, settings)
   return "t " .. fixed(frame.elapsed, 1) .. "/" .. fixed(settings.seconds, 1) .. "s"
 end
 
+local function timingHealth(frame)
+  local timing = frame and frame.timing or {}
+  return timing.summary or timing.health or timing
+end
+
+local function hzTarget(settings, health)
+  local target = health and tonumber(health.targetHz)
+  if target then
+    return target
+  end
+
+  local interval = settings and tonumber(settings.interval) or 0
+  if interval > 0 then
+    return 1 / interval
+  end
+
+  return 0
+end
+
+local function millisText(value)
+  return tostring(math.floor(number(value) * 1000 + 0.5)) .. "ms"
+end
+
+local function timingText(frame, settings)
+  local health = timingHealth(frame)
+  local hz = tonumber(health.rollingActualHz) or tonumber(health.actualHz) or 0
+  local target = hzTarget(settings, health)
+  local targetDigits = 1
+  if target >= 10 then
+    targetDigits = 0
+  end
+
+  return "hz " .. fixed(hz, 1)
+    .. "/" .. fixed(target, targetDigits)
+    .. " miss " .. tostring(math.floor(number(health.missedFrames) + 0.5))
+    .. " late " .. millisText(health.rollingMaxLateness or health.maxLateness or health.lastLateness)
+end
+
 local function telemetryValue(telemetry, role, key)
   local read = telemetry
     and telemetry.roles
@@ -271,7 +309,7 @@ local function drawRolePanel(target, role, x, y, width, mixed, telemetry, alignR
   writeAt(target, x, y + 1, lines[2], width, alignRight)
 end
 
-local function drawCompact(target, frame, settings, active, status, width)
+local function drawCompact(target, frame, settings, active, status, width, height)
   local mixed = frame.mixed or {}
 
   writeLine(target, 1, "AIRCRAFT STABILIZE " .. status, width)
@@ -281,7 +319,12 @@ local function drawCompact(target, frame, settings, active, status, width)
   writeLine(target, 5, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
   writeLine(target, 6, "signal " .. roleValues(mixed.signals), width)
   writeLine(target, 7, "power  " .. roleValues(mixed.power, 1), width)
-  writeLine(target, 8, statusText(frame, mixed, settings), width)
+  if height and height >= 9 then
+    writeLine(target, 8, timingText(frame, settings), width)
+    writeLine(target, 9, statusText(frame, mixed, settings), width)
+  else
+    writeLine(target, 8, timingText(frame, settings), width)
+  end
 end
 
 local function drawCornerLayout(target, frame, settings, status, width, height)
@@ -300,10 +343,15 @@ local function drawCornerLayout(target, frame, settings, status, width, height)
   drawRolePanel(target, "rear_left", 1, bottomY, panelWidth, mixed, telemetry, false)
   drawRolePanel(target, "rear_right", rightX, bottomY, panelWidth, mixed, telemetry, true)
 
-  if centerY + 3 < bottomY then
+  if centerY + 4 < bottomY then
     writeCentered(target, centerY, "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1), width)
     writeCentered(target, centerY + 1, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
     writeCentered(target, centerY + 2, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
+    writeCentered(target, centerY + 3, timingText(frame, settings), width)
+  elseif centerY + 3 < bottomY then
+    writeCentered(target, centerY, "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1), width)
+    writeCentered(target, centerY + 1, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
+    writeCentered(target, centerY + 2, timingText(frame, settings), width)
   end
 
   writeCentered(target, height, statusText(frame, mixed, settings), width)
@@ -406,7 +454,7 @@ function hud.update(context, frame, settings, active, force)
   if width >= 40 and height >= 12 then
     drawCornerLayout(context.target, frame, settings, status, width, height)
   else
-    drawCompact(context.target, frame, settings, active, status, width)
+    drawCompact(context.target, frame, settings, active, status, width, height)
   end
 
   return {

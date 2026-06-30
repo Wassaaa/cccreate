@@ -23,7 +23,7 @@ return {
   maxAttitudeDelta = 2,
   statusReadLimit = 8,
   stabilize = {
-    interval = 0.1,
+    interval = 0.05,
     seconds = 1,
     basePower = 0,
     axis1Kp = 4,

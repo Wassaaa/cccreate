@@ -440,6 +440,14 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(runRows, "applied", report.applied, "true means outputs were actually written. false means dry-run or blocked.")
   addTextRow(runRows, "basePower", request.basePower or settings.basePower, "Power before stabilizer correction and controller throttle.")
   addTextRow(runRows, "elapsed", timing.elapsed, "Measured run time in seconds.")
+  addTextRow(runRows, "targetHz", timing.targetHz, "Requested loop rate from stabilize.interval.")
+  addTextRow(runRows, "actualHz", timing.actualHz, "Cumulative measured loop rate.")
+  addTextRow(runRows, "rollingActualHz", timing.rollingActualHz, "Measured loop rate over the most recent timing window.")
+  addTextRow(runRows, "missedFrames", timing.missedFrames or timing.deadlineMisses or 0, "Frames whose measured work exceeded the requested interval.")
+  addTextRow(runRows, "lateFrames", timing.lateFrames or 0, "Frames that started later than their scheduled time.")
+  addTextRow(runRows, "maxLateness", timing.maxLateness or 0, "Largest start-time delay in seconds.")
+  addTextRow(runRows, "avgFrameSeconds", timing.avgFrameSeconds or 0, "Average measured frame work time.")
+  addTextRow(runRows, "maxFrameSeconds", timing.maxFrameSeconds or 0, "Largest measured frame work time.")
   addTextRow(runRows, "stopReason", timing.stopReason, "Why the loop stopped.")
   addTextRow(runRows, "abortReason", report.abortReason or "none", "Abort reason, if the run tripped the kill switch, angle limit, or an error.")
   addTextRow(runRows, "framesKept", stats.frames, "Number of compact frames kept in this report.")
@@ -792,6 +800,8 @@ local function setMetrics(report, stats)
       { label = "Kind", value = report.kind },
       { label = "Applied", value = report.applied },
       { label = "Frames", value = stats and stats.frames or 0 },
+      { label = "Hz", value = timing.rollingActualHz or timing.actualHz or "n/a" },
+      { label = "Misses", value = timing.missedFrames or timing.deadlineMisses or 0 },
       { label = "Peak Tilt", value = stats and (degText(math.max(stats.peakAxis1 or 0, stats.peakAxis2 or 0))) or "n/a" },
       { label = "Stop", value = timing.stopReason or report.abortReason or settings.mode or "n/a" },
     }
