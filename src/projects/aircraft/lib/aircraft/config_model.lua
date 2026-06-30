@@ -10,6 +10,7 @@ local ROOT_ORDER = {
   "maxAttitudeDelta",
   "statusReadLimit",
   "stabilize",
+  "yaw",
   "controller",
   "display",
   "hud",
@@ -39,6 +40,14 @@ local ORDERS = {
     "signalDither",
     "brakeOnExit",
     "reportFrameLimit",
+  },
+  yaw = {
+    "enabled",
+    "rateKd",
+    "maxTiltDeg",
+    "deadbandDegPerSecond",
+    "sign",
+    "clearOnExit",
   },
   controller = {
     "enabled",
@@ -135,6 +144,7 @@ function configModel.normalize(config)
   set(result, "maxAttitudeDelta", config.maxAttitudeDelta)
   set(result, "statusReadLimit", config.statusReadLimit)
   result.stabilize = pick(config.stabilize, ORDERS.stabilize)
+  result.yaw = pick(config.yaw, ORDERS.yaw)
   result.controller = pick(config.controller, ORDERS.controller)
   result.controller.bindings = normalizeBindings(config.controller and config.controller.bindings)
   result.display = pick(config.display, ORDERS.display)

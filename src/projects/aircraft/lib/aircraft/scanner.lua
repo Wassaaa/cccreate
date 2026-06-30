@@ -816,6 +816,41 @@ local function assignNearestDisplays(displayEntries, targetRoles)
   return roles
 end
 
+local function assignFirstSensor(entries)
+  local sortedEntries = {}
+
+  for _, entry in ipairs(entries or {}) do
+    table.insert(sortedEntries, entry)
+  end
+
+  table.sort(sortedEntries, function(left, right)
+    local leftDistance = math.abs(tonumber(left.coord and left.coord.x) or 0)
+      + math.abs(tonumber(left.coord and left.coord.y) or 0)
+      + math.abs(tonumber(left.coord and left.coord.z) or 0)
+    local rightDistance = math.abs(tonumber(right.coord and right.coord.x) or 0)
+      + math.abs(tonumber(right.coord and right.coord.y) or 0)
+      + math.abs(tonumber(right.coord and right.coord.z) or 0)
+
+    if leftDistance ~= rightDistance then
+      return leftDistance < rightDistance
+    end
+
+    return coords.key(left.coord.x, left.coord.y, left.coord.z)
+      < coords.key(right.coord.x, right.coord.y, right.coord.z)
+  end)
+
+  local first = sortedEntries[1]
+  if not first then
+    return nil
+  end
+
+  return {
+    coord = copyCoord(first.coord),
+    methodCount = first.methodCount,
+    categories = copyList(first.categories),
+  }
+end
+
 local function hasAnyRole(roles)
   for _, role in ipairs({ "front_left", "front_right", "rear_left", "rear_right" }) do
     if roles and roles[role] then
@@ -845,6 +880,12 @@ local function inferRoles(report)
   local displays = roleCandidates(report, function(entry)
     return hasCategory(entry, "displaySink")
   end)
+  local navigationSensors = roleCandidates(report, function(entry)
+    return hasCategory(entry, "navigationSensor")
+  end)
+  local altitudeSensors = roleCandidates(report, function(entry)
+    return hasCategory(entry, "altitudeSensor")
+  end)
   local rotorRoles = assignRoles(rotors, orientation.frontVector, orientation.leftVector)
   local scalarRoles = assignRoles(scalarControls, orientation.frontVector, orientation.leftVector)
 
@@ -853,10 +894,16 @@ local function inferRoles(report)
     scalarActuator = scalarRoles,
     displaySink = assignNearestDisplays(displays, hasAnyRole(rotorRoles) and rotorRoles or scalarRoles),
   }
+  orientation.sensors = {
+    navigationSensor = assignFirstSensor(navigationSensors),
+    altitudeSensor = assignFirstSensor(altitudeSensors),
+  }
   orientation.roleCounts = {
     rotorBearing = #rotors,
     scalarActuator = #scalarControls,
     displaySink = #displays,
+    navigationSensor = #navigationSensors,
+    altitudeSensor = #altitudeSensors,
   }
 end
 

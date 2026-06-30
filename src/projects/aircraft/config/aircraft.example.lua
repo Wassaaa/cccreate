@@ -49,6 +49,17 @@ return {
     brakeOnExit = true,
     reportFrameLimit = 600,
   },
+  yaw = {
+    -- Damps spin around the craft up axis by tilting gyroscopic propeller
+    -- bearings with setManualTarget. Requires a navigation table in the scan
+    -- for body-frame to world-frame target conversion.
+    enabled = true,
+    rateKd = 0.15,
+    maxTiltDeg = 8,
+    deadbandDegPerSecond = 0.5,
+    sign = 1,
+    clearOnExit = true,
+  },
   display = {
     enabled = true,
     stabilizeEnabled = true,

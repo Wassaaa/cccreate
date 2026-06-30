@@ -49,6 +49,14 @@ local DEFAULT_CONFIG = {
     brakeOnExit = true,
     reportFrameLimit = 600,
   },
+  yaw = {
+    enabled = true,
+    rateKd = 0.15,
+    maxTiltDeg = 8,
+    deadbandDegPerSecond = 0.5,
+    sign = 1,
+    clearOnExit = true,
+  },
   display = {
     enabled = true,
     stabilizeEnabled = true,
@@ -101,6 +109,7 @@ local function usage()
   print("aircraft config stabilize-desaturate <true|false> [headroomPower]")
   print("aircraft config stabilize-tilt-comp <true|false> [gain] [maxPower]")
   print("aircraft config stabilize-dither <true|false>")
+  print("aircraft config yaw <true|false> [rateKd] [maxTiltDeg] [sign]")
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
   print("aircraft config hud <true|false>")
@@ -120,7 +129,7 @@ local function usage()
   print("aircraft controller [--seconds n] [--interval n]")
   print("aircraft killswitch [--seconds n] [--interval n] [--controller-type type]")
   print("aircraft displays [--seconds n] [--interval n]")
-  print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--controller-type type] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
+  print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--kp n] [--kd n] [--axis1-trim n] [--axis2-trim n] [--controller] [--controller-type type] [--yaw|--no-yaw] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
   print("aircraft recover [--apply] [--seconds n] [--base-power n] [--axis1-target-deg n] [--axis2-target-deg n] [--axis1-power n] [--axis2-power n] [--pulse-seconds n]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
   print("aircraft help")
@@ -138,6 +147,10 @@ local function usage()
   print("  --nixie-interval <n> stabilize Nixie refresh seconds")
   print("  --report-frames <n> max stabilize frames kept in report")
   print("  --max-attitude-deg <n> abort when tilt error exceeds degrees")
+  print("  --yaw-kd <n>       yaw-rate damping gain")
+  print("  --yaw-max-tilt-deg <n> max gyro bearing yaw tilt, clamped to 12")
+  print("  --yaw-deadband-deg <n> ignore smaller yaw rates")
+  print("  --yaw-sign <-1|1>  invert yaw correction if needed")
   print("")
   print("signal/brake are dry-run unless --apply is used and config dryRun=false.")
 end
@@ -472,6 +485,18 @@ local function printSummary(report, path)
         end
       end
     end
+
+    if report.orientation.sensors then
+      print("Suggested sensors:")
+      for _, category in ipairs({ "navigationSensor", "altitudeSensor" }) do
+        local sensor = report.orientation.sensors[category]
+        if sensor and sensor.coord then
+          print("  " .. category .. "=" .. coords.label(sensor.coord))
+        else
+          print("  " .. category .. "=missing")
+        end
+      end
+    end
   end
 
   print("Report: " .. path)
@@ -634,6 +659,12 @@ local function printConfig(config, source)
   print("  stabilize.tiltCompensationGain=" .. tostring(config.stabilize.tiltCompensationGain))
   print("  stabilize.tiltCompensationMaxPower=" .. tostring(config.stabilize.tiltCompensationMaxPower))
   print("  stabilize.signalDither=" .. tostring(config.stabilize.signalDither))
+  print("  yaw.enabled=" .. tostring(config.yaw and config.yaw.enabled))
+  print("  yaw.rateKd=" .. tostring(config.yaw and config.yaw.rateKd))
+  print("  yaw.maxTiltDeg=" .. tostring(config.yaw and config.yaw.maxTiltDeg))
+  print("  yaw.deadbandDegPerSecond=" .. tostring(config.yaw and config.yaw.deadbandDegPerSecond))
+  print("  yaw.sign=" .. tostring(config.yaw and config.yaw.sign))
+  print("  yaw.clearOnExit=" .. tostring(config.yaw and config.yaw.clearOnExit))
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
   print("  display.stabilizeEnabled=" .. tostring(config.display and config.display.stabilizeEnabled))
   print("  display.stabilizeInterval=" .. tostring(config.display and config.display.stabilizeInterval))
@@ -827,6 +858,51 @@ local function runConfig()
     config.stabilize.signalDither = parseBoolean(args[3])
     saveConfig(config)
     print("Saved stabilize.signalDither=" .. tostring(config.stabilize.signalDither) .. " to " .. CONFIG_PATH)
+    return
+  elseif subcommand == "yaw" then
+    config.yaw = config.yaw or {}
+    config.yaw.enabled = parseBoolean(args[3])
+
+    if args[4] then
+      config.yaw.rateKd = parseNumber(args[4], "rateKd")
+      if config.yaw.rateKd < 0 then
+        error("rateKd must be non-negative", 0)
+      end
+    elseif config.yaw.rateKd == nil then
+      config.yaw.rateKd = 0.15
+    end
+
+    if args[5] then
+      config.yaw.maxTiltDeg = parseNumber(args[5], "maxTiltDeg")
+      if config.yaw.maxTiltDeg < 0 or config.yaw.maxTiltDeg > 12 then
+        error("maxTiltDeg must be from 0 to 12", 0)
+      end
+    elseif config.yaw.maxTiltDeg == nil then
+      config.yaw.maxTiltDeg = 8
+    end
+
+    if args[6] then
+      local sign = parseNumber(args[6], "sign")
+      config.yaw.sign = sign < 0 and -1 or 1
+    elseif config.yaw.sign == nil then
+      config.yaw.sign = 1
+    end
+
+    if config.yaw.deadbandDegPerSecond == nil then
+      config.yaw.deadbandDegPerSecond = 0.5
+    end
+    if config.yaw.clearOnExit == nil then
+      config.yaw.clearOnExit = true
+    end
+
+    saveConfig(config)
+    print("Saved yaw control to " .. CONFIG_PATH)
+    print("  enabled=" .. tostring(config.yaw.enabled))
+    print("  rateKd=" .. tostring(config.yaw.rateKd))
+    print("  maxTiltDeg=" .. tostring(config.yaw.maxTiltDeg))
+    print("  deadbandDegPerSecond=" .. tostring(config.yaw.deadbandDegPerSecond))
+    print("  sign=" .. tostring(config.yaw.sign))
+    print("  clearOnExit=" .. tostring(config.yaw.clearOnExit))
     return
   elseif subcommand == "display" then
     config.display = config.display or {}
@@ -1133,6 +1209,37 @@ local function parseCommandOptions(startIndex)
       if not options.controllerType then
         error("--controller-type needs a type", 0)
       end
+      i = i + 2
+    elseif arg == "--yaw" then
+      options.yaw = true
+      i = i + 1
+    elseif arg == "--no-yaw" then
+      options.yaw = false
+      i = i + 1
+    elseif arg == "--yaw-kd" then
+      options.yawRateKd = tonumber(args[i + 1])
+      if not options.yawRateKd or options.yawRateKd < 0 then
+        error("--yaw-kd needs a non-negative number", 0)
+      end
+      i = i + 2
+    elseif arg == "--yaw-max-tilt-deg" then
+      options.yawMaxTiltDeg = tonumber(args[i + 1])
+      if not options.yawMaxTiltDeg or options.yawMaxTiltDeg < 0 or options.yawMaxTiltDeg > 12 then
+        error("--yaw-max-tilt-deg needs a number from 0 to 12", 0)
+      end
+      i = i + 2
+    elseif arg == "--yaw-deadband-deg" then
+      options.yawDeadbandDegPerSecond = tonumber(args[i + 1])
+      if not options.yawDeadbandDegPerSecond or options.yawDeadbandDegPerSecond < 0 then
+        error("--yaw-deadband-deg needs a non-negative number", 0)
+      end
+      i = i + 2
+    elseif arg == "--yaw-sign" then
+      local sign = tonumber(args[i + 1])
+      if not sign then
+        error("--yaw-sign needs -1 or 1", 0)
+      end
+      options.yawSign = sign < 0 and -1 or 1
       i = i + 2
     elseif arg == "--killswitch" then
       options.killSwitch = true

@@ -18,6 +18,11 @@ local FAMILY_ORDER = {
   "displaySink",
 }
 
+local SENSOR_ORDER = {
+  "navigationSensor",
+  "altitudeSensor",
+}
+
 local function copyPlain(value, depth)
   if type(value) ~= "table" then
     return value
@@ -135,6 +140,10 @@ local function contains(values, target)
   end
 
   return false
+end
+
+local function hasCategory(entry, category)
+  return contains(entry and entry.categories, category)
 end
 
 local function readMethodList(methods, limit)
@@ -319,6 +328,19 @@ local function readFamily(router, report, index, family, limit)
   return reads
 end
 
+local function readCategory(router, report, category, limit)
+  local reads = {}
+
+  for _, entry in ipairs(report.peripherals or {}) do
+    if hasCategory(entry, category) and entry.coord then
+      local key = coordKey(entry.coord)
+      reads[key] = readDeviceReport(router, entry.coord, entry, limit)
+    end
+  end
+
+  return reads
+end
+
 local function printOrientation(report)
   local orientation = report.orientation or {}
 
@@ -437,6 +459,10 @@ function status.run(config)
     print(family .. ": " .. tostring(report.summary[family] or 0))
   end
 
+  for _, category in ipairs(SENSOR_ORDER) do
+    print(category .. ": " .. tostring(report.summary[category] or 0))
+  end
+
   printKineticScada(report.kineticScada)
 end
 
@@ -468,6 +494,7 @@ function status.collect(config)
     kineticScada = copyPlain(scada),
     sideSensors = readSideSensors(router, scan, index, limit),
     families = {},
+    sensors = {},
     summary = {
       sideSensors = 0,
       kineticScada = copyPlain(scada and scada.summary),
@@ -484,6 +511,15 @@ function status.collect(config)
 
     for _, _ in pairs(statusReport.families[family]) do
       statusReport.summary[family] = statusReport.summary[family] + 1
+    end
+  end
+
+  for _, category in ipairs(SENSOR_ORDER) do
+    statusReport.sensors[category] = readCategory(router, scan, category, limit)
+    statusReport.summary[category] = 0
+
+    for _, _ in pairs(statusReport.sensors[category]) do
+      statusReport.summary[category] = statusReport.summary[category] + 1
     end
   end
 

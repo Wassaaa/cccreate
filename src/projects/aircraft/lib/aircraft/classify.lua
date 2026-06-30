@@ -2,6 +2,8 @@ local classify = {}
 
 local CATEGORY_ORDER = {
   "attitudeSensor",
+  "navigationSensor",
+  "altitudeSensor",
   "scalarActuator",
   "vectorActuator",
   "rotorBearing",
@@ -34,6 +36,10 @@ local SAMPLE_METHODS = {
   "getPower",
   "getThrust",
   "getThrustHandedness",
+  "getBlockNormal",
+  "getTiltAngle",
+  "getStabilizationStrength",
+  "getManualTarget",
   "getTargetThrust",
   "getCurrentThrustPN",
   "getCurrentThrustKN",
@@ -75,6 +81,22 @@ local SAMPLE_METHODS = {
   "getVelocityY",
   "getVelocityZ",
   "getAltitude",
+  "getHeight",
+  "getAirPressure",
+  "getVerticalSpeed",
+  "hasTarget",
+  "getTargetType",
+  "getTargetMetadata",
+  "getRelativeAngle",
+  "getRelativeAngleRad",
+  "getBearing",
+  "getBearingRad",
+  "getDistanceToTarget",
+  "getClosureRate",
+  "getVerticalOffsetToTarget",
+  "getOrientation",
+  "getHeading",
+  "getHeadingRad",
   "getAngle",
   "getTargetAngle",
   "getVectorX",
@@ -158,11 +180,39 @@ function classify.classifyMethods(methods)
         "getRoll",
         "getPitchRate",
         "getRollRate",
+        "getAnglesRad",
+        "getAngularRatesRad",
         "getGravityX",
+        "getGravity",
         "getAccelerationX",
+        "getLinearAcceleration",
       })
       or methodNameContains(methods, { "gimbal", "attitude", "gravity", "acceleration", "angular" }) then
     add("attitudeSensor", "attitude/gravity/rate getter methods")
+  end
+
+  if containsAny(methodSet, {
+        "getOrientation",
+        "getHeading",
+        "getHeadingRad",
+        "getBearing",
+        "getBearingRad",
+        "getDistanceToTarget",
+        "getRelativeAngle",
+        "getRelativeAngleRad",
+      })
+      or methodNameContains(methods, { "navigation", "heading", "bearing", "distancetotarget", "closurerate" }) then
+    add("navigationSensor", "navigation/heading/bearing getter methods")
+  end
+
+  if containsAny(methodSet, {
+        "getHeight",
+        "getAirPressure",
+        "getVerticalSpeed",
+        "getAltitude",
+      })
+      or methodNameContains(methods, { "altitude", "height", "verticalspeed", "airpressure" }) then
+    add("altitudeSensor", "altitude/pressure/vertical-speed getter methods")
   end
 
   if containsAny(methodSet, {
@@ -204,6 +254,12 @@ function classify.classifyMethods(methods)
         "getSailCount",
         "getSailPower",
         "getThrustHandedness",
+        "getBlockNormal",
+        "getTiltAngle",
+        "getStabilizationStrength",
+        "setManualTarget",
+        "clearManualTarget",
+        "getManualTarget",
         "setTargetAngle",
         "getTargetAngle",
         "getAngle",
@@ -247,6 +303,9 @@ function classify.classifyMethods(methods)
         "getEnergyCapacityFe",
         "getObstruction",
         "isBurning",
+        "getHeight",
+        "getAirPressure",
+        "getVerticalSpeed",
       }) then
     add("statusSource", "status/fuel/energy/stress/readout methods")
   end

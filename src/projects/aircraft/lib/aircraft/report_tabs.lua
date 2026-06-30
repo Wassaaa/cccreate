@@ -189,6 +189,14 @@ local function configSections(config)
   add(stabilize, config, "stabilize.brakeOnExit", "Writes brakeSignal when stabilize exits, errors, or aborts.")
   add(stabilize, config, "stabilize.reportFrameLimit", "Maximum recent control frames kept in the saved report. Lower saves space; higher gives more history.", nil)
 
+  local yaw = {}
+  add(yaw, config, "yaw.enabled", "When true, stabilize damps yaw rate by tilting gyroscopic propeller bearings with setManualTarget.", "aircraft config yaw true 0.15 8 1")
+  add(yaw, config, "yaw.rateKd", "Yaw-rate damping gain. Higher values command more tilt for the same spin rate.")
+  add(yaw, config, "yaw.maxTiltDeg", "Maximum manual yaw tilt in degrees. Gyroscopic propeller bearings hard-clamp at 12 degrees.")
+  add(yaw, config, "yaw.deadbandDegPerSecond", "Yaw rates below this are ignored to avoid twitching around zero.")
+  add(yaw, config, "yaw.sign", "Use -1 if the first small applied yaw run increases spin instead of damping it.")
+  add(yaw, config, "yaw.clearOnExit", "When true, stabilize clears manual gyro bearing targets on exit.")
+
   local controller = {}
   add(controller, config, "controller.enabled", "Default controller enable flag. A run can still use --controller or --no-controller.", "aircraft config controller true")
   add(controller, config, "controller.type", "Controller input backend: redstone_router or keyboard.", "aircraft config controller-type keyboard")
@@ -238,6 +246,7 @@ local function configSections(config)
     section("Scan", scan),
     section("Orientation and Level", orientation),
     section("Stabilizer", stabilize, "axis1 is roll/A-D/left-right. axis2 is pitch/W-S/front-back."),
+    section("Yaw Gyros", yaw),
     section("Controller", controller),
     section("Controller Bindings", bindings),
     section("Displays and HUD", display),
@@ -327,6 +336,8 @@ local function frameStats(report)
     correctionLimited = 0,
     desaturatedFrames = 0,
     tiltedCompensatedFrames = 0,
+    yawActiveFrames = 0,
+    yawSkippedFrames = 0,
     controllerActiveFrames = 0,
     pressed = {},
     signalRanges = {},
@@ -336,6 +347,7 @@ local function frameStats(report)
   for _, frame in ipairs(report.frames or {}) do
     stats.frames = stats.frames + 1
     local mixed = frame.mixed or {}
+    local yaw = frame.yaw or mixed.yaw or {}
     local control = frame.controller or {}
 
     if type(mixed.measured1) == "number" then
@@ -360,6 +372,14 @@ local function frameStats(report)
     end
     if math.abs(tonumber(mixed.tiltCompensationPower) or 0) > 0.0001 then
       stats.tiltedCompensatedFrames = stats.tiltedCompensatedFrames + 1
+    end
+    if yaw.enabled and not yaw.skipped then
+      stats.yawActiveFrames = stats.yawActiveFrames + 1
+    elseif yaw.enabled and yaw.skipped then
+      stats.yawSkippedFrames = stats.yawSkippedFrames + 1
+    end
+    if type(yaw.yawRate) == "number" then
+      stats.peakYawRate = math.max(stats.peakYawRate or 0, math.abs(yaw.yawRate))
     end
     if controlsActive(control) then
       stats.controllerActiveFrames = stats.controllerActiveFrames + 1
@@ -441,6 +461,7 @@ function reportTabs.flightOverviewTab(report)
   local timing = report.timing or {}
   local request = report.request or {}
   local finalMixed = stats.final and stats.final.mixed or {}
+  local finalYaw = stats.final and (stats.final.yaw or (stats.final.mixed and stats.final.mixed.yaw)) or {}
   local recovery = report.recoverySummary or {}
   local recoveryTest = report.recoveryTest or {}
 
@@ -481,6 +502,17 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(stabilizerRows, "signalRanges", rangeText(stats.signalRanges), "Integer redstone signal ranges sent to the four transmissions.")
   addTextRow(stabilizerRows, "powerRanges", rangeText(stats.powerRanges), "Mixed power demand ranges before inverted signal conversion.")
 
+  local yawRows = {}
+  addTextRow(yawRows, "yaw.enabled", settings.yaw and settings.yaw.enabled, "Whether yaw gyro damping was enabled for this run.")
+  addTextRow(yawRows, "yawActiveFrames", stats.yawActiveFrames, "Frames where yaw targets were computed from nav orientation and gyro bearing roles.")
+  addTextRow(yawRows, "yawSkippedFrames", stats.yawSkippedFrames, "Frames where yaw was enabled but skipped because a dependency was missing or errored.")
+  addTextRow(yawRows, "finalYawRate", degPerSecondText(finalYaw.yawRate), "Last yaw angular rate from gimbal getAngularRatesRad()[2].")
+  addTextRow(yawRows, "peakYawRate", degPerSecondText(stats.peakYawRate), "Largest absolute yaw rate kept in the report.")
+  addTextRow(yawRows, "finalYawTilt", finalYaw.tiltDeg and (valueText(finalYaw.tiltDeg) .. " deg") or "n/a", "Last manual gyro tilt requested for yaw damping.")
+  addTextRow(yawRows, "finalYawLateral", finalYaw.lateral, "Last sideways thrust ratio before converting to manual targets.")
+  addTextRow(yawRows, "yawSkipped", finalYaw.skipped or "none", "Why the last yaw frame skipped, if it did.")
+  addTextRow(yawRows, "yawSign", settings.yaw and settings.yaw.sign, "Invert this if a small applied run increases spin.")
+
   local controllerRows = {}
   addTextRow(controllerRows, "controller.enabled", report.controller and report.controller.enabled, "Whether controller input was open for this run.")
   addTextRow(controllerRows, "controller.type", report.controller and report.controller.type, "Input backend used by this run.")
@@ -500,6 +532,7 @@ function reportTabs.flightOverviewTab(report)
     sections = {
       section("Run", runRows),
       section("Stabilizer", stabilizerRows),
+      section("Yaw Gyros", yawRows),
       section("Controller and Recovery", controllerRows),
     },
   }, stats

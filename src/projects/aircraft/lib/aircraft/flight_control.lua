@@ -81,6 +81,70 @@ local function wrapRadians(delta)
   return delta
 end
 
+local function radians(degrees)
+  return (tonumber(degrees) or 0) * math.pi / 180
+end
+
+local function degrees(radiansValue)
+  return (tonumber(radiansValue) or 0) * 180 / math.pi
+end
+
+local function vector(x, y, z)
+  return {
+    x = tonumber(x) or 0,
+    y = tonumber(y) or 0,
+    z = tonumber(z) or 0,
+  }
+end
+
+local function vectorLength(value)
+  return math.sqrt(coords.dot(value, value))
+end
+
+local function vectorScale(value, amount)
+  amount = tonumber(amount) or 0
+
+  return {
+    x = value.x * amount,
+    y = value.y * amount,
+    z = value.z * amount,
+  }
+end
+
+local function vectorNormalize(value, fallback)
+  local length = vectorLength(value)
+  if length < 0.000001 then
+    return fallback and copyPlain(fallback) or vector(0, 0, 0), 0
+  end
+
+  return vectorScale(value, 1 / length), length
+end
+
+local function vectorToList(value)
+  return {
+    value.x,
+    value.y,
+    value.z,
+  }
+end
+
+local function rotateByQuaternion(q, value)
+  local qx = tonumber(q and q[1]) or 0
+  local qy = tonumber(q and q[2]) or 0
+  local qz = tonumber(q and q[3]) or 0
+  local qw = tonumber(q and q[4]) or 1
+
+  local tx = 2 * (qy * value.z - qz * value.y)
+  local ty = 2 * (qz * value.x - qx * value.z)
+  local tz = 2 * (qx * value.y - qy * value.x)
+
+  return {
+    x = value.x + qw * tx + (qy * tz - qz * ty),
+    y = value.y + qw * ty + (qz * tx - qx * tz),
+    z = value.z + qw * tz + (qx * ty - qy * tx),
+  }
+end
+
 local function safePeripheralTypes(name)
   local values = { pcall(peripheral.getType, name) }
   local ok = table.remove(values, 1)
@@ -324,6 +388,86 @@ local function findGimbal(scan, router)
   error("No gimbal-like attitude sensor found in scan. Run aircraft scan first.", 0)
 end
 
+local function tryNavigationAt(router, coord)
+  local ok, objectOrError = pcall(router.wrap, coord.x, coord.y, coord.z)
+  if not ok or not objectOrError then
+    return nil
+  end
+
+  if type(objectOrError.getOrientation) == "function" then
+    return objectOrError
+  end
+
+  return nil
+end
+
+local function tryAltitudeAt(router, coord)
+  local ok, objectOrError = pcall(router.wrap, coord.x, coord.y, coord.z)
+  if not ok or not objectOrError then
+    return nil
+  end
+
+  if type(objectOrError.getHeight) == "function" then
+    return objectOrError
+  end
+
+  return nil
+end
+
+local function findFirstCategoryDevice(scan, router, category, tryWrap, label)
+  local mapped = scan.orientation
+    and scan.orientation.sensors
+    and scan.orientation.sensors[category]
+
+  if mapped and mapped.coord then
+    local object = tryWrap(router, mapped.coord)
+    if object then
+      return {
+        source = "scan_sensor",
+        coord = copyPlain(mapped.coord),
+        object = object,
+      }, nil
+    end
+  end
+
+  for _, entry in ipairs(scan.peripherals or {}) do
+    if entry.coord and hasCategory(entry, category) then
+      local object = tryWrap(router, entry.coord)
+      if object then
+        return {
+          source = "scan_category",
+          coord = copyPlain(entry.coord),
+          object = object,
+        }, nil
+      end
+    end
+  end
+
+  return nil, "No " .. label .. " found in scan"
+end
+
+local function wrapOptionalSensors(scan, router)
+  local sensors = {}
+  local errors = {}
+
+  sensors.navigation, errors.navigation = findFirstCategoryDevice(
+    scan,
+    router,
+    "navigationSensor",
+    tryNavigationAt,
+    "navigation table"
+  )
+  sensors.altitude, errors.altitude = findFirstCategoryDevice(
+    scan,
+    router,
+    "altitudeSensor",
+    tryAltitudeAt,
+    "altitude sensor"
+  )
+
+  return sensors, errors
+end
+
 local function wrapScalarDevices(scan, router)
   local mapped = scan.orientation
       and scan.orientation.roles
@@ -377,6 +521,30 @@ local function wrapOptionalRoleDevices(scan, router, family)
       else
         errors[role] = "wrap error at " .. coords.label(entry.coord) .. ": " .. tostring(objectOrError)
       end
+    end
+  end
+
+  return devices, errors
+end
+
+local function wrapManualGyroDevices(scan, router)
+  local rotorDevices, rotorErrors = wrapOptionalRoleDevices(scan, router, "rotorBearing")
+  local devices = {}
+  local errors = copyPlain(rotorErrors)
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local rotor = rotorDevices[role]
+    if rotor then
+      if type(rotor.object.setManualTarget) == "function"
+          and type(rotor.object.clearManualTarget) == "function" then
+        devices[role] = rotor
+      else
+        errors[role] = "rotor bearing at "
+          .. coords.label(rotor.coord)
+          .. " does not expose manual gyro target methods"
+      end
+    elseif not errors[role] then
+      errors[role] = "missing rotor bearing role"
     end
   end
 
@@ -464,12 +632,14 @@ end
 
 local function attitudeRates(rates)
   local pitchRate = numberAt(rates, 1)
+  local yawRate = numberAt(rates, 2)
   local rollRate = numberAt(rates, 3)
 
   -- Do not mirror the angle negation here; -rollRate was anti-damping axis1.
   return {
     axis1 = rollRate,
     axis2 = pitchRate,
+    yaw = yawRate,
     pitch = pitchRate,
     roll = rollRate,
   }
@@ -488,13 +658,29 @@ local function normalizeKillSwitchSource(source)
   return "side"
 end
 
+local function yawSign(value)
+  local number = tonumber(value)
+  if number and number < 0 then
+    return -1
+  end
+
+  return 1
+end
+
 local function stabilizeConfig(config, options)
   local defaults = config.stabilize or {}
+  local yaw = config.yaw or {}
   local display = config.display or {}
   local killSwitch = config.killSwitch or {}
   local interval = tonumber(options.interval) or tonumber(defaults.interval) or 0.05
   local nixiesEnabled = display.stabilizeEnabled == true
   local killSwitchEnabled = killSwitch.enabled == true
+  local yawEnabled = yaw.enabled ~= false
+  local yawMaxTiltDeg = clamp(math.abs(tonumber(options.yawMaxTiltDeg) or tonumber(yaw.maxTiltDeg) or 8), 0, 12)
+  local yawDeadbandDegPerSecond = math.max(
+    0,
+    tonumber(options.yawDeadbandDegPerSecond) or tonumber(yaw.deadbandDegPerSecond) or 0.5
+  )
 
   if interval <= 0 then
     error("stabilize interval must be greater than zero", 0)
@@ -505,6 +691,9 @@ local function stabilizeConfig(config, options)
   end
   if options.killSwitch ~= nil then
     killSwitchEnabled = options.killSwitch == true
+  end
+  if options.yaw ~= nil then
+    yawEnabled = options.yaw == true
   end
 
   return {
@@ -534,6 +723,16 @@ local function stabilizeConfig(config, options)
         or 2,
     brakeOnExit = defaults.brakeOnExit ~= false,
     reportFrameLimit = tonumber(options.reportFrameLimit) or tonumber(defaults.reportFrameLimit) or 600,
+    yaw = {
+      enabled = yawEnabled,
+      rateKd = math.max(0, tonumber(options.yawRateKd) or tonumber(yaw.rateKd) or 0.15),
+      maxTiltDeg = yawMaxTiltDeg,
+      maxTilt = radians(yawMaxTiltDeg),
+      deadbandDegPerSecond = yawDeadbandDegPerSecond,
+      deadband = radians(yawDeadbandDegPerSecond),
+      sign = yawSign(options.yawSign or yaw.sign or 1),
+      clearOnExit = yaw.clearOnExit ~= false,
+    },
     killSwitch = {
       enabled = killSwitchEnabled,
       source = normalizeKillSwitchSource(killSwitch.source or (killSwitch.binding and "router" or "side")),
@@ -955,6 +1154,7 @@ local function mixerSignals(settings, state, control, signalResiduals)
   local rates = attitudeRates(state.angularRates)
   local rawRate1 = rates.axis1
   local rawRate2 = rates.axis2
+  local rawYawRate = rates.yaw
   local rawError1 = currentTilt.axis1
   local rawError2 = currentTilt.axis2
   local measured1 = wrapRadians(rawError1)
@@ -1013,8 +1213,10 @@ local function mixerSignals(settings, state, control, signalResiduals)
     angle2 = currentTilt.axis2,
     rate1 = rate1,
     rate2 = rate2,
+    yawRate = rawYawRate,
     rawRate1 = rawRate1,
     rawRate2 = rawRate2,
+    rawYawRate = rawYawRate,
     neutral1 = 0,
     neutral2 = 0,
     currentTilt = currentTilt,
@@ -1101,12 +1303,259 @@ local function readRotorTelemetry(rotorDevices)
     if rotor then
       roleTelemetry.rotorThrust = readOptionalGetter(rotor.object, "getThrust")
       roleTelemetry.thrustHandedness = readOptionalGetter(rotor.object, "getThrustHandedness")
+      roleTelemetry.blockNormal = readOptionalGetter(rotor.object, "getBlockNormal")
+      roleTelemetry.thrustVector = readOptionalGetter(rotor.object, "getThrustVector")
+      roleTelemetry.tiltAngle = readOptionalGetter(rotor.object, "getTiltAngle")
+      roleTelemetry.stabilizationStrength = readOptionalGetter(rotor.object, "getStabilizationStrength")
+      roleTelemetry.manualTarget = readOptionalGetter(rotor.object, "getManualTarget")
     end
 
     result.roles[role] = roleTelemetry
   end
 
   return result
+end
+
+local function readSensorTelemetry(sensors)
+  local result = {}
+
+  if sensors and sensors.navigation then
+    local navigation = sensors.navigation.object
+    result.navigation = {
+      coord = copyPlain(sensors.navigation.coord),
+      source = sensors.navigation.source,
+      orientation = readOptionalGetter(navigation, "getOrientation"),
+      heading = readOptionalGetter(navigation, "getHeading"),
+      headingRad = readOptionalGetter(navigation, "getHeadingRad"),
+      hasTarget = readOptionalGetter(navigation, "hasTarget"),
+      targetType = readOptionalGetter(navigation, "getTargetType"),
+      bearingRad = readOptionalGetter(navigation, "getBearingRad"),
+      distanceToTarget = readOptionalGetter(navigation, "getDistanceToTarget"),
+    }
+  end
+
+  if sensors and sensors.altitude then
+    local altitude = sensors.altitude.object
+    result.altitude = {
+      coord = copyPlain(sensors.altitude.coord),
+      source = sensors.altitude.source,
+      height = readOptionalGetter(altitude, "getHeight"),
+      verticalSpeed = readOptionalGetter(altitude, "getVerticalSpeed"),
+      airPressure = readOptionalGetter(altitude, "getAirPressure"),
+    }
+  end
+
+  return result
+end
+
+local function roleCenter(devices)
+  local total = vector(0, 0, 0)
+  local count = 0
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local device = devices and devices[role]
+    if device and device.coord then
+      total = coords.add(total, vector(device.coord.x, device.coord.y, device.coord.z))
+      count = count + 1
+    end
+  end
+
+  if count == 0 then
+    return nil
+  end
+
+  return vectorScale(total, 1 / count)
+end
+
+local function orientationUpVector(scan)
+  local up = scan
+    and scan.orientation
+    and scan.orientation.upVector
+
+  if coords.isCardinal(up) then
+    return vector(up.x, up.y, up.z)
+  end
+
+  return vector(0, 1, 0)
+end
+
+local function buildYawFrame(settings, state, scan, sensors, gyroDevices)
+  local yawSettings = settings.yaw or {}
+  local yawRate = numberAt(state and state.angularRates, 2)
+  local result = {
+    enabled = yawSettings.enabled == true,
+    yawRate = yawRate,
+    yawRateDegPerSecond = degrees(yawRate),
+    commands = {},
+  }
+
+  if not result.enabled then
+    result.skipped = "yaw disabled"
+    return result
+  end
+
+  if not sensors or not sensors.navigation then
+    result.skipped = "navigation table missing"
+    return result
+  end
+
+  local center = roleCenter(gyroDevices)
+  if not center then
+    result.skipped = "manual gyro bearings missing"
+    return result
+  end
+
+  local orientation, orientationError = callGetter(sensors.navigation.object, "getOrientation")
+  if orientationError then
+    result.skipped = "navigation getOrientation failed"
+    result.error = orientationError
+    return result
+  end
+  if type(orientation) ~= "table" then
+    result.skipped = "navigation getOrientation returned non-table"
+    return result
+  end
+
+  local heading = readOptionalGetter(sensors.navigation.object, "getHeadingRad")
+  local up = orientationUpVector(scan)
+  up = vectorNormalize(up, vector(0, 1, 0))
+
+  local activeRate = yawRate
+  if math.abs(activeRate) < (tonumber(yawSettings.deadband) or 0) then
+    activeRate = 0
+  end
+
+  local maxLateral = math.tan(tonumber(yawSettings.maxTilt) or 0)
+  local rawLateral = -yawSettings.sign * (tonumber(yawSettings.rateKd) or 0) * activeRate
+  local lateral = clamp(rawLateral, -maxLateral, maxLateral)
+
+  result.headingRad = heading and heading.ok and heading.value or nil
+  result.headingRadRead = heading
+  result.center = center
+  result.up = up
+  result.orientation = copyPlain(orientation)
+  result.activeYawRate = activeRate
+  result.rawLateral = rawLateral
+  result.lateral = lateral
+  result.maxLateral = maxLateral
+  result.tiltDeg = degrees(math.atan(math.abs(lateral)))
+  result.sign = yawSettings.sign
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local device = gyroDevices and gyroDevices[role]
+
+    if device and device.coord then
+      local relative = coords.sub(vector(device.coord.x, device.coord.y, device.coord.z), center)
+      local vertical = vectorScale(up, coords.dot(relative, up))
+      local radial = coords.sub(relative, vertical)
+      local radialUnit, radius = vectorNormalize(radial)
+
+      if radius > 0.000001 then
+        local tangent = coords.cross(up, radialUnit)
+        tangent = vectorNormalize(tangent)
+
+        local bodyTarget = coords.add(up, vectorScale(tangent, lateral))
+        bodyTarget = vectorNormalize(bodyTarget, up)
+
+        local worldTarget = rotateByQuaternion(orientation, bodyTarget)
+        worldTarget = vectorNormalize(worldTarget, bodyTarget)
+
+        result.commands[role] = {
+          role = role,
+          coord = copyPlain(device.coord),
+          radius = radius,
+          radial = radialUnit,
+          tangent = tangent,
+          bodyTarget = bodyTarget,
+          worldTarget = worldTarget,
+          target = vectorToList(worldTarget),
+        }
+      else
+        result.commands[role] = {
+          role = role,
+          coord = copyPlain(device.coord),
+          skipped = "rotor is on yaw centerline",
+        }
+      end
+    else
+      result.commands[role] = {
+        role = role,
+        skipped = "manual gyro bearing missing",
+      }
+    end
+  end
+
+  return result
+end
+
+local function applyYawTargets(gyroDevices, yawFrame, active)
+  if not yawFrame or not yawFrame.enabled or yawFrame.skipped then
+    return {
+      applied = false,
+      skipped = yawFrame and yawFrame.skipped or "yaw unavailable",
+    }
+  end
+
+  local results = {}
+  local tasks = {}
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local command = yawFrame.commands and yawFrame.commands[role]
+    local device = gyroDevices and gyroDevices[role]
+
+    if command and command.target and device then
+      if active then
+        local roleName = role
+        local target = command.target
+        table.insert(tasks, function()
+          results[roleName] = callSetter(device.object, "setManualTarget", target)
+        end)
+      else
+        results[role] = {
+          ok = true,
+          dryRun = true,
+          method = "setManualTarget",
+          target = copyPlain(command.target),
+        }
+      end
+    else
+      results[role] = {
+        ok = false,
+        skipped = command and command.skipped or "missing target",
+      }
+    end
+  end
+
+  if active and #tasks > 0 then
+    parallel.waitForAll(unpack(tasks))
+  end
+
+  return {
+    applied = active,
+    results = results,
+  }
+end
+
+local function clearGyroTargets(gyroDevices)
+  local results = {}
+  local tasks = {}
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local device = gyroDevices and gyroDevices[role]
+
+    if device then
+      local roleName = role
+      table.insert(tasks, function()
+        results[roleName] = callSetter(device.object, "clearManualTarget")
+      end)
+    end
+  end
+
+  if #tasks > 0 then
+    parallel.waitForAll(unpack(tasks))
+  end
+
+  return results
 end
 
 local function pressedControls(control)
@@ -1160,8 +1609,10 @@ local function compactMixedFrame(mixed)
     angle2 = mixed.angle2,
     rate1 = mixed.rate1,
     rate2 = mixed.rate2,
+    yawRate = mixed.yawRate,
     rawRate1 = mixed.rawRate1,
     rawRate2 = mixed.rawRate2,
+    rawYawRate = mixed.rawYawRate,
     rawError1 = mixed.rawError1,
     rawError2 = mixed.rawError2,
     measured1 = mixed.measured1,
@@ -1296,6 +1747,8 @@ local function compactStabilizeFrame(frame)
     killSwitch = copyPlain(frame.killSwitch),
     controller = compactControllerFrame(frame.controller),
     mixed = compactMixedFrame(frame.mixed),
+    yaw = copyPlain(frame.yaw),
+    yawSetResults = copyPlain(frame.yawSetResults),
     telemetry = copyPlain(frame.telemetry),
   }
 end
@@ -1349,6 +1802,8 @@ function flightControl.stabilize(config, options)
   local gimbal = findGimbal(scan, router)
   local devices = wrapScalarDevices(scan, router)
   local rotorDevices, rotorErrors = wrapOptionalRoleDevices(scan, router, "rotorBearing")
+  local gyroDevices, gyroErrors = wrapManualGyroDevices(scan, router)
+  local sensors, sensorErrors = wrapOptionalSensors(scan, router)
   local settings = stabilizeConfig(config, options)
   local killSwitchRouter, killSwitchRouterName = nil, nil
   if settings.killSwitch
@@ -1396,6 +1851,21 @@ function flightControl.stabilize(config, options)
   report.nixies = displays.describe(nixieContext)
   report.rotorTelemetry = {
     errors = copyPlain(rotorErrors),
+  }
+  report.gyroYaw = {
+    enabled = settings.yaw and settings.yaw.enabled == true,
+    errors = copyPlain(gyroErrors),
+  }
+  report.sensors = {
+    navigation = sensors.navigation and {
+      source = sensors.navigation.source,
+      coord = copyPlain(sensors.navigation.coord),
+    } or nil,
+    altitude = sensors.altitude and {
+      source = sensors.altitude.source,
+      coord = copyPlain(sensors.altitude.coord),
+    } or nil,
+    errors = copyPlain(sensorErrors),
   }
   report.frames = {}
   report.timing = {
@@ -1503,6 +1973,10 @@ function flightControl.stabilize(config, options)
       local killSwitch = readKillSwitch(settings, control, killSwitchRouter, killSwitchRouterName)
       timing.phases.killSwitch = os.clock() - phaseStart
 
+      phaseStart = os.clock()
+      local yawFrame = buildYawFrame(settings, state, scan, sensors, gyroDevices)
+      timing.phases.yaw = os.clock() - phaseStart
+
       local frame = {
         index = frameIndex,
         elapsed = elapsed,
@@ -1511,6 +1985,7 @@ function flightControl.stabilize(config, options)
         killSwitch = killSwitch,
         controller = control,
         mixed = mixed,
+        yaw = yawFrame,
       }
 
       phaseStart = os.clock()
@@ -1530,8 +2005,10 @@ function flightControl.stabilize(config, options)
         report.abortReason = frame.abortReason
       elseif active then
         frame.setResults = applySignals(devices, mixed.signals)
+        frame.yawSetResults = applyYawTargets(gyroDevices, yawFrame, true)
       else
         frame.dryRun = true
+        frame.yawSetResults = applyYawTargets(gyroDevices, yawFrame, false)
       end
       timing.phases.applySignals = os.clock() - phaseStart
 
@@ -1543,6 +2020,7 @@ function flightControl.stabilize(config, options)
       phaseStart = os.clock()
       if hud.shouldUpdate(hudContext, frame, forceDisplay) then
         frame.telemetry = readRotorTelemetry(rotorDevices)
+        frame.telemetry.sensors = readSensorTelemetry(sensors)
       end
       timing.phases.telemetry = os.clock() - phaseStart
 
@@ -1644,6 +2122,10 @@ function flightControl.stabilize(config, options)
         rear_right = settings.brakeSignal,
       })
     end
+  end
+
+  if active and settings.yaw and settings.yaw.enabled and settings.yaw.clearOnExit then
+    report.gyroYaw.clearOnExit = clearGyroTargets(gyroDevices)
   end
 
   if not ok then
