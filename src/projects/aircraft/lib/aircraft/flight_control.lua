@@ -1417,8 +1417,9 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices)
   end
 
   local heading = readOptionalGetter(sensors.navigation.object, "getHeadingRad")
-  local up = orientationUpVector(scan)
-  up = vectorNormalize(up, vector(0, 1, 0))
+  local craftUp = orientationUpVector(scan)
+  craftUp = vectorNormalize(craftUp, vector(0, 1, 0))
+  local worldUp = vector(0, 1, 0)
 
   local activeRate = yawRate
   if math.abs(activeRate) < (tonumber(yawSettings.deadband) or 0) then
@@ -1432,7 +1433,10 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices)
   result.headingRad = heading and heading.ok and heading.value or nil
   result.headingRadRead = heading
   result.center = center
-  result.up = up
+  result.up = worldUp
+  result.craftUp = craftUp
+  result.worldUp = worldUp
+  result.targetMode = "manual_world_up"
   result.orientation = copyPlain(orientation)
   result.activeYawRate = activeRate
   result.rawLateral = rawLateral
@@ -1446,19 +1450,19 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices)
 
     if device and device.coord then
       local relative = coords.sub(vector(device.coord.x, device.coord.y, device.coord.z), center)
-      local vertical = vectorScale(up, coords.dot(relative, up))
+      local vertical = vectorScale(craftUp, coords.dot(relative, craftUp))
       local radial = coords.sub(relative, vertical)
       local radialUnit, radius = vectorNormalize(radial)
 
       if radius > 0.000001 then
-        local tangent = coords.cross(up, radialUnit)
+        local tangent = coords.cross(craftUp, radialUnit)
         tangent = vectorNormalize(tangent)
 
-        local bodyTarget = coords.add(up, vectorScale(tangent, lateral))
-        bodyTarget = vectorNormalize(bodyTarget, up)
+        local worldTangent = rotateByQuaternion(orientation, tangent)
+        worldTangent = vectorNormalize(worldTangent, tangent)
 
-        local worldTarget = rotateByQuaternion(orientation, bodyTarget)
-        worldTarget = vectorNormalize(worldTarget, bodyTarget)
+        local worldTarget = coords.add(worldUp, vectorScale(worldTangent, lateral))
+        worldTarget = vectorNormalize(worldTarget, worldUp)
 
         result.commands[role] = {
           role = role,
@@ -1466,7 +1470,8 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices)
           radius = radius,
           radial = radialUnit,
           tangent = tangent,
-          bodyTarget = bodyTarget,
+          worldTangent = worldTangent,
+          baseTarget = worldUp,
           worldTarget = worldTarget,
           target = vectorToList(worldTarget),
         }
