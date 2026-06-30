@@ -731,6 +731,7 @@ local function stabilizeConfig(config, options)
       deadbandDegPerSecond = yawDeadbandDegPerSecond,
       deadband = radians(yawDeadbandDegPerSecond),
       sign = yawSign(options.yawSign or yaw.sign or 1),
+      commandLateral = math.max(0, tonumber(options.yawCommandLateral) or tonumber(yaw.commandLateral) or 0.08),
       clearOnExit = yaw.clearOnExit ~= false,
     },
     killSwitch = {
@@ -953,6 +954,8 @@ local function smoothControl(context, control, previousControl, dt)
   result.rawAxis1Target = tonumber(control.axis1Target) or 0
   result.rawAxis2Target = tonumber(control.axis2Target) or 0
   result.rawThrottlePower = tonumber(control.throttlePower) or 0
+  result.rawYaw = tonumber(control.yaw) or 0
+  result.yaw = clamp(result.rawYaw, -1, 1)
   result.throttleMode = throttleMode
 
   if elapsed > 0 and previousControl then
@@ -997,6 +1000,7 @@ local function recoveryControl(test, elapsed)
     pulseSeconds = pulseSeconds,
     axis1 = active and (tonumber(test.axis1) or 0) or 0,
     axis2 = active and (tonumber(test.axis2) or 0) or 0,
+    yaw = active and (tonumber(test.yaw) or 0) or 0,
     throttle = active and (tonumber(test.throttle) or 0) or 0,
     throttlePower = active and (tonumber(test.throttlePower) or 0) or 0,
     axis1Target = active and (tonumber(test.axis1Target) or 0) or 0,
@@ -1379,13 +1383,15 @@ local function orientationUpVector(scan)
   return vector(0, 1, 0)
 end
 
-local function buildYawFrame(settings, state, scan, sensors, gyroDevices)
+local function buildYawFrame(settings, state, scan, sensors, gyroDevices, control)
   local yawSettings = settings.yaw or {}
   local yawRate = numberAt(state and state.angularRates, 2)
+  local commandYaw = clamp(tonumber(control and control.yaw) or 0, -1, 1)
   local result = {
     enabled = yawSettings.enabled == true,
     yawRate = yawRate,
     yawRateDegPerSecond = degrees(yawRate),
+    commandYaw = commandYaw,
     commands = {},
   }
 
@@ -1426,8 +1432,11 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices)
     activeRate = 0
   end
 
+  local sign = yawSign(yawSettings.sign)
   local maxLateral = math.tan(tonumber(yawSettings.maxTilt) or 0)
-  local rawLateral = -yawSettings.sign * (tonumber(yawSettings.rateKd) or 0) * activeRate
+  local rateLateral = -sign * (tonumber(yawSettings.rateKd) or 0) * activeRate
+  local commandLateral = sign * (tonumber(yawSettings.commandLateral) or 0) * commandYaw
+  local rawLateral = rateLateral + commandLateral
   local lateral = clamp(rawLateral, -maxLateral, maxLateral)
 
   result.headingRad = heading and heading.ok and heading.value or nil
@@ -1439,11 +1448,13 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices)
   result.targetMode = "manual_world_up"
   result.orientation = copyPlain(orientation)
   result.activeYawRate = activeRate
+  result.rateLateral = rateLateral
+  result.commandLateral = commandLateral
   result.rawLateral = rawLateral
   result.lateral = lateral
   result.maxLateral = maxLateral
   result.tiltDeg = degrees(math.atan(math.abs(lateral)))
-  result.sign = yawSettings.sign
+  result.sign = sign
 
   for _, role in ipairs(ROLE_ORDER) do
     local device = gyroDevices and gyroDevices[role]
@@ -1566,7 +1577,7 @@ end
 local function pressedControls(control)
   local pressed = {}
 
-  for _, name in ipairs({ "shift", "space", "w", "a", "s", "d", "k" }) do
+  for _, name in ipairs({ "shift", "space", "w", "a", "s", "d", "q", "e", "k" }) do
     local read = control and control.reads and control.reads[name]
     if read and read.pressed then
       table.insert(pressed, name)
@@ -1591,9 +1602,11 @@ local function compactControllerFrame(control)
     throttlePower = control.throttlePower,
     axis1 = control.axis1,
     axis2 = control.axis2,
+    yaw = control.yaw,
     rawAxis1Target = control.rawAxis1Target,
     rawAxis2Target = control.rawAxis2Target,
     rawThrottlePower = control.rawThrottlePower,
+    rawYaw = control.rawYaw,
     throttleMode = control.throttleMode,
     heldThrottlePower = control.heldThrottlePower,
     axis1Target = control.axis1Target,
@@ -1979,7 +1992,7 @@ function flightControl.stabilize(config, options)
       timing.phases.killSwitch = os.clock() - phaseStart
 
       phaseStart = os.clock()
-      local yawFrame = buildYawFrame(settings, state, scan, sensors, gyroDevices)
+      local yawFrame = buildYawFrame(settings, state, scan, sensors, gyroDevices, control)
       timing.phases.yaw = os.clock() - phaseStart
 
       local frame = {

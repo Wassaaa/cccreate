@@ -47,6 +47,7 @@ local ORDERS = {
     "maxTiltDeg",
     "deadbandDegPerSecond",
     "sign",
+    "commandLateral",
     "clearOnExit",
   },
   controller = {
@@ -64,7 +65,7 @@ local ORDERS = {
     "keyMap",
     "bindings",
   },
-  bindings = { "shift", "a", "s", "d", "space", "w", "k" },
+  bindings = { "shift", "a", "s", "d", "space", "q", "w", "e", "k" },
   binding = { "x", "y", "z", "side" },
   display = { "enabled", "stabilizeEnabled", "stabilizeInterval" },
   hud = { "enabled", "interval", "monitorScale", "monitorName" },

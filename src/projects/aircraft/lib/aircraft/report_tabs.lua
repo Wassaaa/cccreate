@@ -15,7 +15,9 @@ local ROLE_LABELS = {
 }
 
 local BINDING_ORDER = {
+  "q",
   "w",
+  "e",
   "shift",
   "a",
   "s",
@@ -190,11 +192,12 @@ local function configSections(config)
   add(stabilize, config, "stabilize.reportFrameLimit", "Maximum recent control frames kept in the saved report. Lower saves space; higher gives more history.", nil)
 
   local yaw = {}
-  add(yaw, config, "yaw.enabled", "When true, stabilize damps yaw rate by tilting gyroscopic propeller bearings with setManualTarget.", "aircraft config yaw true 0.15 8 1")
+  add(yaw, config, "yaw.enabled", "When true, stabilize damps yaw rate by tilting gyroscopic propeller bearings with setManualTarget.", "aircraft config yaw true 0.15 8 1 0.08")
   add(yaw, config, "yaw.rateKd", "Yaw-rate damping gain. Higher values command more tilt for the same spin rate.")
   add(yaw, config, "yaw.maxTiltDeg", "Maximum manual yaw tilt in degrees. Gyroscopic propeller bearings hard-clamp at 12 degrees.")
   add(yaw, config, "yaw.deadbandDegPerSecond", "Yaw rates below this are ignored to avoid twitching around zero.")
   add(yaw, config, "yaw.sign", "Use -1 if the first small applied yaw run increases spin instead of damping it.")
+  add(yaw, config, "yaw.commandLateral", "How hard a held Q/E controller yaw command pushes before maxTiltDeg clamps the gyro target.", "aircraft stabilize --controller --yaw-command 0.08")
   add(yaw, config, "yaw.clearOnExit", "When true, stabilize clears manual gyro bearing targets on exit.")
 
   local controller = {}
@@ -325,6 +328,7 @@ local function controlsActive(control)
 
   return math.abs(tonumber(control.axis1Target) or 0) > 0.0001
     or math.abs(tonumber(control.axis2Target) or 0) > 0.0001
+    or math.abs(tonumber(control.yaw) or 0) > 0.0001
     or math.abs(tonumber(control.throttlePower) or 0) > 0.0001
     or math.abs(tonumber(control.axis1Power) or 0) > 0.0001
     or math.abs(tonumber(control.axis2Power) or 0) > 0.0001
@@ -510,6 +514,8 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(yawRows, "peakYawRate", degPerSecondText(stats.peakYawRate), "Largest absolute yaw rate kept in the report.")
   addTextRow(yawRows, "finalYawTilt", finalYaw.tiltDeg and (valueText(finalYaw.tiltDeg) .. " deg") or "n/a", "Last manual gyro tilt requested for yaw damping.")
   addTextRow(yawRows, "finalYawLateral", finalYaw.lateral, "Last sideways thrust ratio before converting to manual targets.")
+  addTextRow(yawRows, "finalYawCommand", finalYaw.commandYaw, "Last controller yaw request. Q is negative; E is positive.")
+  addTextRow(yawRows, "finalYawCommandLateral", finalYaw.commandLateral, "Last lateral contribution from Q/E before clamping.")
   addTextRow(yawRows, "yawSkipped", finalYaw.skipped or "none", "Why the last yaw frame skipped, if it did.")
   addTextRow(yawRows, "yawSign", settings.yaw and settings.yaw.sign, "Invert this if a small applied run increases spin.")
 

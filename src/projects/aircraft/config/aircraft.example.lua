@@ -58,6 +58,7 @@ return {
     maxTiltDeg = 8,
     deadbandDegPerSecond = 0.5,
     sign = 1,
+    commandLateral = 0.08,
     clearOnExit = true,
   },
   display = {
@@ -109,7 +110,9 @@ return {
       s = { x = 1, y = -1, z = -5, side = "up" },
       d = { x = 0, y = -1, z = -5, side = "up" },
       space = { x = -1, y = -1, z = -5, side = "up" },
+      q = { x = 2, y = -1, z = -4, side = "up" },
       w = { x = 1, y = -1, z = -4, side = "up" },
+      e = { x = 0, y = -1, z = -4, side = "up" },
     },
   },
 

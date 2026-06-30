@@ -7,6 +7,8 @@ local DEFAULT_INPUTS = {
   "d",
   "space",
   "w",
+  "q",
+  "e",
   "k",
 }
 

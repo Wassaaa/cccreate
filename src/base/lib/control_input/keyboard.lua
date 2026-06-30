@@ -6,6 +6,8 @@ local GLFW_CODES = {
   [32] = "space",
   [65] = "a",
   [68] = "d",
+  [69] = "e",
+  [81] = "q",
   [83] = "s",
   [87] = "w",
   [75] = "k",
@@ -42,6 +44,8 @@ local function defaultKeyCodes()
   addKeyConstant(codes, "a", "a")
   addKeyConstant(codes, "s", "s")
   addKeyConstant(codes, "d", "d")
+  addKeyConstant(codes, "q", "q")
+  addKeyConstant(codes, "e", "e")
   addKeyConstant(codes, "k", "k")
   addKeyConstant(codes, "space", "space")
   addKeyConstant(codes, "leftShift", "shift")

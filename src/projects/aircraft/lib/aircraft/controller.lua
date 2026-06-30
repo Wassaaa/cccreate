@@ -10,6 +10,8 @@ local INPUT_ORDER = {
   "d",
   "space",
   "w",
+  "q",
+  "e",
   "k",
 }
 
@@ -264,7 +266,9 @@ function controller.defaultBindings(originX, originY, originZ, side, frontAxis, 
     s = s,
     d = d,
     space = stepFrom(shift, right, 4),
+    q = stepFrom(a, front, 1),
     w = stepFrom(s, front, 1),
+    e = stepFrom(d, front, 1),
   }
 end
 
@@ -288,6 +292,7 @@ function controller.sample(context)
       throttle = 0,
       axis1 = 0,
       axis2 = 0,
+      yaw = 0,
       axis1Target = 0,
       axis2Target = 0,
       axis1Power = 0,
@@ -302,6 +307,7 @@ function controller.sample(context)
   local throttle = inputValue(reads.space) - inputValue(reads.shift)
   local axis1 = inputValue(reads.d) - inputValue(reads.a)
   local axis2 = inputValue(reads.w) - inputValue(reads.s)
+  local yaw = inputValue(reads.e) - inputValue(reads.q)
   local degToRad = math.pi / 180
 
   return {
@@ -313,6 +319,7 @@ function controller.sample(context)
     throttlePower = throttle * context.settings.throttlePower,
     axis1 = axis1,
     axis2 = axis2,
+    yaw = yaw,
     axis1Target = axis1 * context.settings.axis1TargetDeg * degToRad,
     axis2Target = axis2 * context.settings.axis2TargetDeg * degToRad,
     axis1Power = axis1 * context.settings.axis1Power,
@@ -516,7 +523,9 @@ local function drawProbeDisplay(target, frame, context, seconds)
 
   local center = math.max(16, math.floor(width / 2))
   local topY = math.max(4, math.floor(height / 2) - 4)
+  drawButton(target, center - 12, topY, "q", reads.q)
   drawButton(target, center - 4, topY, "w", reads.w)
+  drawButton(target, center + 4, topY, "e", reads.e)
   drawButton(target, center - 23, topY + 2, "shift", reads.shift)
   drawButton(target, center - 8, topY + 2, "a", reads.a)
   drawButton(target, center, topY + 2, "s", reads.s)
@@ -530,7 +539,8 @@ local function drawProbeDisplay(target, frame, context, seconds)
     topY + 5,
     "thr " .. signed(frame.input.throttle)
       .. "  axis1 " .. signed(frame.input.axis1)
-      .. "  axis2 " .. signed(frame.input.axis2),
+      .. "  axis2 " .. signed(frame.input.axis2)
+      .. "  yaw " .. signed(frame.input.yaw),
     width
   )
   writeCentered(target, topY + 7, ". off   number pressed   err bad coord/API", width)

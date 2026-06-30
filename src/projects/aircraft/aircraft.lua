@@ -55,6 +55,7 @@ local DEFAULT_CONFIG = {
     maxTiltDeg = 8,
     deadbandDegPerSecond = 0.5,
     sign = 1,
+    commandLateral = 0.08,
     clearOnExit = true,
   },
   display = {
@@ -109,7 +110,7 @@ local function usage()
   print("aircraft config stabilize-desaturate <true|false> [headroomPower]")
   print("aircraft config stabilize-tilt-comp <true|false> [gain] [maxPower]")
   print("aircraft config stabilize-dither <true|false>")
-  print("aircraft config yaw <true|false> [rateKd] [maxTiltDeg] [sign]")
+  print("aircraft config yaw <true|false> [rateKd] [maxTiltDeg] [sign] [commandLateral]")
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
   print("aircraft config hud <true|false>")
@@ -151,6 +152,7 @@ local function usage()
   print("  --yaw-max-tilt-deg <n> max gyro bearing yaw tilt, clamped to 12")
   print("  --yaw-deadband-deg <n> ignore smaller yaw rates")
   print("  --yaw-sign <-1|1>  invert yaw correction if needed")
+  print("  --yaw-command <n>  Q/E yaw command strength before max-tilt clamp")
   print("")
   print("signal/brake are dry-run unless --apply is used and config dryRun=false.")
 end
@@ -598,6 +600,8 @@ local function validControllerKey(key)
     or key == "a"
     or key == "s"
     or key == "d"
+    or key == "q"
+    or key == "e"
     or key == "space"
     or key == "shift"
     or key == "k"
@@ -664,6 +668,7 @@ local function printConfig(config, source)
   print("  yaw.maxTiltDeg=" .. tostring(config.yaw and config.yaw.maxTiltDeg))
   print("  yaw.deadbandDegPerSecond=" .. tostring(config.yaw and config.yaw.deadbandDegPerSecond))
   print("  yaw.sign=" .. tostring(config.yaw and config.yaw.sign))
+  print("  yaw.commandLateral=" .. tostring(config.yaw and config.yaw.commandLateral))
   print("  yaw.clearOnExit=" .. tostring(config.yaw and config.yaw.clearOnExit))
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
   print("  display.stabilizeEnabled=" .. tostring(config.display and config.display.stabilizeEnabled))
@@ -696,7 +701,9 @@ local function printConfig(config, source)
     print("    s=" .. bindingText(config.controller.bindings.s))
     print("    d=" .. bindingText(config.controller.bindings.d))
     print("    space=" .. bindingText(config.controller.bindings.space))
+    print("    q=" .. bindingText(config.controller.bindings.q))
     print("    w=" .. bindingText(config.controller.bindings.w))
+    print("    e=" .. bindingText(config.controller.bindings.e))
     print("    k=" .. bindingText(config.controller.bindings.k))
   end
 end
@@ -888,6 +895,15 @@ local function runConfig()
       config.yaw.sign = 1
     end
 
+    if args[7] then
+      config.yaw.commandLateral = parseNumber(args[7], "commandLateral")
+      if config.yaw.commandLateral < 0 then
+        error("commandLateral must be non-negative", 0)
+      end
+    elseif config.yaw.commandLateral == nil then
+      config.yaw.commandLateral = 0.08
+    end
+
     if config.yaw.deadbandDegPerSecond == nil then
       config.yaw.deadbandDegPerSecond = 0.5
     end
@@ -902,6 +918,7 @@ local function runConfig()
     print("  maxTiltDeg=" .. tostring(config.yaw.maxTiltDeg))
     print("  deadbandDegPerSecond=" .. tostring(config.yaw.deadbandDegPerSecond))
     print("  sign=" .. tostring(config.yaw.sign))
+    print("  commandLateral=" .. tostring(config.yaw.commandLateral))
     print("  clearOnExit=" .. tostring(config.yaw.clearOnExit))
     return
   elseif subcommand == "display" then
@@ -1066,11 +1083,13 @@ local function runConfig()
     print("  s=" .. bindingText(config.controller.bindings.s))
     print("  d=" .. bindingText(config.controller.bindings.d))
     print("  space=" .. bindingText(config.controller.bindings.space))
+    print("  q=" .. bindingText(config.controller.bindings.q))
+    print("  e=" .. bindingText(config.controller.bindings.e))
     return
   elseif subcommand == "controller-bind" then
     local key = string.lower(tostring(args[3] or ""))
     if not validControllerKey(key) then
-      error("controller key must be w, a, s, d, space, shift, or k", 0)
+      error("controller key must be w, a, s, d, q, e, space, shift, or k", 0)
     end
 
     config.controller = config.controller or {}
@@ -1240,6 +1259,12 @@ local function parseCommandOptions(startIndex)
         error("--yaw-sign needs -1 or 1", 0)
       end
       options.yawSign = sign < 0 and -1 or 1
+      i = i + 2
+    elseif arg == "--yaw-command" or arg == "--yaw-command-lateral" then
+      options.yawCommandLateral = tonumber(args[i + 1])
+      if not options.yawCommandLateral or options.yawCommandLateral < 0 then
+        error(arg .. " needs a non-negative number", 0)
+      end
       i = i + 2
     elseif arg == "--killswitch" then
       options.killSwitch = true
