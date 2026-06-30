@@ -5,6 +5,8 @@ local DEFAULT_Y_RADIUS = 1
 local DEFAULT_SAMPLE_LIMIT = 0
 local DEFAULT_MAP_REPORT_PATH = "router_base_map_report.txt"
 local DEFAULT_STACK_REPORT_PATH = "router_stack_report.txt"
+-- Map discovery only. Stack item/fluid moves intentionally stay sequential.
+local MAP_SCAN_PARALLELISM = 24
 
 local args = { ... }
 local unpackArgs = table.unpack or unpack
@@ -22,6 +24,7 @@ local function usage()
   print("router_inventory_scanner stack --to <x> <y> <z> --from-report base_map.txt")
   print("")
   print("Default map is 17x3x17: x/z radius 8, y radius 1.")
+  print("Map scan parallelism is MAP_SCAN_PARALLELISM near the top of this file.")
   print("Reports write a local file and send webhook unless --no-webhook is set.")
   print("Default files: " .. DEFAULT_MAP_REPORT_PATH .. ", " .. DEFAULT_STACK_REPORT_PATH .. ".")
 end
@@ -686,6 +689,86 @@ local function inspectOffset(router, x, y, z, config)
   return entry
 end
 
+local function coordinateList(config)
+  local coordinates = {}
+
+  for y = config.yMin, config.yMax do
+    for x = config.xMin, config.xMax do
+      for z = config.zMin, config.zMax do
+        if config.includeOrigin or x ~= 0 or y ~= 0 or z ~= 0 then
+          table.insert(coordinates, {
+            x = x,
+            y = y,
+            z = z,
+          })
+        end
+      end
+    end
+  end
+
+  return coordinates
+end
+
+local function isFluidCapable(entry)
+  return entry
+    and entry.ok == true
+    and (entry.kind == "fluid"
+      or contains(entry.methods, "tanks")
+      or contains(entry.methods, "pushFluid")
+      or contains(entry.methods, "pullFluid"))
+end
+
+local function sortEntries(entries)
+  table.sort(entries, function(left, right)
+    if left.y ~= right.y then
+      return left.y < right.y
+    end
+
+    if left.x ~= right.x then
+      return left.x < right.x
+    end
+
+    return left.z < right.z
+  end)
+end
+
+local function runMapWorkers(router, coordinates, config, onEntry)
+  local workerCount = math.max(1, math.floor(tonumber(MAP_SCAN_PARALLELISM) or 1))
+  local nextIndex = 1
+
+  local function worker()
+    while true do
+      local index = nextIndex
+      nextIndex = nextIndex + 1
+      local coord = coordinates[index]
+
+      if not coord then
+        return
+      end
+
+      onEntry(inspectOffset(router, coord.x, coord.y, coord.z, config))
+    end
+  end
+
+  if workerCount <= 1 or type(parallel) ~= "table" or type(parallel.waitForAll) ~= "function" then
+    worker()
+    return 1
+  end
+
+  local tasks = {}
+  local taskCount = math.min(workerCount, #coordinates)
+
+  for _ = 1, taskCount do
+    table.insert(tasks, worker)
+  end
+
+  if #tasks > 0 then
+    parallel.waitForAll(unpackArgs(tasks))
+  end
+
+  return taskCount
+end
+
 local function buildMap(config)
   local router, routerName = findRouter()
   if not router then
@@ -696,38 +779,39 @@ local function buildMap(config)
   local inspected = 0
   local wrappable = 0
   local inventories = 0
+  local fluids = 0
   local totalSlots = 0
   local totalUsedSlots = 0
   local totalItems = 0
   local errors = 0
 
-  for y = config.yMin, config.yMax do
-    for x = config.xMin, config.xMax do
-      for z = config.zMin, config.zMax do
-        if config.includeOrigin or x ~= 0 or y ~= 0 or z ~= 0 then
-          inspected = inspected + 1
-          local entry = inspectOffset(router, x, y, z, config)
+  local coordinates = coordinateList(config)
+  local workers = runMapWorkers(router, coordinates, config, function(entry)
+    inspected = inspected + 1
 
-          if entry.ok then
-            wrappable = wrappable + 1
-          elseif entry.error ~= "no peripheral" then
-            errors = errors + 1
-          end
-
-          if entry.inventory then
-            inventories = inventories + 1
-            totalSlots = totalSlots + (tonumber(entry.size) or 0)
-            totalUsedSlots = totalUsedSlots + (tonumber(entry.usedSlots) or 0)
-            totalItems = totalItems + (tonumber(entry.totalItems) or 0)
-          end
-
-          if entry.ok or (entry.error and entry.error ~= "no peripheral") then
-            table.insert(results, entry)
-          end
-        end
-      end
+    if entry.ok then
+      wrappable = wrappable + 1
+    elseif entry.error ~= "no peripheral" then
+      errors = errors + 1
     end
-  end
+
+    if entry.inventory then
+      inventories = inventories + 1
+      totalSlots = totalSlots + (tonumber(entry.size) or 0)
+      totalUsedSlots = totalUsedSlots + (tonumber(entry.usedSlots) or 0)
+      totalItems = totalItems + (tonumber(entry.totalItems) or 0)
+    end
+
+    if isFluidCapable(entry) then
+      fluids = fluids + 1
+    end
+
+    if entry.ok or (entry.error and entry.error ~= "no peripheral") then
+      table.insert(results, entry)
+    end
+  end)
+
+  sortEntries(results)
 
   return {
     kind = "router_base_map",
@@ -753,9 +837,12 @@ local function buildMap(config)
     boxSize = config.boxSize,
     sampleLimit = config.sampleLimit,
     includeOrigin = config.includeOrigin,
+    scanParallelism = math.max(1, math.floor(tonumber(MAP_SCAN_PARALLELISM) or 1)),
+    scanWorkers = workers,
     inspected = inspected,
     wrappable = wrappable,
     inventories = inventories,
+    fluids = fluids,
     totalSlots = totalSlots,
     totalUsedSlots = totalUsedSlots,
     totalItems = totalItems,
@@ -1286,8 +1373,10 @@ local function printReport(report)
   end
 
   print("Offsets checked: " .. report.inspected)
+  print("Scan workers: " .. tostring(report.scanWorkers or report.scanParallelism or 1))
   print("Wrappable: " .. report.wrappable)
   print("Inventories: " .. report.inventories)
+  print("Fluid-capable: " .. tostring(report.fluids or 0))
   print("Slots: " .. report.totalUsedSlots .. "/" .. report.totalSlots .. " used")
   print("Items: " .. report.totalItems)
 
