@@ -1,4 +1,5 @@
 local coords = require("lib.aircraft.coords")
+local actuators = require("lib.aircraft.actuators")
 local controller = require("lib.aircraft.controller")
 local displays = require("lib.aircraft.displays")
 local hud = require("lib.aircraft.hud")
@@ -48,23 +49,6 @@ local function clamp(value, minValue, maxValue)
   end
 
   return value
-end
-
-local function quantizeSignal(value, maxSignal, residuals, key)
-  local clamped = clamp(tonumber(value) or 0, 0, maxSignal)
-  local adjusted = clamped
-
-  if residuals and key then
-    adjusted = adjusted + (tonumber(residuals[key]) or 0)
-  end
-
-  local signal = clamp(math.floor(adjusted + 0.5), 0, maxSignal)
-
-  if residuals and key then
-    residuals[key] = adjusted - signal
-  end
-
-  return signal
 end
 
 local function wrapRadians(delta)
@@ -338,19 +322,6 @@ local function loadContext(config)
   return scan, router, routerName
 end
 
-local function wrapCoord(router, coord, label)
-  local ok, objectOrError = pcall(router.wrap, coord.x, coord.y, coord.z)
-  if not ok then
-    error(label .. " wrap error at " .. coords.label(coord) .. ": " .. tostring(objectOrError), 0)
-  end
-
-  if not objectOrError then
-    error(label .. " missing at " .. coords.label(coord), 0)
-  end
-
-  return objectOrError
-end
-
 local function tryGimbalAt(router, coord)
   local ok, objectOrError = pcall(router.wrap, coord.x, coord.y, coord.z)
   if not ok or not objectOrError then
@@ -477,32 +448,6 @@ local function wrapOptionalSensors(scan, router)
   )
 
   return sensors, errors
-end
-
-local function wrapScalarDevices(scan, router)
-  local mapped = scan.orientation
-      and scan.orientation.roles
-      and scan.orientation.roles.scalarActuator
-
-  if not mapped then
-    error("No scalar actuator role map in scan. Run aircraft scan first.", 0)
-  end
-
-  local devices = {}
-  for _, role in ipairs(ROLE_ORDER) do
-    local entry = mapped[role]
-    if not entry or not entry.coord then
-      error("Missing scalar role " .. role .. " in scan", 0)
-    end
-
-    devices[role] = {
-      role = role,
-      coord = copyPlain(entry.coord),
-      object = wrapCoord(router, entry.coord, role),
-    }
-  end
-
-  return devices
 end
 
 local function wrapOptionalRoleDevices(scan, router, family)
@@ -683,6 +628,7 @@ local function stabilizeConfig(config, options)
   local yaw = config.yaw or {}
   local display = config.display or {}
   local killSwitch = config.killSwitch or {}
+  local actuatorSettings = actuators.settings(config, options)
   local interval = tonumber(options.interval) or tonumber(defaults.interval) or 0.05
   local nixiesEnabled = display.stabilizeEnabled == true
   local killSwitchEnabled = killSwitch.enabled == true
@@ -712,8 +658,10 @@ local function stabilizeConfig(config, options)
     seconds = tonumber(options.seconds) or tonumber(defaults.seconds) or 1,
     interval = interval,
     basePower = tonumber(options.basePower) or tonumber(defaults.basePower) or 0,
-    maxSignal = tonumber(config.absoluteSignalMax) or 15,
-    brakeSignal = tonumber(config.brakeSignal) or tonumber(config.absoluteSignalMax) or 15,
+    maxPower = actuatorSettings.maxPower,
+    maxSignal = actuatorSettings.maxSignal or actuatorSettings.maxPower,
+    brakeSignal = actuatorSettings.brakeSignal or actuatorSettings.brakeRpm or 0,
+    actuator = actuatorSettings,
     axis1Kp = tonumber(options.axis1Kp) or tonumber(options.kp) or tonumber(defaults.axis1Kp) or 4,
     axis2Kp = tonumber(options.axis2Kp) or tonumber(options.kp) or tonumber(defaults.axis2Kp) or 4,
     axis1Kd = tonumber(options.axis1Kd) or tonumber(options.kd) or tonumber(defaults.axis1Kd) or 0.12,
@@ -1206,22 +1154,15 @@ local function mixerSignals(settings, state, control, signalResiduals)
   }
   local power, desaturation = desaturatePower(
     rawPower,
-    settings.maxSignal,
+    settings.maxPower,
     settings.desaturate,
     settings.desaturateHeadroom
   )
-  local signals = {}
-  local desiredSignals = {}
-
-  for role, value in pairs(power) do
-    desiredSignals[role] = clamp(settings.brakeSignal - value, 0, settings.maxSignal)
-    signals[role] = quantizeSignal(
-      desiredSignals[role],
-      settings.maxSignal,
-      settings.signalDither and signalResiduals or nil,
-      role
-    )
-  end
+  local actuatorFrame = actuators.outputsFromPower(
+    settings.actuator,
+    power,
+    settings.signalDither and signalResiduals or nil
+  )
 
   return {
     angle1 = currentTilt.axis1,
@@ -1269,41 +1210,12 @@ local function mixerSignals(settings, state, control, signalResiduals)
     control = copyPlain(control),
     power = power,
     desaturation = desaturation,
-    desiredSignals = desiredSignals,
-    signals = signals,
+    desiredSignals = actuatorFrame.desiredSignals,
+    signals = actuatorFrame.signals or actuatorFrame.outputs,
+    outputs = actuatorFrame.outputs,
+    displayValues = actuatorFrame.displayValues,
+    actuator = actuatorFrame,
   }
-end
-
-local function applySignals(devices, signals)
-  local results = {}
-  local tasks = {}
-
-  for _, role in ipairs(ROLE_ORDER) do
-    local roleName = role
-    table.insert(tasks, function()
-      results[roleName] = callSetter(devices[roleName].object, "setSignal", signals[roleName])
-    end)
-  end
-
-  parallel.waitForAll(unpack(tasks))
-
-  return results
-end
-
-local function brakeDevices(devices, signal)
-  local results = {}
-  local tasks = {}
-
-  for _, role in ipairs(ROLE_ORDER) do
-    local roleName = role
-    table.insert(tasks, function()
-      results[roleName] = callSetter(devices[roleName].object, "setSignal", signal)
-    end)
-  end
-
-  parallel.waitForAll(unpack(tasks))
-
-  return results
 end
 
 local function readRotorTelemetry(rotorDevices)
@@ -1693,6 +1605,9 @@ local function compactMixedFrame(mixed)
     desaturation = copyPlain(mixed.desaturation),
     desiredSignals = copyPlain(mixed.desiredSignals),
     signals = copyPlain(mixed.signals),
+    outputs = copyPlain(mixed.outputs),
+    displayValues = copyPlain(mixed.displayValues),
+    actuator = copyPlain(mixed.actuator),
   }
 end
 
@@ -1854,11 +1769,12 @@ end
 function flightControl.stabilize(config, options)
   local scan, router, routerName = loadContext(config)
   local gimbal = findGimbal(scan, router)
-  local devices = wrapScalarDevices(scan, router)
+  local settings = stabilizeConfig(config, options)
+  local actuatorContext = actuators.open(scan, router, settings.actuator)
+  actuators.assertReady(actuatorContext)
   local rotorDevices, rotorErrors = wrapOptionalRoleDevices(scan, router, "rotorBearing")
   local gyroDevices, gyroErrors = wrapManualGyroDevices(scan, router)
   local sensors, sensorErrors = wrapOptionalSensors(scan, router)
-  local settings = stabilizeConfig(config, options)
   local killSwitchRouter, killSwitchRouterName = nil, nil
   if settings.killSwitch
       and settings.killSwitch.enabled
@@ -1903,6 +1819,7 @@ function flightControl.stabilize(config, options)
     report.killSwitch.routerName = killSwitchRouterName
   end
   report.nixies = displays.describe(nixieContext)
+  report.actuators = actuators.describe(actuatorContext)
   report.rotorTelemetry = {
     errors = copyPlain(rotorErrors),
   }
@@ -2058,7 +1975,7 @@ function flightControl.stabilize(config, options)
         report.aborted = true
         report.abortReason = frame.abortReason
       elseif active then
-        frame.setResults = applySignals(devices, mixed.signals)
+        frame.setResults = actuators.apply(actuatorContext, mixed.outputs)
         frame.yawSetResults = applyYawTargets(gyroDevices, yawFrame, true)
       else
         frame.dryRun = true
@@ -2074,6 +1991,7 @@ function flightControl.stabilize(config, options)
       phaseStart = os.clock()
       if hud.shouldUpdate(hudContext, frame, forceDisplay) then
         frame.telemetry = readRotorTelemetry(rotorDevices)
+        frame.telemetry.actuators = actuators.readTelemetry(actuatorContext)
         frame.telemetry.sensors = readSensorTelemetry(sensors)
       end
       timing.phases.telemetry = os.clock() - phaseStart
@@ -2167,14 +2085,9 @@ function flightControl.stabilize(config, options)
 
   local ok, result = pcall(runWithControllerPump)
   if active and settings.brakeOnExit then
-    report.brakeOnExit = brakeDevices(devices, settings.brakeSignal)
+    report.brakeOnExit = actuators.brake(actuatorContext)
     if settings.nixiesEnabled then
-      report.nixieBrakeOnExit = displays.updateSignals(nixieContext, {
-        front_left = settings.brakeSignal,
-        front_right = settings.brakeSignal,
-        rear_left = settings.brakeSignal,
-        rear_right = settings.brakeSignal,
-      })
+      report.nixieBrakeOnExit = displays.updateSignals(nixieContext, actuators.brakeOutputs(settings.actuator))
     end
   end
 

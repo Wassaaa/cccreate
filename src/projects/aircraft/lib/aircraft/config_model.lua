@@ -7,6 +7,7 @@ local ROOT_ORDER = {
   "dryRun",
   "absoluteSignalMax",
   "brakeSignal",
+  "actuator",
   "maxAttitudeDelta",
   "statusReadLimit",
   "stabilize",
@@ -21,6 +22,21 @@ local ROOT_ORDER = {
 
 local ORDERS = {
   scan = { "xRadius", "yRadius", "zRadius", "sampleLimit", "errorLimit", "parallelism" },
+  actuator = { "type", "roleFamily", "maxPower", "redstoneSignal", "rotationSpeed" },
+  actuatorRedstoneSignal = { "roleFamily", "setter", "getter" },
+  actuatorRotationSpeed = {
+    "roleFamily",
+    "setter",
+    "getter",
+    "idleRpm",
+    "powerRpm",
+    "brakeRpm",
+    "minRpm",
+    "maxRpm",
+    "sign",
+    "round",
+    "maxPower",
+  },
   stabilize = {
     "interval",
     "seconds",
@@ -142,6 +158,9 @@ function configModel.normalize(config)
   set(result, "dryRun", config.dryRun)
   set(result, "absoluteSignalMax", config.absoluteSignalMax)
   set(result, "brakeSignal", config.brakeSignal)
+  result.actuator = pick(config.actuator, ORDERS.actuator)
+  result.actuator.redstoneSignal = pick(config.actuator and config.actuator.redstoneSignal, ORDERS.actuatorRedstoneSignal)
+  result.actuator.rotationSpeed = pick(config.actuator and config.actuator.rotationSpeed, ORDERS.actuatorRotationSpeed)
   set(result, "maxAttitudeDelta", config.maxAttitudeDelta)
   set(result, "statusReadLimit", config.statusReadLimit)
   result.stabilize = pick(config.stabilize, ORDERS.stabilize)
@@ -198,6 +217,10 @@ local function childPath(path, key)
     return "bindings"
   elseif path == "bindings" then
     return "binding"
+  elseif path == "actuator" and key == "redstoneSignal" then
+    return "actuator.redstoneSignal"
+  elseif path == "actuator" and key == "rotationSpeed" then
+    return "actuator.rotationSpeed"
   elseif path == "" then
     return key
   end

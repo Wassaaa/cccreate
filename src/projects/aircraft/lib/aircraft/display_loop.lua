@@ -1,4 +1,4 @@
-local coords = require("lib.aircraft.coords")
+local actuators = require("lib.aircraft.actuators")
 local displays = require("lib.aircraft.displays")
 local reporting = require("lib.aircraft.reporting")
 
@@ -97,93 +97,6 @@ local function loadScan(path)
   return report
 end
 
-local function wrapRole(router, scan, role)
-  local mapped = scan.orientation
-    and scan.orientation.roles
-    and scan.orientation.roles.scalarActuator
-    and scan.orientation.roles.scalarActuator[role]
-
-  if not mapped or not mapped.coord then
-    return nil, "missing scalar role"
-  end
-
-  local coord = mapped.coord
-  local ok, objectOrError = pcall(router.wrap, coord.x, coord.y, coord.z)
-
-  if not ok then
-    return nil, "wrap error: " .. tostring(objectOrError)
-  elseif not objectOrError then
-    return nil, "no peripheral at " .. coords.label(coord)
-  end
-
-  return {
-    coord = copyPlain(coord),
-    object = objectOrError,
-  }, nil
-end
-
-local function readSignal(device)
-  if type(device.object.getSignal) ~= "function" then
-    return nil, {
-      ok = false,
-      error = "missing getSignal",
-    }
-  end
-
-  local ok, valueOrError = pcall(device.object.getSignal)
-  if not ok then
-    return nil, {
-      ok = false,
-      error = tostring(valueOrError),
-    }
-  end
-
-  return tonumber(valueOrError), {
-    ok = true,
-    value = valueOrError,
-  }
-end
-
-local function wrapActuators(router, scan)
-  local devices = {}
-  local errors = {}
-
-  for _, role in ipairs(ROLE_ORDER) do
-    local device, errorMessage = wrapRole(router, scan, role)
-
-    if device then
-      devices[role] = device
-    else
-      errors[role] = errorMessage
-    end
-  end
-
-  return devices, errors
-end
-
-local function readSignals(devices)
-  local signals = {}
-  local reads = {}
-
-  for _, role in ipairs(ROLE_ORDER) do
-    local device = devices[role]
-
-    if device then
-      local signal, read = readSignal(device)
-      reads[role] = {
-        coord = copyPlain(device.coord),
-        signal = read,
-      }
-
-      if signal ~= nil then
-        signals[role] = signal
-      end
-    end
-  end
-
-  return signals, reads
-end
-
 local function signalLine(signals)
   local parts = {}
 
@@ -213,7 +126,8 @@ function displayLoop.run(config, options)
     error("No peripheral_router with wrap(x, y, z) found", 0)
   end
 
-  local actuatorDevices, actuatorErrors = wrapActuators(router, scan)
+  local actuatorSettings = actuators.settings(config, options)
+  local actuatorContext = actuators.open(scan, router, actuatorSettings)
   local displayContext = displays.collect(config, router, scan, options)
   local interval = tonumber(options.interval) or 0.5
   local seconds = tonumber(options.seconds)
@@ -230,16 +144,18 @@ function displayLoop.run(config, options)
     router = {
       name = routerName or (scan.router and scan.router.name),
     },
-    actuatorErrors = actuatorErrors,
+    actuators = actuators.describe(actuatorContext),
     displays = displays.describe(displayContext),
     frames = {},
   }
 
   repeat
-    local signals, reads = readSignals(actuatorDevices)
+    local signals, reads = actuators.readOutputs(actuatorContext)
     local frame = {
       index = #report.frames + 1,
       reads = reads,
+      outputLabel = actuatorSettings.outputLabel,
+      outputs = copyPlain(signals),
       signals = copyPlain(signals),
       displayResults = displays.updateSignals(displayContext, signals),
     }

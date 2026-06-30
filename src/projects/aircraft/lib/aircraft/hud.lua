@@ -272,7 +272,9 @@ local function telemetryNumber(telemetry, role, key)
 end
 
 local function roleText(role, mixed, telemetry)
-  local signal = mixed.signals and mixed.signals[role]
+  local actuator = mixed.actuator or {}
+  local outputLabel = actuator.outputLabel or "signal"
+  local output = mixed.outputs and mixed.outputs[role] or mixed.signals and mixed.signals[role]
   local power = mixed.power and mixed.power[role]
   local rotorThrust = telemetryNumber(telemetry, role, "rotorThrust")
   local handedness = telemetryValue(telemetry, role, "thrustHandedness")
@@ -292,7 +294,7 @@ local function roleText(role, mixed, telemetry)
   end
 
   return {
-    ROLE_LABELS[role] .. " sig " .. tostring(signal or "?"),
+    ROLE_LABELS[role] .. " " .. tostring(outputLabel) .. " " .. tostring(output or "?"),
     "pwr " .. powerText .. thrustText .. handText,
   }
 end
@@ -306,13 +308,14 @@ end
 
 local function drawCompact(target, frame, settings, active, status, width, height)
   local mixed = frame.mixed or {}
+  local outputLabel = mixed.actuator and mixed.actuator.outputLabel or "signal"
 
   writeLine(target, 1, "AIRCRAFT STABILIZE " .. status, width)
   writeLine(target, 2, timeText(frame, settings) .. " base " .. fixed(settings.basePower, 1), width)
   writeLine(target, 3, "err A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1) .. " deg", width)
   writeLine(target, 4, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
   writeLine(target, 5, "corr A1=" .. signed(mixed.correction1, 2) .. " A2=" .. signed(mixed.correction2, 2), width)
-  writeLine(target, 6, "signal " .. roleValues(mixed.signals), width)
+  writeLine(target, 6, tostring(outputLabel) .. " " .. roleValues(mixed.outputs or mixed.signals), width)
   writeLine(target, 7, "power  " .. roleValues(mixed.power, 1), width)
   if height and height >= 9 then
     writeLine(target, 8, timingText(frame, settings), width)

@@ -874,6 +874,12 @@ local function inferRoles(report)
   end)
   local scalarControls = roleCandidates(report, function(entry)
     return hasCategory(entry, "scalarActuator")
+      and not hasCategory(entry, "speedActuator")
+      and not hasCategory(entry, "rotorBearing")
+      and not hasCategory(entry, "displaySink")
+  end)
+  local speedControls = roleCandidates(report, function(entry)
+    return hasCategory(entry, "speedActuator")
       and not hasCategory(entry, "rotorBearing")
       and not hasCategory(entry, "displaySink")
   end)
@@ -888,11 +894,16 @@ local function inferRoles(report)
   end)
   local rotorRoles = assignRoles(rotors, orientation.frontVector, orientation.leftVector)
   local scalarRoles = assignRoles(scalarControls, orientation.frontVector, orientation.leftVector)
+  local speedRoles = assignRoles(speedControls, orientation.frontVector, orientation.leftVector)
 
   orientation.roles = {
     rotorBearing = rotorRoles,
     scalarActuator = scalarRoles,
-    displaySink = assignNearestDisplays(displays, hasAnyRole(rotorRoles) and rotorRoles or scalarRoles),
+    speedActuator = speedRoles,
+    displaySink = assignNearestDisplays(
+      displays,
+      hasAnyRole(rotorRoles) and rotorRoles or (hasAnyRole(scalarRoles) and scalarRoles or speedRoles)
+    ),
   }
   orientation.sensors = {
     navigationSensor = assignFirstSensor(navigationSensors),
@@ -901,6 +912,7 @@ local function inferRoles(report)
   orientation.roleCounts = {
     rotorBearing = #rotors,
     scalarActuator = #scalarControls,
+    speedActuator = #speedControls,
     displaySink = #displays,
     navigationSensor = #navigationSensors,
     altitudeSensor = #altitudeSensors,

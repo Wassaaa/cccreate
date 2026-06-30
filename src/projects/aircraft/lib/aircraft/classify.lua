@@ -5,6 +5,7 @@ local CATEGORY_ORDER = {
   "navigationSensor",
   "altitudeSensor",
   "scalarActuator",
+  "speedActuator",
   "vectorActuator",
   "rotorBearing",
   "kineticScada",
@@ -53,6 +54,8 @@ local SAMPLE_METHODS = {
   "getTargetSpeed",
   "getGeneratedSpeed",
   "getOutputSpeed",
+  "getRotationSpeed",
+  "getAngularSpeed",
   "getStress",
   "getStressCapacity",
   "getSelfId",
@@ -118,6 +121,8 @@ local SAMPLE_METHODS = {
   "getBurnTimeRemaining",
   "isBurning",
   "isActive",
+  "isAssembled",
+  "isWoodenTop",
   "isCustomThrustOutputActive",
 }
 
@@ -234,6 +239,20 @@ function classify.classifyMethods(methods)
         "getTransmissionMode",
       }) then
     add("scalarActuator", "scalar readout method is present")
+  end
+
+  if containsAny(methodSet, {
+        "setTargetSpeed",
+        "setGeneratedSpeed",
+        "setSpeed",
+      }) then
+    add("speedActuator", "target rotational speed setter is present")
+  elseif containsAny(methodSet, {
+        "getTargetSpeed",
+        "getGeneratedSpeed",
+        "getOutputSpeed",
+      }) then
+    add("speedActuator", "target rotational speed readout method is present")
   end
 
   if containsAny(methodSet, {

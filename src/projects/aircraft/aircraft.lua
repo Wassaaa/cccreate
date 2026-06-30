@@ -1,5 +1,6 @@
 local coords = require("lib.aircraft.coords")
 local actuatorTest = require("lib.aircraft.actuator_test")
+local actuators = require("lib.aircraft.actuators")
 local controller = require("lib.aircraft.controller")
 local configModel = require("lib.aircraft.config_model")
 local displayLoop = require("lib.aircraft.display_loop")
@@ -26,6 +27,26 @@ local DEFAULT_CONFIG = {
   dryRun = true,
   absoluteSignalMax = 15,
   brakeSignal = 15,
+  actuator = {
+    type = "redstone_signal",
+    redstoneSignal = {
+      roleFamily = "scalarActuator",
+      setter = "setSignal",
+      getter = "getSignal",
+    },
+    rotationSpeed = {
+      roleFamily = "speedActuator",
+      setter = "setTargetSpeed",
+      getter = "getTargetSpeed",
+      idleRpm = 0,
+      powerRpm = 256,
+      brakeRpm = 0,
+      minRpm = -256,
+      maxRpm = 256,
+      sign = 1,
+      round = true,
+    },
+  },
   maxAttitudeDelta = 2,
   statusReadLimit = 8,
   reportPath = "/aircraft_scan.txt",
@@ -103,6 +124,8 @@ local function usage()
   print("aircraft config scan-parallelism <workers>")
   print("aircraft config dry-run <true|false>")
   print("aircraft config max-signal <0-15>")
+  print("aircraft config actuator-type <redstone_signal|rotation_speed>")
+  print("aircraft config rotation-speed <powerRpm> [idleRpm] [sign] [brakeRpm] [minRpm] [maxRpm]")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
   print("aircraft config stabilize-interval <seconds>")
@@ -153,6 +176,7 @@ local function usage()
   print("  --yaw-deadband-deg <n> ignore smaller yaw rates")
   print("  --yaw-sign <-1|1>  invert yaw correction if needed")
   print("  --yaw-command <n>  Q/E yaw command strength before max-tilt clamp")
+  print("  --actuator-type <type> override actuator backend for this run")
   print("")
   print("signal/brake are dry-run unless --apply is used and config dryRun=false.")
 end
@@ -646,6 +670,17 @@ local function printConfig(config, source)
   print("  dryRun=" .. tostring(config.dryRun))
   print("  absoluteSignalMax=" .. tostring(config.absoluteSignalMax))
   print("  brakeSignal=" .. tostring(config.brakeSignal))
+  print("  actuator.type=" .. tostring(config.actuator and config.actuator.type))
+  print("  actuator.redstoneSignal.roleFamily=" .. tostring(config.actuator and config.actuator.redstoneSignal and config.actuator.redstoneSignal.roleFamily))
+  print("  actuator.rotationSpeed.roleFamily=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.roleFamily))
+  print("  actuator.rotationSpeed.setter=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.setter))
+  print("  actuator.rotationSpeed.getter=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.getter))
+  print("  actuator.rotationSpeed.idleRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.idleRpm))
+  print("  actuator.rotationSpeed.powerRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.powerRpm))
+  print("  actuator.rotationSpeed.brakeRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.brakeRpm))
+  print("  actuator.rotationSpeed.minRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.minRpm))
+  print("  actuator.rotationSpeed.maxRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.maxRpm))
+  print("  actuator.rotationSpeed.sign=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.sign))
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
   print("  stabilize.interval=" .. tostring(config.stabilize.interval))
   print("  stabilize.seconds=" .. tostring(config.stabilize.seconds))
@@ -774,6 +809,72 @@ local function runConfig()
     config.brakeSignal = signal
     saveConfig(config)
     print("Saved absoluteSignalMax=" .. tostring(signal) .. " and brakeSignal=" .. tostring(signal) .. " to " .. CONFIG_PATH)
+    return
+  elseif subcommand == "actuator-type" then
+    config.actuator = config.actuator or {}
+    config.actuator.type = actuators.normalizeType(args[3])
+    saveConfig(config)
+    print("Saved actuator.type=" .. tostring(config.actuator.type) .. " to " .. CONFIG_PATH)
+    if config.actuator.type == "rotation_speed" then
+      print("Next: place and wire four rotation speed controllers, run aircraft scan, then verify speedActuator roles.")
+    end
+    return
+  elseif subcommand == "rotation-speed" then
+    config.actuator = config.actuator or {}
+    config.actuator.rotationSpeed = config.actuator.rotationSpeed or {}
+
+    local rotationSpeed = config.actuator.rotationSpeed
+    rotationSpeed.roleFamily = rotationSpeed.roleFamily or "speedActuator"
+    rotationSpeed.setter = rotationSpeed.setter or "setTargetSpeed"
+    rotationSpeed.getter = rotationSpeed.getter or "getTargetSpeed"
+    rotationSpeed.powerRpm = math.abs(parseNumber(args[3], "powerRpm"))
+
+    if args[4] then
+      rotationSpeed.idleRpm = parseNumber(args[4], "idleRpm")
+    elseif rotationSpeed.idleRpm == nil then
+      rotationSpeed.idleRpm = 0
+    end
+
+    if args[5] then
+      rotationSpeed.sign = parseNumber(args[5], "sign") < 0 and -1 or 1
+    elseif rotationSpeed.sign == nil then
+      rotationSpeed.sign = 1
+    end
+
+    if args[6] then
+      rotationSpeed.brakeRpm = parseNumber(args[6], "brakeRpm")
+    elseif rotationSpeed.brakeRpm == nil then
+      rotationSpeed.brakeRpm = rotationSpeed.idleRpm or 0
+    end
+
+    if args[7] then
+      rotationSpeed.minRpm = parseNumber(args[7], "minRpm")
+    elseif rotationSpeed.minRpm == nil then
+      rotationSpeed.minRpm = -256
+    end
+
+    if args[8] then
+      rotationSpeed.maxRpm = parseNumber(args[8], "maxRpm")
+    elseif rotationSpeed.maxRpm == nil then
+      rotationSpeed.maxRpm = 256
+    end
+
+    if rotationSpeed.minRpm > rotationSpeed.maxRpm then
+      error("minRpm must be less than or equal to maxRpm", 0)
+    end
+
+    if rotationSpeed.round == nil then
+      rotationSpeed.round = true
+    end
+
+    saveConfig(config)
+    print("Saved rotation speed actuator settings to " .. CONFIG_PATH)
+    print("  powerRpm=" .. tostring(rotationSpeed.powerRpm))
+    print("  idleRpm=" .. tostring(rotationSpeed.idleRpm))
+    print("  sign=" .. tostring(rotationSpeed.sign))
+    print("  brakeRpm=" .. tostring(rotationSpeed.brakeRpm))
+    print("  minRpm=" .. tostring(rotationSpeed.minRpm))
+    print("  maxRpm=" .. tostring(rotationSpeed.maxRpm))
     return
   elseif subcommand == "stabilize-gains" then
     config.stabilize.axis1Kp = parseNumber(args[3], "axis1Kp")
@@ -1228,6 +1329,12 @@ local function parseCommandOptions(startIndex)
       if not options.controllerType then
         error("--controller-type needs a type", 0)
       end
+      i = i + 2
+    elseif arg == "--actuator-type" then
+      if not args[i + 1] then
+        error("--actuator-type needs a type", 0)
+      end
+      options.actuatorType = actuators.normalizeType(args[i + 1])
       i = i + 2
     elseif arg == "--yaw" then
       options.yaw = true

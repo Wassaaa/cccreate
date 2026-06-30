@@ -159,6 +159,19 @@ local function configSections(config)
   add(safety, config, "maxAttitudeDelta", "Abort limit in radians unless a run overrides it with --max-attitude-deg. 0.785 rad is about 45 degrees.", "aircraft config stabilize-limits <maxCorrection> <maxAttitudeDelta>")
   add(safety, config, "sendWebhook", "When true, aircraft commands send their report to the configured webhook after saving locally.")
 
+  local actuator = {}
+  add(actuator, config, "actuator.type", "Output backend used by stabilize: redstone_signal keeps the existing analog path; rotation_speed writes target RPM.", "aircraft config actuator-type rotation_speed")
+  add(actuator, config, "actuator.redstoneSignal.roleFamily", "Scan role family used by the redstone backend.")
+  add(actuator, config, "actuator.rotationSpeed.roleFamily", "Scan role family used by rotation-speed controllers.", nil)
+  add(actuator, config, "actuator.rotationSpeed.setter", "Setter used for speed actuators. Create Rotation Speed Controllers expose setTargetSpeed.")
+  add(actuator, config, "actuator.rotationSpeed.getter", "Getter used for speed actuator status. Create Rotation Speed Controllers expose getTargetSpeed.")
+  add(actuator, config, "actuator.rotationSpeed.idleRpm", "Target RPM at zero PD power demand.")
+  add(actuator, config, "actuator.rotationSpeed.powerRpm", "RPM added at full PD power demand before sign and clamping.", "aircraft config rotation-speed 256 0 1 0 -256 256")
+  add(actuator, config, "actuator.rotationSpeed.brakeRpm", "Target RPM written by brake-on-exit for the rotation_speed backend.")
+  add(actuator, config, "actuator.rotationSpeed.minRpm", "Minimum target RPM allowed by the rotation_speed backend.")
+  add(actuator, config, "actuator.rotationSpeed.maxRpm", "Maximum target RPM allowed by the rotation_speed backend.")
+  add(actuator, config, "actuator.rotationSpeed.sign", "Set to -1 if positive PD power needs negative RPM on this drivetrain.")
+
   local orientation = {}
   add(orientation, config, "frontAxis", "Manual aircraft-front axis. nil lets scan infer it from side peripherals near the computer.", "aircraft config axes +Z +X")
   add(orientation, config, "leftAxis", "Manual aircraft-left axis. This combines with frontAxis to map front_left/front_right/rear_left/rear_right.")
@@ -246,6 +259,7 @@ local function configSections(config)
 
   return {
     section("Safety and Output", safety),
+    section("Actuator Backend", actuator),
     section("Scan", scan),
     section("Orientation and Level", orientation),
     section("Stabilizer", stabilize, "axis1 is roll/A-D/left-right. axis2 is pitch/W-S/front-back."),
@@ -345,6 +359,7 @@ local function frameStats(report)
     controllerActiveFrames = 0,
     pressed = {},
     signalRanges = {},
+    outputRanges = {},
     powerRanges = {},
   }
 
@@ -395,6 +410,7 @@ local function frameStats(report)
 
     for _, role in ipairs(ROLE_ORDER) do
       updateRange(stats.signalRanges, role, mixed.signals and mixed.signals[role])
+      updateRange(stats.outputRanges, role, mixed.outputs and mixed.outputs[role])
       updateRange(stats.powerRanges, role, mixed.power and mixed.power[role])
     end
 
@@ -466,6 +482,8 @@ function reportTabs.flightOverviewTab(report)
   local request = report.request or {}
   local finalMixed = stats.final and stats.final.mixed or {}
   local finalYaw = stats.final and (stats.final.yaw or (stats.final.mixed and stats.final.mixed.yaw)) or {}
+  local actuatorSettings = report.actuators and report.actuators.settings or settings.actuator or {}
+  local outputLabel = actuatorSettings.outputLabel or "output"
   local recovery = report.recoverySummary or {}
   local recoveryTest = report.recoveryTest or {}
 
@@ -503,8 +521,12 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(stabilizerRows, "maxAttitudeDelta", degText(settings.maxAttitudeDelta), "Angle error abort threshold for this run.")
   addTextRow(stabilizerRows, "angleGetter", "getAnglesRad", "Gimbal getter used for pitch/roll attitude.")
   addTextRow(stabilizerRows, "rateGetter", "getAngularRatesRad", "Gimbal getter used for damping.")
-  addTextRow(stabilizerRows, "signalRanges", rangeText(stats.signalRanges), "Integer redstone signal ranges sent to the four transmissions.")
-  addTextRow(stabilizerRows, "powerRanges", rangeText(stats.powerRanges), "Mixed power demand ranges before inverted signal conversion.")
+  addTextRow(stabilizerRows, "actuator.type", actuatorSettings.type, "Actuator backend that received the mixed outputs.")
+  addTextRow(stabilizerRows, "actuator.roleFamily", actuatorSettings.roleFamily, "Scan role family used for actuator writes.")
+  addTextRow(stabilizerRows, "actuator.method", finalMixed.actuator and finalMixed.actuator.method or actuatorSettings.setter, "Setter selected for actuator writes.")
+  addTextRow(stabilizerRows, "outputRanges", rangeText(stats.outputRanges), "Applied " .. tostring(outputLabel) .. " ranges sent to the four actuator roles.")
+  addTextRow(stabilizerRows, "signalRanges", rangeText(stats.signalRanges), "Compatibility field: redstone signals, or backend outputs when not using redstone.")
+  addTextRow(stabilizerRows, "powerRanges", rangeText(stats.powerRanges), "Mixed power demand ranges before backend conversion.")
 
   local yawRows = {}
   addTextRow(yawRows, "yaw.enabled", settings.yaw and settings.yaw.enabled, "Whether yaw gyro damping was enabled for this run.")

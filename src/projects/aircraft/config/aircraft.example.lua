@@ -22,6 +22,29 @@ return {
   dryRun = true,
   absoluteSignalMax = 15,
   brakeSignal = 15,
+  actuator = {
+    -- redstone_signal keeps the current analog-transmission path.
+    -- rotation_speed maps the same PD power demand to target RPM and writes
+    -- setTargetSpeed on speedActuator role devices discovered by scan.
+    type = "redstone_signal",
+    redstoneSignal = {
+      roleFamily = "scalarActuator",
+      setter = "setSignal",
+      getter = "getSignal",
+    },
+    rotationSpeed = {
+      roleFamily = "speedActuator",
+      setter = "setTargetSpeed",
+      getter = "getTargetSpeed",
+      idleRpm = 0,
+      powerRpm = 256,
+      brakeRpm = 0,
+      minRpm = -256,
+      maxRpm = 256,
+      sign = 1,
+      round = true,
+    },
+  },
   maxAttitudeDelta = 2,
   statusReadLimit = 8,
   stabilize = {

@@ -1,4 +1,5 @@
 local coords = require("lib.aircraft.coords")
+local actuators = require("lib.aircraft.actuators")
 local displays = require("lib.aircraft.displays")
 local reporting = require("lib.aircraft.reporting")
 
@@ -122,7 +123,7 @@ local function selectedRoles(requestedRole)
     end
   end
 
-  error("Unknown scalar role: " .. tostring(requestedRole), 0)
+  error("Unknown actuator role: " .. tostring(requestedRole), 0)
 end
 
 local function readGetter(object, method)
@@ -416,14 +417,15 @@ end
 
 function actuatorTest.brake(config, options)
   local scan, router, routerName = loadContext(config)
-  local maxSignal = tonumber(config.absoluteSignalMax) or 15
-  local brakeSignal = tonumber(config.brakeSignal) or maxSignal
   local roles = selectedRoles(options.role or "all")
-  local signal = clamp(brakeSignal, 0, maxSignal)
+  local actuatorSettings = actuators.settings(config, options)
+  local actuatorContext = actuators.open(scan, router, actuatorSettings)
+  local outputs = actuators.brakeOutputs(actuatorSettings, roles)
   local report = makeBaseReport("aircraft_brake", config, scan, routerName)
   report.request = {
     role = options.role or "all",
-    signal = signal,
+    outputLabel = actuatorSettings.outputLabel,
+    outputs = copyPlain(outputs),
     apply = options.apply == true,
   }
 
@@ -434,42 +436,52 @@ function actuatorTest.brake(config, options)
   end
   local displayContext = displays.collect(config, router, scan, options)
   report.displays = displays.describe(displayContext)
+  report.actuators = actuators.describe(actuatorContext)
 
-  local devices = collectScalarDevices(router, scan, roles, report)
-  local setTasks = {}
+  local devices = {}
+  for _, role in ipairs(roles) do
+    local device = actuatorContext.devices[role]
+    if device then
+      table.insert(devices, device)
+    end
+  end
 
   for _, device in ipairs(devices) do
     local action = {
       role = device.role,
       coord = device.coord,
-      method = "setSignal",
-      signal = signal,
-      before = readScalarState(device),
+      method = device.setter,
+      output = outputs[device.role],
+      before = actuators.readDevice(device),
     }
 
-    if active then
-      local actionRef = action
-      local deviceRef = device
-      table.insert(setTasks, function()
-        actionRef.setResult = callSetter(deviceRef, "setSignal", signal)
-      end)
-    else
+    if not active then
       action.dryRun = true
     end
 
     table.insert(report.actions, action)
   end
 
+  for _, role in ipairs(roles) do
+    if not actuatorContext.devices[role] then
+      table.insert(report.errors, {
+        role = role,
+        error = actuatorContext.errors and actuatorContext.errors[role] or "missing actuator",
+      })
+    end
+  end
+
   if active then
-    if #setTasks > 0 then
-      parallel.waitForAll(unpack(setTasks))
+    report.setResults = actuators.apply(actuatorContext, outputs)
+
+    for _, action in ipairs(report.actions) do
+      local device = actuatorContext.devices[action.role]
+      if device then
+        action.after = actuators.readDevice(device)
+      end
     end
 
-    for index, device in ipairs(devices) do
-      report.actions[index].after = readScalarState(device)
-    end
-
-    report.displayAfter = displays.updateSignals(displayContext, actionSignals(report.actions, signal))
+    report.displayAfter = displays.updateSignals(displayContext, outputs)
   end
 
   local path = saveAndSend(config, report)
