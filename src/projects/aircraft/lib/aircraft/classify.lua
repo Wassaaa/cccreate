@@ -5,11 +5,27 @@ local CATEGORY_ORDER = {
   "scalarActuator",
   "vectorActuator",
   "rotorBearing",
+  "kineticScada",
   "displaySink",
   "statusSource",
 }
 
 classify.CATEGORY_ORDER = CATEGORY_ORDER
+
+local KINETIC_SCADA_METHODS = {
+  "getSelfId",
+  "getSourceId",
+  "getSubnetworkAnchorId",
+  "getNetworkId",
+  "getKind",
+  "getSpeed",
+  "hasSource",
+  "isOverstressed",
+  "getStressImpact",
+  "getStressContribution",
+}
+
+classify.KINETIC_SCADA_METHODS = KINETIC_SCADA_METHODS
 
 local SAMPLE_METHODS = {
   "getSignal",
@@ -28,8 +44,20 @@ local SAMPLE_METHODS = {
   "getRpm",
   "getRPM",
   "getSpeed",
+  "getTargetSpeed",
+  "getGeneratedSpeed",
+  "getOutputSpeed",
   "getStress",
   "getStressCapacity",
+  "getSelfId",
+  "getSourceId",
+  "getSubnetworkAnchorId",
+  "getNetworkId",
+  "getKind",
+  "hasSource",
+  "isOverstressed",
+  "getStressImpact",
+  "getStressContribution",
   "getPitch",
   "getRoll",
   "getPitchRate",
@@ -181,6 +209,10 @@ function classify.classifyMethods(methods)
         "getAngle",
       }) then
     add("rotorBearing", "propeller/bearing/airflow/angle methods")
+  end
+
+  if containsAny(methodSet, KINETIC_SCADA_METHODS) then
+    add("kineticScada", "Create Avionics kinetic SCADA methods")
   end
 
   if containsAny(methodSet, {

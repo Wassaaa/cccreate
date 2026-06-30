@@ -1,5 +1,6 @@
 local classify = require("lib.aircraft.classify")
 local coords = require("lib.aircraft.coords")
+local kineticScada = require("lib.aircraft.kinetic_scada")
 local reporting = require("lib.aircraft.reporting")
 
 local status = {}
@@ -383,6 +384,42 @@ local function printFamily(router, report, index, family, limit)
   end
 end
 
+local function printKineticScada(scada)
+  local summary = scada and scada.summary
+  if not summary or (summary.nodes or 0) == 0 then
+    print("kineticScada: none")
+    return
+  end
+
+  print(
+    "kineticScada: nodes="
+      .. tostring(summary.nodes or 0)
+      .. " networks="
+      .. tostring(summary.networks or 0)
+      .. " subnetworks="
+      .. tostring(summary.subnetworks or 0)
+      .. " edges="
+      .. tostring(summary.edges or 0)
+      .. "/"
+      .. tostring(summary.resolvedEdges or 0)
+      .. " resolved"
+  )
+  print(
+    "  drivers="
+      .. tostring(summary.drivers or 0)
+      .. " consumers="
+      .. tostring(summary.consumers or 0)
+      .. " generators="
+      .. tostring(summary.generators or 0)
+      .. " leaves="
+      .. tostring(summary.leaves or 0)
+      .. " unnetworked="
+      .. tostring(summary.unnetworked or 0)
+      .. " warnings="
+      .. tostring(summary.warnings or 0)
+  )
+end
+
 function status.run(config)
   local report = status.collect(config)
   local path = "/aircraft_status.txt"
@@ -399,12 +436,15 @@ function status.run(config)
   for _, family in ipairs(FAMILY_ORDER) do
     print(family .. ": " .. tostring(report.summary[family] or 0))
   end
+
+  printKineticScada(report.kineticScada)
 end
 
 function status.collect(config)
   local scanPath = config.reportPath or "/aircraft_scan.txt"
   local scan = loadScan(scanPath)
   local router, routerName = findRouter()
+  local scada = scan.kineticScada or kineticScada.build(scan)
 
   if not router then
     error("No peripheral_router with wrap(x, y, z) found", 0)
@@ -425,10 +465,12 @@ function status.collect(config)
       orientation = copyPlain(scan.orientation),
       summary = copyPlain(scan.summary),
     },
+    kineticScada = copyPlain(scada),
     sideSensors = readSideSensors(router, scan, index, limit),
     families = {},
     summary = {
       sideSensors = 0,
+      kineticScada = copyPlain(scada and scada.summary),
     },
   }
 

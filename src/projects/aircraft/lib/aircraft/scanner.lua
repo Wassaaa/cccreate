@@ -1,5 +1,6 @@
 local classify = require("lib.aircraft.classify")
 local coords = require("lib.aircraft.coords")
+local kineticScada = require("lib.aircraft.kinetic_scada")
 
 local scanner = {}
 
@@ -169,6 +170,92 @@ local function sampleGetters(object, methods, limit)
   return samples
 end
 
+local KINETIC_FIELD_BY_METHOD = {
+  getSelfId = "selfId",
+  getSourceId = "sourceId",
+  getSubnetworkAnchorId = "subnetworkAnchorId",
+  getNetworkId = "networkId",
+  getKind = "kind",
+  getSpeed = "speed",
+  hasSource = "hasSource",
+  isOverstressed = "isOverstressed",
+  getStressImpact = "stressImpact",
+  getStressContribution = "stressContribution",
+}
+
+local function toSet(values)
+  local set = {}
+
+  for _, value in ipairs(values or {}) do
+    set[value] = true
+  end
+
+  return set
+end
+
+local function safeSingleGetter(object, method)
+  if type(object[method]) ~= "function" then
+    return {
+      ok = false,
+      error = "missing method",
+    }
+  end
+
+  local values = { pcall(object[method]) }
+  local ok = table.remove(values, 1)
+
+  if not ok then
+    return {
+      ok = false,
+      error = tostring(values[1]),
+    }
+  end
+
+  return {
+    ok = true,
+    value = sanitize(values[1]),
+  }
+end
+
+local function readKineticScada(object, methods)
+  local methodSet = toSet(methods)
+  local found = false
+  local result = {
+    readErrors = {},
+    nilFields = {},
+  }
+
+  for _, method in ipairs(classify.KINETIC_SCADA_METHODS or {}) do
+    if methodSet[method] then
+      found = true
+      local field = KINETIC_FIELD_BY_METHOD[method]
+      local read = safeSingleGetter(object, method)
+
+      if read.ok then
+        result[field] = read.value
+        if read.value == nil then
+          result.nilFields[field] = true
+        end
+      else
+        result.readErrors[field] = read.error
+      end
+    end
+  end
+
+  if not found then
+    return nil
+  end
+
+  if not next(result.readErrors) then
+    result.readErrors = nil
+  end
+  if not next(result.nilFields) then
+    result.nilFields = nil
+  end
+
+  return result
+end
+
 local function safePeripheralTypes(name)
   local values = { pcall(peripheral.getType, name) }
   local ok = table.remove(values, 1)
@@ -329,6 +416,7 @@ local function makeEntry(object, x, y, z, config)
     methodCount = #methods,
     methodKey = methodKey(methods),
     methods = methods,
+    kineticScada = readKineticScada(object, methods),
     samples = sampleGetters(object, methods, config.scan.sampleLimit),
   }
 end
@@ -792,6 +880,7 @@ function scanner.scan(config)
   end)
 
   inferOrientation(report)
+  report.kineticScada = kineticScada.build(report)
 
   for _, entry in ipairs(report.peripherals) do
     entry.methodKey = nil

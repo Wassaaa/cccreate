@@ -327,6 +327,51 @@ local function parseOptions(config)
   end
 end
 
+local function printKineticScadaSummary(scada)
+  local summary = scada and scada.summary
+  if not summary or (summary.nodes or 0) == 0 then
+    print("Kinetic SCADA: none")
+    return
+  end
+
+  print(
+    "Kinetic SCADA: nodes="
+      .. tostring(summary.nodes or 0)
+      .. " networks="
+      .. tostring(summary.networks or 0)
+      .. " subnetworks="
+      .. tostring(summary.subnetworks or 0)
+      .. " edges="
+      .. tostring(summary.edges or 0)
+      .. "/"
+      .. tostring(summary.resolvedEdges or 0)
+      .. " resolved"
+  )
+  print(
+    "  drivers="
+      .. tostring(summary.drivers or 0)
+      .. " consumers="
+      .. tostring(summary.consumers or 0)
+      .. " generators="
+      .. tostring(summary.generators or 0)
+      .. " leaves="
+      .. tostring(summary.leaves or 0)
+      .. " unnetworked="
+      .. tostring(summary.unnetworked or 0)
+      .. " warnings="
+      .. tostring(summary.warnings or 0)
+  )
+
+  if (summary.missingSourceIds or 0) > 0 or (summary.missingAnchorIds or 0) > 0 then
+    print(
+      "  missing sources="
+        .. tostring(summary.missingSourceIds or 0)
+        .. " anchors="
+        .. tostring(summary.missingAnchorIds or 0)
+    )
+  end
+end
+
 local function printSummary(report, path)
   print("Aircraft scan complete")
   if report.error then
@@ -362,6 +407,8 @@ local function printSummary(report, path)
       )
     end
   end
+
+  printKineticScadaSummary(report.kineticScada)
 
   if report.orientation then
     print("Orientation:")
