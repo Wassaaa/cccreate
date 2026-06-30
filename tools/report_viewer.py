@@ -439,6 +439,12 @@ HTML = r"""<!doctype html>
       border-color: #abc7d6;
     }
 
+    .map-cell.inferred {
+      background: #f4f0e7;
+      border-color: #c9b98d;
+      border-style: dashed;
+    }
+
     .map-cell.wrappable,
     .map-cell.terminal,
     .map-cell.modem,
@@ -1303,11 +1309,12 @@ HTML = r"""<!doctype html>
 
     function primaryMapKind(entry, scadaNode) {
       const categories = asArray(entry?.categories);
+      const hasScada = scadaNode && Object.keys(scadaNode).length > 0;
       if (categories.includes("attitudeSensor")) return "attitude";
       if (categories.includes("rotorBearing")) return "rotor";
       if (categories.includes("scalarActuator")) return "scalar";
       if (categories.includes("displaySink")) return "display";
-      if (categories.includes("kineticScada") || scadaNode) return "kinetic";
+      if (categories.includes("kineticScada") || hasScada) return "kinetic";
       return entry?.kind || (entry?.inventory ? "inventory" : "wrappable");
     }
 
@@ -1321,6 +1328,78 @@ HTML = r"""<!doctype html>
       }
 
       return byCoord;
+    }
+
+    function decodeScadaBlockPos(id) {
+      const text = String(id || "").trim();
+      if (!/^[0-9a-fA-F]{16}$/.test(text)) return null;
+
+      try {
+        const packed = BigInt(`0x${text}`);
+        const mask26 = (1n << 26n) - 1n;
+        const mask12 = (1n << 12n) - 1n;
+        return {
+          x: Number(BigInt.asIntN(26, (packed >> 38n) & mask26)),
+          y: Number(BigInt.asIntN(12, packed & mask12)),
+          z: Number(BigInt.asIntN(26, (packed >> 12n) & mask26))
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    function offsetKey(offset) {
+      return `${offset.x},${offset.y},${offset.z}`;
+    }
+
+    function inferScadaFrame(report) {
+      const candidates = {};
+      const nodes = report?.kineticScada?.nodes || {};
+
+      for (const [id, node] of Object.entries(nodes)) {
+        if (!hasFiniteCoord(node?.coord)) continue;
+        const world = decodeScadaBlockPos(node.id || id);
+        if (!world) continue;
+
+        const offset = {
+          x: world.x - Number(node.coord.x),
+          y: world.y - Number(node.coord.y),
+          z: world.z - Number(node.coord.z)
+        };
+        const key = offsetKey(offset);
+
+        if (!candidates[key]) {
+          candidates[key] = {
+            offset,
+            count: 0,
+            examples: []
+          };
+        }
+
+        candidates[key].count += 1;
+        if (candidates[key].examples.length < 5) candidates[key].examples.push(node.id || id);
+      }
+
+      let best = null;
+      for (const candidate of Object.values(candidates)) {
+        if (!best || candidate.count > best.count) best = candidate;
+      }
+
+      if (!best) return null;
+
+      return {
+        ...best,
+        candidateCount: Object.keys(candidates).length
+      };
+    }
+
+    function worldToRelative(world, frame) {
+      if (!world || !frame?.offset) return null;
+      return {
+        x: world.x - frame.offset.x,
+        y: world.y - frame.offset.y,
+        z: world.z - frame.offset.z
+      };
     }
 
     function aircraftRolesByCoord(report) {
@@ -1418,6 +1497,62 @@ HTML = r"""<!doctype html>
       };
     }
 
+    function normalizeMissingScadaId(report, id, entry, kind, frame) {
+      const world = decodeScadaBlockPos(id);
+      const rel = worldToRelative(world, frame);
+      if (!hasFiniteCoord(rel)) return null;
+
+      const referencedBy = asArray(entry?.referencedBy);
+      const firstRef = referencedBy[0];
+      const refNode = firstRef && report?.kineticScada?.nodes && report.kineticScada.nodes[firstRef];
+
+      return {
+        x: Number(rel.x),
+        y: Number(rel.y),
+        z: Number(rel.z),
+        label: `${rel.x},${rel.y},${rel.z}`,
+        displayName: `${kind} ${shortId(id)}`,
+        kind,
+        mapKind: "inferred",
+        mapSource: "inferred_scada_id",
+        inferred: true,
+        inferredWorld: world,
+        categories: ["inferredScada"],
+        roles: [],
+        methods: [],
+        methodCount: "",
+        networkId: refNode?.networkId,
+        subnetworkAnchorId: refNode?.subnetworkAnchorId,
+        sourceId: kind === "missing_source" ? id : undefined,
+        scadaKind: "inferred",
+        isOverstressed: false,
+        hasMissingSource: true,
+        isLeaf: false,
+        isDriver: false,
+        referencedBy
+      };
+    }
+
+    function inferredMissingEntries(report, frame) {
+      if (!frame) return [];
+
+      const entries = [];
+      const missingSources = report?.kineticScada?.missingSourceIds || {};
+      const missingAnchors = report?.kineticScada?.missingAnchorIds || {};
+
+      for (const [id, entry] of Object.entries(missingSources)) {
+        const normalized = normalizeMissingScadaId(report, id, entry, "missing_source", frame);
+        if (normalized) entries.push(normalized);
+      }
+
+      for (const [id, entry] of Object.entries(missingAnchors)) {
+        const normalized = normalizeMissingScadaId(report, id, entry, "missing_anchor", frame);
+        if (normalized) entries.push(normalized);
+      }
+
+      return entries;
+    }
+
     function mergeMapEntry(existing, entry) {
       existing.displayName = existing.displayName || entry.displayName;
       existing.kind = existing.kind || entry.kind;
@@ -1435,6 +1570,9 @@ HTML = r"""<!doctype html>
       existing.hasMissingSource = existing.hasMissingSource || entry.hasMissingSource;
       existing.isLeaf = existing.isLeaf || entry.isLeaf;
       existing.isDriver = existing.isDriver || entry.isDriver;
+      existing.inferred = existing.inferred || entry.inferred;
+      existing.inferredWorld = existing.inferredWorld || entry.inferredWorld;
+      existing.referencedBy = uniqueStrings([...(existing.referencedBy || []), ...(entry.referencedBy || [])]);
       existing.extraCount = (existing.extraCount || 1) + 1;
       return existing;
     }
@@ -1444,6 +1582,7 @@ HTML = r"""<!doctype html>
       const usedScadaCoords = new Set();
       const scadaByCoord = scadaNodesByCoord(report);
       const rolesByCoord = aircraftRolesByCoord(report);
+      const frame = inferScadaFrame(report);
 
       function addEntry(entry) {
         if (!hasFiniteCoord(entry)) return;
@@ -1471,6 +1610,10 @@ HTML = r"""<!doctype html>
         if (!usedScadaCoords.has(key)) addEntry(normalizeScadaNode(node, rolesByCoord));
       }
 
+      for (const entry of inferredMissingEntries(report, frame)) {
+        addEntry(entry);
+      }
+
       return Object.values(byCoord).sort((left, right) =>
         left.y - right.y || left.z - right.z || left.x - right.x
       );
@@ -1487,6 +1630,24 @@ HTML = r"""<!doctype html>
     }
 
     function routerBounds(report, entries) {
+      function boundsFrom(minX, maxX, minY, maxY, minZ, maxZ) {
+        for (const entry of entries || []) {
+          if (!hasFiniteCoord(entry)) continue;
+          minX = Math.min(minX, Number(entry.x));
+          maxX = Math.max(maxX, Number(entry.x));
+          minY = Math.min(minY, Number(entry.y));
+          maxY = Math.max(maxY, Number(entry.y));
+          minZ = Math.min(minZ, Number(entry.z));
+          maxZ = Math.max(maxZ, Number(entry.z));
+        }
+
+        return {
+          xs: range(minX, maxX),
+          ys: range(minY, maxY),
+          zs: range(minZ, maxZ)
+        };
+      }
+
       const scanBounds = report.scanBounds || report.mapBounds;
       if (
         Number.isFinite(Number(scanBounds?.xMin)) &&
@@ -1496,11 +1657,14 @@ HTML = r"""<!doctype html>
         Number.isFinite(Number(scanBounds?.zMin)) &&
         Number.isFinite(Number(scanBounds?.zMax))
       ) {
-        return {
-          xs: range(Number(scanBounds.xMin), Number(scanBounds.xMax)),
-          ys: range(Number(scanBounds.yMin), Number(scanBounds.yMax)),
-          zs: range(Number(scanBounds.zMin), Number(scanBounds.zMax))
-        };
+        return boundsFrom(
+          Number(scanBounds.xMin),
+          Number(scanBounds.xMax),
+          Number(scanBounds.yMin),
+          Number(scanBounds.yMax),
+          Number(scanBounds.zMin),
+          Number(scanBounds.zMax)
+        );
       }
 
       if (
@@ -1532,11 +1696,7 @@ HTML = r"""<!doctype html>
       const xs = entries.map((entry) => Number(entry.x));
       const ys = entries.map((entry) => Number(entry.y));
       const zs = entries.map((entry) => Number(entry.z));
-      return {
-        xs: range(Math.min(...xs), Math.max(...xs)),
-        ys: range(Math.min(...ys), Math.max(...ys)),
-        zs: range(Math.min(...zs), Math.max(...zs))
-      };
+      return boundsFrom(Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys), Math.min(...zs), Math.max(...zs));
     }
 
     function entryKey(x, y, z) {
@@ -1588,6 +1748,8 @@ HTML = r"""<!doctype html>
       if (categories.length) parts.push(categories.join(", "));
       if (entry.scadaKind) parts.push(`kind=${entry.scadaKind}`);
       if (entry.sourceId) parts.push(`src=${shortId(entry.sourceId)}`);
+      if (entry.inferred) parts.push(`inferred world=${entry.inferredWorld ? `${entry.inferredWorld.x},${entry.inferredWorld.y},${entry.inferredWorld.z}` : "?"}`);
+      if (asArray(entry.referencedBy).length) parts.push(`referenced by ${asArray(entry.referencedBy).map(shortId).join(", ")}`);
       if (entry.isDriver) parts.push("driver");
       if (entry.isLeaf) parts.push("leaf");
       if (entry.isOverstressed) parts.push("overstressed");
@@ -1820,6 +1982,8 @@ HTML = r"""<!doctype html>
       const drivers = entries.filter((entry) => entry.isDriver || asArray(entry.categories).includes("scalarActuator")).length;
       const consumers = entries.filter((entry) => asArray(entry.categories).includes("rotorBearing") || entry.scadaKind === "consumer").length;
       const warnings = entries.filter((entry) => entry.isOverstressed || entry.hasMissingSource).length;
+      const inferred = entries.filter((entry) => entry.inferred).length;
+      const frame = inferScadaFrame(report);
       const metrics = `
         <div class="map-controls">
           <span class="pill">${escapeHtml(report.width || bounds.xs.length)}x${escapeHtml(report.height || bounds.ys.length)}x${escapeHtml(report.depth || bounds.zs.length)}</span>
@@ -1827,7 +1991,9 @@ HTML = r"""<!doctype html>
           <span class="pill">${escapeHtml(networks.length)} networks</span>
           <span class="pill">${escapeHtml(drivers)} drivers</span>
           <span class="pill">${escapeHtml(consumers)} consumers/rotors</span>
+          ${inferred ? `<span class="pill warn-text">${escapeHtml(inferred)} inferred missing</span>` : ""}
           ${warnings ? `<span class="pill warn-text">${escapeHtml(warnings)} warnings</span>` : ""}
+          ${frame ? `<span class="pill">SCADA offset ${escapeHtml(frame.offset.x)},${escapeHtml(frame.offset.y)},${escapeHtml(frame.offset.z)} from ${escapeHtml(frame.count)} ids</span>` : ""}
           <span class="pill">router ${escapeHtml(routerLabel(report))}</span>
         </div>
       `;
@@ -1836,7 +2002,7 @@ HTML = r"""<!doctype html>
         <section class="block">
           <h2>Coordinate Map</h2>
           ${metrics}
-          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks.</div>
+          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks. Dashed cells are inferred from decoded SCADA IDs, not confirmed peripherals.</div>
           ${layers.map((y) => routerMapLayer(y, bounds, byCoord)).join("")}
         </section>
         <section class="block">
