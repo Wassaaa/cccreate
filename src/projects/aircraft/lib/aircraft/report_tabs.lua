@@ -171,6 +171,8 @@ local function configSections(config)
   add(actuator, config, "actuator.rotationSpeed.minRpm", "Minimum target RPM allowed by the rotation_speed backend.")
   add(actuator, config, "actuator.rotationSpeed.maxRpm", "Maximum target RPM allowed by the rotation_speed backend.")
   add(actuator, config, "actuator.rotationSpeed.sign", "Set to -1 if positive PD power needs negative RPM on this drivetrain.")
+  add(actuator, config, "actuator.rotationSpeed.autoRoleSigns", "When true, infer per-role RPM polarity from speed-controller to rotor-bearing geometry in the scan.", "aircraft config rotation-speed-signs auto")
+  add(actuator, config, "actuator.rotationSpeed.roleSigns", "Manual per-role polarity override. Values multiply actuator.rotationSpeed.sign.", "aircraft config rotation-speed-signs 1 1 -1 -1")
 
   local orientation = {}
   add(orientation, config, "frontAxis", "Manual aircraft-front axis. nil lets scan infer it from side peripherals near the computer.", "aircraft config axes +Z +X")

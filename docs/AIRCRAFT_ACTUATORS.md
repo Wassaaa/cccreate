@@ -23,6 +23,8 @@ actuator = {
     minRpm = -256,
     maxRpm = 256,
     sign = 1,
+    autoRoleSigns = true,
+    roleSigns = nil,
     round = true,
   },
 }
@@ -31,10 +33,10 @@ actuator = {
 For rotation speed control, target RPM is:
 
 ```text
-idleRpm + sign * powerRpm * clamp(power / maxPower, 0, 1)
+idleRpm + sign * roleSign * powerRpm * clamp(power / maxPower, 0, 1)
 ```
 
-The result is clamped to `minRpm..maxRpm` and rounded by default because the Create controller API expects integer RPM.
+The result is clamped to `minRpm..maxRpm` and rounded by default because the Create controller API expects integer RPM. `roleSign` defaults to scan-derived controller-to-rotor geometry when `autoRoleSigns=true`; use `aircraft config rotation-speed-signs 1 1 -1 -1` for an explicit override.
 
 ## Migration Flow
 
@@ -49,6 +51,7 @@ When ready:
 ```text
 aircraft config actuator-type rotation_speed
 aircraft config rotation-speed 256 0 1 0 -256 256
+aircraft config rotation-speed-signs auto
 aircraft scan
 aircraft status
 aircraft stabilize --seconds 1

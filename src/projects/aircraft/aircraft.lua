@@ -44,6 +44,8 @@ local DEFAULT_CONFIG = {
       minRpm = -256,
       maxRpm = 256,
       sign = 1,
+      autoRoleSigns = true,
+      roleSigns = nil,
       round = true,
     },
   },
@@ -126,6 +128,7 @@ local function usage()
   print("aircraft config max-signal <0-15>")
   print("aircraft config actuator-type <redstone_signal|rotation_speed>")
   print("aircraft config rotation-speed <powerRpm> [idleRpm] [sign] [brakeRpm] [minRpm] [maxRpm]")
+  print("aircraft config rotation-speed-signs <auto|fl fr rl rr>")
   print("aircraft config stabilize-gains <axis1Kp> <axis1Kd> [axis2Kp] [axis2Kd]")
   print("aircraft config stabilize-trim <axis1Power> <axis2Power>")
   print("aircraft config stabilize-interval <seconds>")
@@ -657,6 +660,21 @@ local function bindingText(binding)
     .. tostring(binding.side)
 end
 
+local function roleSignsText(roleSigns)
+  if type(roleSigns) ~= "table" then
+    return "nil"
+  end
+
+  return "fl="
+    .. tostring(roleSigns.front_left)
+    .. " fr="
+    .. tostring(roleSigns.front_right)
+    .. " rl="
+    .. tostring(roleSigns.rear_left)
+    .. " rr="
+    .. tostring(roleSigns.rear_right)
+end
+
 local function printConfig(config, source)
   print("aircraft config from " .. tostring(source))
   print("  scan.xRadius=" .. tostring(config.scan and config.scan.xRadius))
@@ -681,6 +699,8 @@ local function printConfig(config, source)
   print("  actuator.rotationSpeed.minRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.minRpm))
   print("  actuator.rotationSpeed.maxRpm=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.maxRpm))
   print("  actuator.rotationSpeed.sign=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.sign))
+  print("  actuator.rotationSpeed.autoRoleSigns=" .. tostring(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.autoRoleSigns))
+  print("  actuator.rotationSpeed.roleSigns=" .. roleSignsText(config.actuator and config.actuator.rotationSpeed and config.actuator.rotationSpeed.roleSigns))
   print("  maxAttitudeDelta=" .. tostring(config.maxAttitudeDelta))
   print("  stabilize.interval=" .. tostring(config.stabilize.interval))
   print("  stabilize.seconds=" .. tostring(config.stabilize.seconds))
@@ -875,6 +895,34 @@ local function runConfig()
     print("  brakeRpm=" .. tostring(rotationSpeed.brakeRpm))
     print("  minRpm=" .. tostring(rotationSpeed.minRpm))
     print("  maxRpm=" .. tostring(rotationSpeed.maxRpm))
+    return
+  elseif subcommand == "rotation-speed-signs" then
+    config.actuator = config.actuator or {}
+    config.actuator.rotationSpeed = config.actuator.rotationSpeed or {}
+
+    local rotationSpeed = config.actuator.rotationSpeed
+    local mode = string.lower(tostring(args[3] or "auto"))
+
+    if mode == "auto" then
+      rotationSpeed.autoRoleSigns = true
+      rotationSpeed.roleSigns = nil
+      saveConfig(config)
+      print("Saved rotation speed role signs: auto")
+      print("Next: run aircraft scan so controller-to-rotor geometry is fresh.")
+      return
+    end
+
+    rotationSpeed.autoRoleSigns = false
+    rotationSpeed.roleSigns = {
+      front_left = parseNumber(args[3], "front_left sign") < 0 and -1 or 1,
+      front_right = parseNumber(args[4], "front_right sign") < 0 and -1 or 1,
+      rear_left = parseNumber(args[5], "rear_left sign") < 0 and -1 or 1,
+      rear_right = parseNumber(args[6], "rear_right sign") < 0 and -1 or 1,
+    }
+
+    saveConfig(config)
+    print("Saved rotation speed role signs to " .. CONFIG_PATH)
+    print("  " .. roleSignsText(rotationSpeed.roleSigns))
     return
   elseif subcommand == "stabilize-gains" then
     config.stabilize.axis1Kp = parseNumber(args[3], "axis1Kp")

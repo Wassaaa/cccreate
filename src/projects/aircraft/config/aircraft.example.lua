@@ -42,6 +42,11 @@ return {
       minRpm = -256,
       maxRpm = 256,
       sign = 1,
+      -- Auto role signs infer per-corner RPM polarity from speed-controller
+      -- and rotor-bearing geometry in the scan. Override with roleSigns if a
+      -- drivetrain has an extra gear reversal.
+      autoRoleSigns = true,
+      roleSigns = nil,
       round = true,
     },
   },

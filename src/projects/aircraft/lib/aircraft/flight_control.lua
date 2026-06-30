@@ -1771,6 +1771,7 @@ function flightControl.stabilize(config, options)
   local gimbal = findGimbal(scan, router)
   local settings = stabilizeConfig(config, options)
   local actuatorContext = actuators.open(scan, router, settings.actuator)
+  settings.actuator = actuatorContext.settings
   actuators.assertReady(actuatorContext)
   local rotorDevices, rotorErrors = wrapOptionalRoleDevices(scan, router, "rotorBearing")
   local gyroDevices, gyroErrors = wrapManualGyroDevices(scan, router)

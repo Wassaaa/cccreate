@@ -103,6 +103,92 @@ local function signValue(value)
   return 1
 end
 
+local function roleSignsFromConfig(value)
+  if type(value) ~= "table" then
+    return nil
+  end
+
+  local result = {}
+  local any = false
+  for _, role in ipairs(ROLE_ORDER) do
+    if value[role] ~= nil then
+      result[role] = signValue(value[role])
+      any = true
+    end
+  end
+
+  return any and result or nil
+end
+
+local function dot(left, right)
+  return (tonumber(left and left.x) or 0) * (tonumber(right and right.x) or 0)
+    + (tonumber(left and left.y) or 0) * (tonumber(right and right.y) or 0)
+    + (tonumber(left and left.z) or 0) * (tonumber(right and right.z) or 0)
+end
+
+local function coordDelta(toCoord, fromCoord)
+  if type(toCoord) ~= "table" or type(fromCoord) ~= "table" then
+    return nil
+  end
+
+  return {
+    x = (tonumber(toCoord.x) or 0) - (tonumber(fromCoord.x) or 0),
+    y = (tonumber(toCoord.y) or 0) - (tonumber(fromCoord.y) or 0),
+    z = (tonumber(toCoord.z) or 0) - (tonumber(fromCoord.z) or 0),
+  }
+end
+
+local function inferRotationSpeedRoleSigns(scan, roleFamily)
+  local orientation = scan and scan.orientation
+  local roles = orientation and orientation.roles
+  local speedRoles = roles and roles[roleFamily or "speedActuator"]
+  local rotorRoles = roles and roles.rotorBearing
+  local front = orientation and orientation.frontVector
+  local left = orientation and orientation.leftVector
+  local signs = {}
+  local sources = {}
+  local any = false
+
+  if not speedRoles or not rotorRoles or not front or not left then
+    return nil, nil
+  end
+
+  for _, role in ipairs(ROLE_ORDER) do
+    local speedCoord = speedRoles[role] and speedRoles[role].coord
+    local rotorCoord = rotorRoles[role] and rotorRoles[role].coord
+    local delta = coordDelta(rotorCoord, speedCoord)
+
+    if delta then
+      local frontOffset = dot(delta, front)
+      local leftOffset = dot(delta, left)
+      local sign = nil
+      local source = nil
+
+      if math.abs(frontOffset) >= math.abs(leftOffset) and math.abs(frontOffset) > 0 then
+        sign = frontOffset < 0 and -1 or 1
+        source = "rotor_offset_front"
+      elseif math.abs(leftOffset) > 0 then
+        sign = leftOffset < 0 and -1 or 1
+        source = "rotor_offset_left"
+      end
+
+      if sign then
+        signs[role] = sign
+        sources[role] = {
+          source = source,
+          sign = sign,
+          delta = delta,
+          frontOffset = frontOffset,
+          leftOffset = leftOffset,
+        }
+        any = true
+      end
+    end
+  end
+
+  return any and signs or nil, any and sources or nil
+end
+
 function actuators.settings(config, options)
   config = config or {}
   options = options or {}
@@ -143,6 +229,8 @@ function actuators.settings(config, options)
       minRpm = tonumber(speedConfig.minRpm) or -256,
       maxRpm = tonumber(speedConfig.maxRpm) or 256,
       sign = signValue(speedConfig.sign),
+      autoRoleSigns = speedConfig.autoRoleSigns ~= false,
+      roleSigns = roleSignsFromConfig(speedConfig.roleSigns),
       round = speedConfig.round ~= false,
     }
   end
@@ -206,19 +294,28 @@ end
 
 function actuators.open(scan, router, settings)
   settings = settings or actuators.settings({})
+  local effectiveSettings = copyPlain(settings)
+
+  if effectiveSettings.type == "rotation_speed"
+      and effectiveSettings.autoRoleSigns ~= false
+      and not effectiveSettings.roleSigns then
+    local inferred, sources = inferRotationSpeedRoleSigns(scan, effectiveSettings.roleFamily)
+    effectiveSettings.roleSigns = inferred
+    effectiveSettings.roleSignSources = sources
+  end
 
   local context = {
-    settings = copyPlain(settings),
+    settings = effectiveSettings,
     devices = {},
     errors = {},
   }
   local roles = scan
     and scan.orientation
     and scan.orientation.roles
-    and scan.orientation.roles[settings.roleFamily]
+    and scan.orientation.roles[effectiveSettings.roleFamily]
 
   if not roles then
-    context.skipped = "no " .. tostring(settings.roleFamily) .. " role map"
+    context.skipped = "no " .. tostring(effectiveSettings.roleFamily) .. " role map"
     return context
   end
 
@@ -227,13 +324,13 @@ function actuators.open(scan, router, settings)
     local device, errorMessage = wrapMapped(router, mapped, role)
 
     if device then
-      local setter = resolveMethod(device.object, settings.setter, settings.fallbackSetters)
+      local setter = resolveMethod(device.object, effectiveSettings.setter, effectiveSettings.fallbackSetters)
       if not setter then
-        context.errors[role] = "missing supported setter for " .. tostring(settings.type)
+        context.errors[role] = "missing supported setter for " .. tostring(effectiveSettings.type)
       else
         device.role = role
         device.setter = setter
-        device.getter = resolveMethod(device.object, settings.getter, settings.fallbackGetters)
+        device.getter = resolveMethod(device.object, effectiveSettings.getter, effectiveSettings.fallbackGetters)
         context.devices[role] = device
       end
     else
@@ -256,10 +353,11 @@ function actuators.assertReady(context)
   end
 end
 
-local function speedForPower(settings, power)
+local function speedForPower(settings, power, role)
   local fraction = clamp(power, 0, settings.maxPower) / settings.maxPower
+  local roleSign = settings.roleSigns and settings.roleSigns[role] or 1
   local speed = (tonumber(settings.idleRpm) or 0)
-    + (tonumber(settings.sign) or 1) * (tonumber(settings.powerRpm) or 0) * fraction
+    + (tonumber(settings.sign) or 1) * roleSign * (tonumber(settings.powerRpm) or 0) * fraction
   speed = clamp(speed, tonumber(settings.minRpm) or -256, tonumber(settings.maxRpm) or 256)
 
   if settings.round ~= false then
@@ -283,10 +381,12 @@ function actuators.outputsFromPower(settings, powerByRole, residuals)
   if settings.type == "rotation_speed" then
     frame.targetSpeeds = frame.outputs
     frame.desiredTargetSpeeds = {}
+    frame.roleSigns = copyPlain(settings.roleSigns)
+    frame.roleSignSources = copyPlain(settings.roleSignSources)
 
     for _, role in ipairs(ROLE_ORDER) do
       local power = tonumber(powerByRole and powerByRole[role]) or 0
-      local target = speedForPower(settings, power)
+      local target = speedForPower(settings, power, role)
       frame.outputs[role] = target
       frame.displayValues[role] = target
       frame.desiredTargetSpeeds[role] = target

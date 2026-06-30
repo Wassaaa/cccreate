@@ -34,9 +34,12 @@ local ORDERS = {
     "minRpm",
     "maxRpm",
     "sign",
+    "autoRoleSigns",
+    "roleSigns",
     "round",
     "maxPower",
   },
+  roleSigns = { "front_left", "front_right", "rear_left", "rear_right" },
   stabilize = {
     "interval",
     "seconds",
@@ -221,6 +224,8 @@ local function childPath(path, key)
     return "actuator.redstoneSignal"
   elseif path == "actuator" and key == "rotationSpeed" then
     return "actuator.rotationSpeed"
+  elseif path == "actuator.rotationSpeed" and key == "roleSigns" then
+    return "roleSigns"
   elseif path == "" then
     return key
   end
