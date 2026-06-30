@@ -1,6 +1,6 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, urlparse
 import argparse
 import gzip
 import json
@@ -21,7 +21,6 @@ TAG_LIST = 9
 TAG_COMPOUND = 10
 
 DATA_VERSION = 3953
-SHULKR_ORIGINS = {"https://www.shulkr.com", "https://shulkr.com"}
 
 
 HTML = r"""<!doctype html>
@@ -1892,11 +1891,6 @@ HTML = r"""<!doctype html>
       return `<button class="copy-btn" data-copy="${escapeHtml(encodeCopy(text))}" data-copy-label="${escapeHtml(label)}">${escapeHtml(label)}</button>`;
     }
 
-    function structureUrlForReport(filename) {
-      const base = String(filename || "latest-report.json").replace(/\.json$/i, "");
-      return `/api/structure/${encodeURIComponent(base)}.nbt`;
-    }
-
     function bindCopyActions() {
       for (const node of els.view.querySelectorAll("[data-copy]")) {
         node.addEventListener("click", (event) => {
@@ -2006,8 +2000,7 @@ HTML = r"""<!doctype html>
       const warnings = entries.filter((entry) => entry.isOverstressed || entry.hasMissingSource).length;
       const inferred = entries.filter((entry) => entry.inferred).length;
       const frame = inferScadaFrame(report);
-      const structureUrl = structureUrlForReport(state.selectedFile);
-      const absoluteStructureUrl = `${window.location.origin}${structureUrl}`;
+      const structureUrl = `/api/structure?file=${encodeURIComponent(state.selectedFile)}`;
       const metrics = `
         <div class="map-controls">
           <span class="pill">${escapeHtml(report.width || bounds.xs.length)}x${escapeHtml(report.height || bounds.ys.length)}x${escapeHtml(report.depth || bounds.zs.length)}</span>
@@ -2020,7 +2013,6 @@ HTML = r"""<!doctype html>
           ${frame ? `<span class="pill">SCADA offset ${escapeHtml(frame.offset.x)},${escapeHtml(frame.offset.y)},${escapeHtml(frame.offset.z)} from ${escapeHtml(frame.count)} ids</span>` : ""}
           <span class="pill">router ${escapeHtml(routerLabel(report))}</span>
           <a class="copy-btn" href="${escapeHtml(structureUrl)}">Download NBT</a>
-          ${copyButton("Copy NBT URL", absoluteStructureUrl)}
         </div>
       `;
 
@@ -2507,17 +2499,6 @@ def nbt_download_name(filename: str):
     return f"{stem}.nbt"
 
 
-def report_filename_from_structure_path(path: str):
-    prefix = "/api/structure/"
-    if not path.startswith(prefix) or not path.endswith(".nbt"):
-        return None
-
-    name = Path(unquote(path[len(prefix):-4])).name
-    if not name:
-        return None
-    return f"{name}.json"
-
-
 class ReportViewerHandler(BaseHTTPRequestHandler):
     def send_json(self, payload, status=200):
         body = json.dumps(payload, indent=2).encode("utf-8")
@@ -2537,38 +2518,14 @@ class ReportViewerHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def send_cors_headers(self):
-        origin = self.headers.get("Origin")
-        if origin not in SHULKR_ORIGINS:
-            return
-
-        self.send_header("Access-Control-Allow-Origin", origin)
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Expose-Headers", "Content-Disposition")
-        self.send_header("Access-Control-Allow-Private-Network", "true")
-        self.send_header("Vary", "Origin")
-
     def send_bytes(self, body: bytes, content_type: str, filename: str):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(body)))
-        self.send_cors_headers()
         self.end_headers()
         self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        parsed = urlparse(self.path)
-
-        if parsed.path == "/api/structure" or parsed.path.startswith("/api/structure/"):
-            self.send_response(204)
-            self.send_cors_headers()
-            self.end_headers()
-            return
-
-        self.send_error(404, "not found")
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -2589,11 +2546,6 @@ class ReportViewerHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/reports":
             self.send_reports()
-            return
-
-        structure_filename = report_filename_from_structure_path(parsed.path)
-        if structure_filename:
-            self.send_structure(structure_filename)
             return
 
         if parsed.path == "/api/structure":
