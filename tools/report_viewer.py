@@ -1923,21 +1923,20 @@ HTML = r"""<!doctype html>
     }
 
     const NBT_LEGEND = [
-      { label: "black wool: router origin", color: "#1d1d21" },
-      { label: "lime wool: rotors / consumers", color: "#80c71f" },
-      { label: "orange wool: drivers / actuators", color: "#f9801d" },
-      { label: "cyan wool: kinetic SCADA", color: "#169c9c" },
-      { label: "yellow wool: inferred missing source", color: "#fed83d" },
-      { label: "gold block: inferred missing anchor", color: "#f8c627" },
-      { label: "stone: generic wrapped or unknown block", color: "#7f7f7f" },
-      { label: "red wool: overstressed or error", color: "#b02e26" },
-      { label: "purple wool: attitude sensor", color: "#8932b8" },
-      { label: "green wool: inventory", color: "#5e7c16" },
-      { label: "light blue wool: display", color: "#3ab3da" },
-      { label: "blue wool: fluid", color: "#3c44aa" },
-      { label: "redstone block: energy", color: "#c51d10" },
-      { label: "gray wool: modem", color: "#474f52" },
-      { label: "white wool: terminal", color: "#f0f0f0" }
+      { label: "black shulker: router origin", color: "#1d1d21" },
+      { label: "lime shulker: rotors / consumers", color: "#80c71f" },
+      { label: "orange shulker: drivers / actuators", color: "#f9801d" },
+      { label: "cyan shulker: kinetic SCADA", color: "#169c9c" },
+      { label: "yellow shulker: inferred missing source/anchor", color: "#fed83d" },
+      { label: "gray shulker: generic wrapped or unknown block", color: "#7f7f7f" },
+      { label: "red shulker: overstressed or error", color: "#b02e26" },
+      { label: "purple shulker: attitude sensor", color: "#8932b8" },
+      { label: "green shulker: inventory", color: "#5e7c16" },
+      { label: "light blue shulker: display", color: "#3ab3da" },
+      { label: "blue shulker: fluid", color: "#3c44aa" },
+      { label: "red shulker: energy/redstone", color: "#c51d10" },
+      { label: "gray shulker: modem", color: "#474f52" },
+      { label: "white shulker: terminal", color: "#f0f0f0" }
     ];
 
     function renderNbtLegend() {
@@ -2082,7 +2081,7 @@ HTML = r"""<!doctype html>
         <section class="block">
           <h2>Coordinate Map</h2>
           ${metrics}
-          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks. Dashed cells are inferred from decoded SCADA IDs, not confirmed peripherals. NBT exports add cc_* metadata to each selected block's raw palette entry.</div>
+          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks. Dashed cells are inferred from decoded SCADA IDs, not confirmed peripherals. NBT exports use colored shulker boxes with cc_* block-entity metadata.</div>
           ${renderNbtLegend()}
           ${layers.map((y) => routerMapLayer(y, bounds, byCoord)).join("")}
         </section>
@@ -2414,21 +2413,21 @@ def coordinate_entries(report):
 
 
 BLOCK_BY_KIND = {
-    "attitude": "minecraft:purple_wool",
-    "rotor": "minecraft:lime_wool",
-    "scalar": "minecraft:orange_wool",
-    "display": "minecraft:light_blue_wool",
-    "kinetic": "minecraft:cyan_wool",
-    "inventory": "minecraft:green_wool",
-    "fluid": "minecraft:blue_wool",
-    "energy": "minecraft:redstone_block",
-    "redstone": "minecraft:red_wool",
-    "terminal": "minecraft:white_wool",
-    "modem": "minecraft:gray_wool",
-    "inferred": "minecraft:yellow_wool",
-    "error": "minecraft:red_wool",
-    "wrappable": "minecraft:stone",
-    "origin": "minecraft:black_wool",
+    "attitude": "minecraft:purple_shulker_box",
+    "rotor": "minecraft:lime_shulker_box",
+    "scalar": "minecraft:orange_shulker_box",
+    "display": "minecraft:light_blue_shulker_box",
+    "kinetic": "minecraft:cyan_shulker_box",
+    "inventory": "minecraft:green_shulker_box",
+    "fluid": "minecraft:blue_shulker_box",
+    "energy": "minecraft:red_shulker_box",
+    "redstone": "minecraft:red_shulker_box",
+    "terminal": "minecraft:white_shulker_box",
+    "modem": "minecraft:gray_shulker_box",
+    "inferred": "minecraft:yellow_shulker_box",
+    "error": "minecraft:red_shulker_box",
+    "wrappable": "minecraft:gray_shulker_box",
+    "origin": "minecraft:black_shulker_box",
 }
 
 
@@ -2436,8 +2435,8 @@ def block_for_entry(entry):
     if entry.get("isOverstressed"):
         return BLOCK_BY_KIND["error"]
     if entry.get("inferredKind") == "missing_anchor":
-        return "minecraft:gold_block"
-    return BLOCK_BY_KIND.get(entry.get("mapKind"), "minecraft:stone")
+        return BLOCK_BY_KIND["inferred"]
+    return BLOCK_BY_KIND.get(entry.get("mapKind"), BLOCK_BY_KIND["wrappable"])
 
 
 def short_id(value):
@@ -2612,11 +2611,25 @@ def write_nbt_payload(tag_type, value):
     raise ValueError(f"unsupported NBT tag type {tag_type}")
 
 
-def block_state(name, properties=None, metadata=None):
+def block_state(name, properties=None):
     data = {"Name": tag_string(name)}
     if properties:
         data["Properties"] = tag_compound({key: tag_string(value) for key, value in sorted(properties.items())})
-    for key, value in metadata_items(metadata or {}):
+    return data
+
+
+def json_text(value):
+    return json.dumps({"text": str(value)}, separators=(",", ":"))
+
+
+def shulker_box_nbt(metadata):
+    metadata = dict(metadata_items(metadata or {}))
+    label = metadata.get("cc_label") or metadata.get("cc_name") or "ComputerCraft map block"
+    data = {
+        "id": tag_string("minecraft:shulker_box"),
+        "CustomName": tag_string(json_text(label)),
+    }
+    for key, value in metadata.items():
         data[key] = tag_string(value)
     return data
 
@@ -2639,16 +2652,19 @@ def structure_nbt_bytes(entries, author="Codex"):
     palette_index = {}
     blocks = {}
 
-    def state_index(name, properties=None, metadata=None):
-        key = (name, tuple(sorted((properties or {}).items())), metadata_items(metadata or {}))
+    def state_index(name, properties=None):
+        key = (name, tuple(sorted((properties or {}).items())))
         if key not in palette_index:
             palette_index[key] = len(palette)
-            palette.append(tag_compound(block_state(name, properties, metadata)))
+            palette.append(tag_compound(block_state(name, properties)))
         return palette_index[key]
 
     def set_block(x, y, z, name, properties=None, metadata=None):
         pos = (x - min_x, y - min_y, z - min_z)
-        blocks[pos] = state_index(name, properties, metadata)
+        block_data = {"state": state_index(name, properties)}
+        if metadata:
+            block_data["nbt"] = shulker_box_nbt(metadata)
+        blocks[pos] = block_data
 
     for entry in entries:
         block_name = block_for_entry(entry)
@@ -2657,14 +2673,15 @@ def structure_nbt_bytes(entries, author="Codex"):
     set_block(0, 0, 0, BLOCK_BY_KIND["origin"], metadata=origin_metadata())
 
     block_entries = []
-    for (x, y, z), state in sorted(blocks.items()):
+    for (x, y, z), block_data in sorted(blocks.items()):
+        data = {
+            "pos": tag_list(TAG_INT, [x, y, z]),
+            "state": tag_int(block_data["state"]),
+        }
+        if block_data.get("nbt"):
+            data["nbt"] = tag_compound(block_data["nbt"])
         block_entries.append(
-            tag_compound(
-                {
-                    "pos": tag_list(TAG_INT, [x, y, z]),
-                    "state": tag_int(state),
-                }
-            )
+            tag_compound(data)
         )
 
     root = {
