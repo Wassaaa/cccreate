@@ -365,6 +365,19 @@ local function printOrientation(report)
         .. tostring(orientation.sources.upVector)
     )
   end
+
+  local statusStrip = orientation.reservedDisplays
+    and orientation.reservedDisplays.statusStrip
+  if statusStrip and statusStrip.enabled then
+    print(
+      "statusStrip "
+        .. tostring(statusStrip.status)
+        .. " anchor="
+        .. coords.label(statusStrip.anchor)
+        .. " axis="
+        .. tostring(statusStrip.axis)
+    )
+  end
 end
 
 local function printDeviceLine(router, index, label, coord, limit)

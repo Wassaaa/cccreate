@@ -148,6 +148,20 @@ return {
     enabled = true,
     stabilizeEnabled = true,
     stabilizeInterval = 1,
+    -- Show rotor Nixie values as display magnitudes. The underlying actuator
+    -- signs stay unchanged; this only affects text shown on mapped displays.
+    absoluteRotorValues = true,
+    -- Optional 3-cell text display strip updated with rotor Nixies:
+    -- anchor shows throttle/base RPM, anchor+axis shows H, anchor+2*axis shows T.
+    -- The scan reserves these cells so they are not picked as rotor Nixies.
+    -- Configure with: aircraft config status-strip true <x> <y> <z> <axis>
+    statusStrip = {
+      enabled = false,
+      x = nil,
+      y = nil,
+      z = nil,
+      axis = "+X",
+    },
   },
   hud = {
     enabled = true,

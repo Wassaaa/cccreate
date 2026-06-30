@@ -119,6 +119,14 @@ local DEFAULT_CONFIG = {
     enabled = true,
     stabilizeEnabled = true,
     stabilizeInterval = 1,
+    absoluteRotorValues = true,
+    statusStrip = {
+      enabled = false,
+      x = nil,
+      y = nil,
+      z = nil,
+      axis = "+X",
+    },
   },
   hud = {
     enabled = true,
@@ -182,6 +190,8 @@ local function usage()
   print("aircraft config move-target-default <true|false>")
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
+  print("aircraft config nixie-abs <true|false>")
+  print("aircraft config status-strip <true|false> [x y z axis]")
   print("aircraft config hud <true|false>")
   print("aircraft config killswitch <true|false> [front|back|left|right|top|bottom] [activeHigh true|false]")
   print("aircraft config killswitch-router <x> <y> <z> [side] [activeHigh true|false]")
@@ -533,6 +543,19 @@ local function printSummary(report, path)
     print("  left=" .. coords.axisLabel(report.orientation.leftVector) .. " source=" .. tostring(report.orientation.sources.leftVector))
     print("  up=" .. coords.axisLabel(report.orientation.upVector) .. " source=" .. tostring(report.orientation.sources.upVector))
 
+    local statusStrip = report.orientation.reservedDisplays
+      and report.orientation.reservedDisplays.statusStrip
+    if statusStrip and statusStrip.enabled then
+      print(
+        "  statusStrip="
+          .. tostring(statusStrip.status)
+          .. " anchor="
+          .. coords.label(statusStrip.anchor)
+          .. " axis="
+          .. tostring(statusStrip.axis)
+      )
+    end
+
     for side, hint in pairs(report.orientation.sideHints or {}) do
       if hint.ambiguous then
         print("  side " .. side .. " ambiguous matches=" .. tostring(hint.count))
@@ -849,6 +872,12 @@ local function printConfig(config, source)
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
   print("  display.stabilizeEnabled=" .. tostring(config.display and config.display.stabilizeEnabled))
   print("  display.stabilizeInterval=" .. tostring(config.display and config.display.stabilizeInterval))
+  print("  display.absoluteRotorValues=" .. tostring(config.display and config.display.absoluteRotorValues))
+  print("  display.statusStrip.enabled=" .. tostring(config.display and config.display.statusStrip and config.display.statusStrip.enabled))
+  print("  display.statusStrip.x=" .. tostring(config.display and config.display.statusStrip and config.display.statusStrip.x))
+  print("  display.statusStrip.y=" .. tostring(config.display and config.display.statusStrip and config.display.statusStrip.y))
+  print("  display.statusStrip.z=" .. tostring(config.display and config.display.statusStrip and config.display.statusStrip.z))
+  print("  display.statusStrip.axis=" .. tostring(config.display and config.display.statusStrip and config.display.statusStrip.axis))
   print("  hud.enabled=" .. tostring(config.hud and config.hud.enabled))
   print("  hud.interval=" .. tostring(config.hud and config.hud.interval))
   print("  hud.monitorName=" .. tostring(config.hud and config.hud.monitorName))
@@ -1464,6 +1493,36 @@ local function runConfig()
     print("Saved stabilize Nixie settings to " .. CONFIG_PATH)
     print("  display.stabilizeEnabled=" .. tostring(config.display.stabilizeEnabled))
     print("  display.stabilizeInterval=" .. tostring(config.display.stabilizeInterval))
+    return
+  elseif subcommand == "nixie-abs" then
+    config.display = config.display or {}
+    config.display.absoluteRotorValues = parseBoolean(args[3])
+    saveConfig(config)
+    print("Saved display.absoluteRotorValues=" .. tostring(config.display.absoluteRotorValues) .. " to " .. CONFIG_PATH)
+    return
+  elseif subcommand == "status-strip" then
+    config.display = config.display or {}
+    config.display.statusStrip = config.display.statusStrip or {}
+    config.display.statusStrip.enabled = parseBoolean(args[3])
+
+    if config.display.statusStrip.enabled then
+      config.display.statusStrip.x = parseInteger(args[4], "x")
+      config.display.statusStrip.y = parseInteger(args[5], "y")
+      config.display.statusStrip.z = parseInteger(args[6], "z")
+
+      local axis = coords.parseAxis(args[7] or "+X")
+      if not axis then
+        error("axis must be +X, -X, +Y, -Y, +Z, or -Z", 0)
+      end
+
+      config.display.statusStrip.axis = coords.axisLabel(axis)
+    end
+
+    saveConfig(config)
+    print("Saved display.statusStrip to " .. CONFIG_PATH)
+    print("  enabled=" .. tostring(config.display.statusStrip.enabled))
+    print("  anchor=" .. coords.label(config.display.statusStrip))
+    print("  axis=" .. tostring(config.display.statusStrip.axis))
     return
   elseif subcommand == "hud" then
     config.hud = config.hud or {}

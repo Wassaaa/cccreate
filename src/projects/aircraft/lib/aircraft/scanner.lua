@@ -816,6 +816,95 @@ local function assignNearestDisplays(displayEntries, targetRoles)
   return roles
 end
 
+local STATUS_STRIP_CELLS = {
+  { key = "throttle", offset = 0 },
+  { key = "hold", offset = 1 },
+  { key = "moveTarget", offset = 2 },
+}
+
+local function statusStripReservation(config)
+  local strip = config
+    and config.display
+    and config.display.statusStrip
+
+  if type(strip) ~= "table" or strip.enabled ~= true then
+    return nil
+  end
+
+  local anchor = {
+    x = tonumber(strip.x),
+    y = tonumber(strip.y),
+    z = tonumber(strip.z),
+  }
+  local axis = coords.parseAxis(strip.axis or "+X")
+  local result = {
+    enabled = true,
+    anchor = copyCoord(anchor),
+    axis = axis and coords.axisLabel(axis) or tostring(strip.axis),
+    cells = {},
+    keys = {},
+  }
+
+  if type(anchor.x) ~= "number" or type(anchor.y) ~= "number" or type(anchor.z) ~= "number" then
+    result.status = "invalid anchor"
+    return result
+  elseif not axis then
+    result.status = "invalid axis"
+    return result
+  end
+
+  for _, cell in ipairs(STATUS_STRIP_CELLS) do
+    local coord = {
+      x = anchor.x + axis.x * cell.offset,
+      y = anchor.y + axis.y * cell.offset,
+      z = anchor.z + axis.z * cell.offset,
+    }
+    coord.key = coords.key(coord.x, coord.y, coord.z)
+    result.cells[cell.key] = {
+      coord = copyCoord(coord),
+      offset = cell.offset,
+    }
+    result.keys[coord.key] = true
+  end
+
+  result.status = "reserved"
+  return result
+end
+
+local function statusStripReservationSummary(reservation)
+  if not reservation then
+    return nil
+  end
+
+  return {
+    enabled = reservation.enabled,
+    status = reservation.status,
+    anchor = copyCoord(reservation.anchor),
+    axis = reservation.axis,
+    cells = {
+      throttle = reservation.cells and reservation.cells.throttle and copyCoord(reservation.cells.throttle.coord) or nil,
+      hold = reservation.cells and reservation.cells.hold and copyCoord(reservation.cells.hold.coord) or nil,
+      moveTarget = reservation.cells and reservation.cells.moveTarget and copyCoord(reservation.cells.moveTarget.coord) or nil,
+    },
+  }
+end
+
+local function filterReservedDisplays(entries, reservation)
+  if not reservation or not reservation.keys then
+    return entries
+  end
+
+  local result = {}
+  for _, entry in ipairs(entries or {}) do
+    local key = entry.coord and coords.key(entry.coord.x, entry.coord.y, entry.coord.z)
+    if not key or reservation.keys[key] ~= true then
+      table.insert(result, entry)
+    end
+  end
+
+  return result
+end
+
 local function assignFirstSensor(entries)
   local sortedEntries = {}
 
@@ -1025,9 +1114,11 @@ local function inferRoles(report)
       and not hasCategory(entry, "rotorBearing")
       and not hasCategory(entry, "displaySink")
   end)
-  local displays = roleCandidates(report, function(entry)
+  local allDisplays = roleCandidates(report, function(entry)
     return hasCategory(entry, "displaySink")
   end)
+  local statusStrip = statusStripReservation(report.config)
+  local displays = filterReservedDisplays(allDisplays, statusStrip)
   local navigationSensors = roleCandidates(report, function(entry)
     return hasCategory(entry, "navigationSensor")
   end)
@@ -1050,6 +1141,9 @@ local function inferRoles(report)
       hasAnyRole(rotorRoles) and rotorRoles or (hasAnyRole(scalarRoles) and scalarRoles or speedRoles)
     ),
   }
+  orientation.reservedDisplays = {
+    statusStrip = statusStripReservationSummary(statusStrip),
+  }
   orientation.sensors = {
     navigationSensor = assignFirstSensor(navigationSensors),
     altitudeSensor = assignFirstSensor(altitudeSensors),
@@ -1059,7 +1153,9 @@ local function inferRoles(report)
     rotorBearing = #rotors,
     scalarActuator = #scalarControls,
     speedActuator = #speedControls,
-    displaySink = #displays,
+    displaySink = #allDisplays,
+    displaySinkAvailable = #displays,
+    displaySinkReserved = #allDisplays - #displays,
     navigationSensor = #navigationSensors,
     altitudeSensor = #altitudeSensors,
     velocitySensor = #velocitySensors,
@@ -1100,6 +1196,10 @@ function scanner.scan(config)
       absoluteSignalMax = config.absoluteSignalMax,
       maxAttitudeDelta = config.maxAttitudeDelta,
       scanParallelism = scanParallelism(config),
+      display = {
+        absoluteRotorValues = config.display and config.display.absoluteRotorValues,
+        statusStrip = sanitize(config.display and config.display.statusStrip),
+      },
     },
     router = {
       name = routerName,

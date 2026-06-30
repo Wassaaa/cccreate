@@ -3149,7 +3149,7 @@ function flightControl.stabilize(config, options)
 
     local startTime = os.clock()
     lastNixieElapsed = elapsed
-    local result = displays.updateSignals(nixieContext, frame.mixed and frame.mixed.signals)
+    local result = displays.updateSignals(nixieContext, frame.mixed and frame.mixed.signals, frame)
     result.elapsed = os.clock() - startTime
 
     return result
@@ -3414,7 +3414,20 @@ function flightControl.stabilize(config, options)
   if active and settings.brakeOnExit then
     report.brakeOnExit = actuators.brake(actuatorContext)
     if settings.nixiesEnabled then
-      report.nixieBrakeOnExit = displays.updateSignals(nixieContext, actuators.brakeOutputs(settings.actuator))
+      report.nixieBrakeOnExit = displays.updateSignals(nixieContext, actuators.brakeOutputs(settings.actuator), {
+        mixed = {
+          basePower = 0,
+          baseRpm = 0,
+        },
+        hold = {
+          enabled = settings.hold and settings.hold.enabled == true,
+          active = false,
+          moveTarget = {
+            enabled = settings.moveTarget and settings.moveTarget.enabled == true,
+            active = false,
+          },
+        },
+      })
     end
   end
 
