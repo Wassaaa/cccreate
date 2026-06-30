@@ -1446,6 +1446,7 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices, contro
   result.craftUp = craftUp
   result.worldUp = worldUp
   result.targetMode = "manual_world_up"
+  result.yawTangentMode = "world_up_cross_world_radial"
   result.orientation = copyPlain(orientation)
   result.activeYawRate = activeRate
   result.rateLateral = rateLateral
@@ -1469,23 +1470,41 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices, contro
         local tangent = coords.cross(craftUp, radialUnit)
         tangent = vectorNormalize(tangent)
 
-        local worldTangent = rotateByQuaternion(orientation, tangent)
-        worldTangent = vectorNormalize(worldTangent, tangent)
+        local worldRelative = rotateByQuaternion(orientation, relative)
+        local worldVertical = vectorScale(worldUp, coords.dot(worldRelative, worldUp))
+        local worldRadial = coords.sub(worldRelative, worldVertical)
+        local worldRadialUnit, worldRadius = vectorNormalize(worldRadial)
 
-        local worldTarget = coords.add(worldUp, vectorScale(worldTangent, lateral))
-        worldTarget = vectorNormalize(worldTarget, worldUp)
+        if worldRadius <= 0.000001 then
+          result.commands[role] = {
+            role = role,
+            coord = copyPlain(device.coord),
+            radius = radius,
+            radial = radialUnit,
+            skipped = "rotor is on world yaw centerline",
+          }
+        else
+          local worldTangent = coords.cross(worldUp, worldRadialUnit)
+          worldTangent = vectorNormalize(worldTangent)
 
-        result.commands[role] = {
-          role = role,
-          coord = copyPlain(device.coord),
-          radius = radius,
-          radial = radialUnit,
-          tangent = tangent,
-          worldTangent = worldTangent,
-          baseTarget = worldUp,
-          worldTarget = worldTarget,
-          target = vectorToList(worldTarget),
-        }
+          local worldTarget = coords.add(worldUp, vectorScale(worldTangent, lateral))
+          worldTarget = vectorNormalize(worldTarget, worldUp)
+
+          result.commands[role] = {
+            role = role,
+            coord = copyPlain(device.coord),
+            radius = radius,
+            radial = radialUnit,
+            tangent = tangent,
+            worldRelative = worldRelative,
+            worldRadius = worldRadius,
+            worldRadial = worldRadialUnit,
+            worldTangent = worldTangent,
+            baseTarget = worldUp,
+            worldTarget = worldTarget,
+            target = vectorToList(worldTarget),
+          }
+        end
       else
         result.commands[role] = {
           role = role,
