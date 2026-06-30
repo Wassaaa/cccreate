@@ -307,7 +307,7 @@ function controller.sample(context)
   local throttle = inputValue(reads.space) - inputValue(reads.shift)
   local axis1 = inputValue(reads.d) - inputValue(reads.a)
   local axis2 = inputValue(reads.w) - inputValue(reads.s)
-  local yaw = inputValue(reads.e) - inputValue(reads.q)
+  local yaw = inputValue(reads.q) - inputValue(reads.e)
   local degToRad = math.pi / 180
 
   return {
