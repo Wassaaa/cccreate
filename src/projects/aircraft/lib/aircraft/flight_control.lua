@@ -145,6 +145,17 @@ local function rotateByQuaternion(q, value)
   }
 end
 
+local function rotateByInverseQuaternion(q, value)
+  local inverse = {
+    -(tonumber(q and q[1]) or 0),
+    -(tonumber(q and q[2]) or 0),
+    -(tonumber(q and q[3]) or 0),
+    tonumber(q and q[4]) or 1,
+  }
+
+  return rotateByQuaternion(inverse, value)
+end
+
 local function safePeripheralTypes(name)
   local values = { pcall(peripheral.getType, name) }
   local ok = table.remove(values, 1)
@@ -1445,7 +1456,7 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices, contro
   result.up = worldUp
   result.craftUp = craftUp
   result.worldUp = worldUp
-  result.targetMode = "manual_world_up"
+  result.targetMode = "manual_local_from_world_target"
   result.yawTangentMode = "world_up_cross_world_radial"
   result.orientation = copyPlain(orientation)
   result.activeYawRate = activeRate
@@ -1461,6 +1472,8 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices, contro
     local device = gyroDevices and gyroDevices[role]
 
     if device and device.coord then
+      local localBaseTarget = rotateByInverseQuaternion(orientation, worldUp)
+      localBaseTarget = vectorNormalize(localBaseTarget, craftUp)
       local relative = coords.sub(vector(device.coord.x, device.coord.y, device.coord.z), center)
       local vertical = vectorScale(craftUp, coords.dot(relative, craftUp))
       local radial = coords.sub(relative, vertical)
@@ -1489,6 +1502,8 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices, contro
 
           local worldTarget = coords.add(worldUp, vectorScale(worldTangent, lateral))
           worldTarget = vectorNormalize(worldTarget, worldUp)
+          local localTarget = rotateByInverseQuaternion(orientation, worldTarget)
+          localTarget = vectorNormalize(localTarget, localBaseTarget)
 
           result.commands[role] = {
             role = role,
@@ -1500,9 +1515,11 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices, contro
             worldRadius = worldRadius,
             worldRadial = worldRadialUnit,
             worldTangent = worldTangent,
-            baseTarget = worldUp,
+            baseTarget = localBaseTarget,
+            localTarget = localTarget,
+            worldBaseTarget = worldUp,
             worldTarget = worldTarget,
-            target = vectorToList(worldTarget),
+            target = vectorToList(localTarget),
           }
         end
       else
