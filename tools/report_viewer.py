@@ -396,6 +396,11 @@ HTML = r"""<!doctype html>
       background: #f8faf6;
       font-size: 12px;
       cursor: pointer;
+      position: relative;
+    }
+
+    .map-cell.has-network {
+      border-top: 4px solid var(--network-color, #6f7f8f);
     }
 
     .map-cell.empty {
@@ -407,6 +412,31 @@ HTML = r"""<!doctype html>
     .map-cell.inventory {
       background: #e5f1e7;
       border-color: #acc9b0;
+    }
+
+    .map-cell.attitude {
+      background: #f2eafb;
+      border-color: #cbb5e5;
+    }
+
+    .map-cell.scalar {
+      background: #fff3d8;
+      border-color: #dcc17a;
+    }
+
+    .map-cell.rotor {
+      background: #e0f3ef;
+      border-color: #94c6bd;
+    }
+
+    .map-cell.display {
+      background: #edf1ff;
+      border-color: #b8c3e3;
+    }
+
+    .map-cell.kinetic {
+      background: #eaf3f8;
+      border-color: #abc7d6;
     }
 
     .map-cell.wrappable,
@@ -422,6 +452,14 @@ HTML = r"""<!doctype html>
     .map-cell.error {
       background: #f9e7e3;
       border-color: #d0aaa1;
+    }
+
+    .map-cell.scada-warn {
+      box-shadow: inset 0 0 0 2px rgba(138, 101, 29, .35);
+    }
+
+    .map-cell.scada-bad {
+      box-shadow: inset 0 0 0 2px rgba(168, 50, 50, .45);
     }
 
     .map-coord {
@@ -1241,12 +1279,205 @@ HTML = r"""<!doctype html>
       return blocks.join("");
     }
 
-    function hasRouterCoordinates(report) {
-      return asArray(report.results).some((entry) =>
-        Number.isFinite(Number(entry.x)) &&
-        Number.isFinite(Number(entry.y)) &&
-        Number.isFinite(Number(entry.z))
+    function hasFiniteCoord(coord) {
+      return coord &&
+        Number.isFinite(Number(coord.x)) &&
+        Number.isFinite(Number(coord.y)) &&
+        Number.isFinite(Number(coord.z));
+    }
+
+    function coordinateKey(coord) {
+      return entryKey(Number(coord.x), Number(coord.y), Number(coord.z));
+    }
+
+    function uniqueStrings(values) {
+      return [...new Set(asArray(values).filter((value) => value !== undefined && value !== null).map(String))];
+    }
+
+    function shortId(value) {
+      if (value === undefined || value === null || value === "") return "nil";
+      const text = String(value);
+      if (text.length <= 12) return text;
+      return `${text.slice(0, 6)}...${text.slice(-4)}`;
+    }
+
+    function primaryMapKind(entry, scadaNode) {
+      const categories = asArray(entry?.categories);
+      if (categories.includes("attitudeSensor")) return "attitude";
+      if (categories.includes("rotorBearing")) return "rotor";
+      if (categories.includes("scalarActuator")) return "scalar";
+      if (categories.includes("displaySink")) return "display";
+      if (categories.includes("kineticScada") || scadaNode) return "kinetic";
+      return entry?.kind || (entry?.inventory ? "inventory" : "wrappable");
+    }
+
+    function scadaNodesByCoord(report) {
+      const byCoord = {};
+      const nodes = report?.kineticScada?.nodes || {};
+
+      for (const [id, node] of Object.entries(nodes)) {
+        if (!hasFiniteCoord(node?.coord)) continue;
+        byCoord[coordinateKey(node.coord)] = { ...node, id: node.id || id };
+      }
+
+      return byCoord;
+    }
+
+    function aircraftRolesByCoord(report) {
+      const byCoord = {};
+      const orientation = report?.orientation || report?.scan?.orientation || {};
+      const roles = orientation.roles || {};
+
+      for (const [family, roleMap] of Object.entries(roles)) {
+        for (const [role, value] of Object.entries(roleMap || {})) {
+          if (!hasFiniteCoord(value?.coord)) continue;
+          const key = coordinateKey(value.coord);
+          if (!byCoord[key]) byCoord[key] = [];
+          byCoord[key].push(`${family}:${role}`);
+        }
+      }
+
+      return byCoord;
+    }
+
+    function normalizeRouterResult(entry) {
+      return {
+        ...entry,
+        x: Number(entry.x),
+        y: Number(entry.y),
+        z: Number(entry.z),
+        label: entry.label || `${entry.x},${entry.y},${entry.z}`,
+        mapKind: entry.kind || (entry.inventory ? "inventory" : "wrappable"),
+        mapSource: "router_result"
+      };
+    }
+
+    function normalizeAircraftPeripheral(entry, rolesByCoord, scadaByCoord) {
+      const coord = entry.coord || {};
+      const key = coordinateKey(coord);
+      const scadaNode = scadaByCoord[key] || {};
+      const scada = { ...scadaNode, ...(entry.kineticScada || {}) };
+      const categories = asArray(entry.categories);
+      const roles = rolesByCoord[key] || [];
+      const name = roles.length
+        ? roles.join(", ")
+        : categories.length
+          ? categories.join(", ")
+          : scada.kind || "peripheral";
+
+      return {
+        x: Number(coord.x),
+        y: Number(coord.y),
+        z: Number(coord.z),
+        label: entry.coord?.key || key,
+        displayName: name,
+        kind: scada.kind || categories[0] || "peripheral",
+        mapKind: primaryMapKind(entry, scada),
+        mapSource: "aircraft_peripheral",
+        categories,
+        roles,
+        methods: asArray(entry.methods),
+        methodCount: entry.methodCount,
+        kineticScada: scada,
+        networkId: scada.networkId,
+        subnetworkAnchorId: scada.subnetworkAnchorId,
+        sourceId: scada.sourceId,
+        scadaKind: scada.kind,
+        isOverstressed: scada.isOverstressed === true,
+        hasMissingSource: scadaNode.hasMissingSource === true,
+        isLeaf: scadaNode.isLeaf === true,
+        isDriver: scadaNode.isDriver === true
+      };
+    }
+
+    function normalizeScadaNode(node, rolesByCoord) {
+      const key = coordinateKey(node.coord);
+      const roles = rolesByCoord[key] || [];
+      return {
+        x: Number(node.coord.x),
+        y: Number(node.coord.y),
+        z: Number(node.coord.z),
+        label: node.coord?.key || key,
+        displayName: roles.length ? roles.join(", ") : `${node.kind || "scada"} ${shortId(node.id)}`,
+        kind: node.kind || "scada",
+        mapKind: node.isDriver ? "scalar" : node.isConsumer ? "kinetic" : "kinetic",
+        mapSource: "kinetic_scada",
+        categories: asArray(node.categories),
+        roles,
+        methods: asArray(node.controlMethods),
+        methodCount: node.methodCount,
+        kineticScada: node,
+        networkId: node.networkId,
+        subnetworkAnchorId: node.subnetworkAnchorId,
+        sourceId: node.sourceId,
+        scadaKind: node.kind,
+        isOverstressed: node.isOverstressed === true,
+        hasMissingSource: node.hasMissingSource === true,
+        isLeaf: node.isLeaf === true,
+        isDriver: node.isDriver === true
+      };
+    }
+
+    function mergeMapEntry(existing, entry) {
+      existing.displayName = existing.displayName || entry.displayName;
+      existing.kind = existing.kind || entry.kind;
+      existing.mapKind = existing.mapKind || entry.mapKind;
+      existing.categories = uniqueStrings([...(existing.categories || []), ...(entry.categories || [])]);
+      existing.roles = uniqueStrings([...(existing.roles || []), ...(entry.roles || [])]);
+      existing.methods = existing.methods?.length ? existing.methods : entry.methods;
+      existing.methodCount = Math.max(Number(existing.methodCount) || 0, Number(entry.methodCount) || 0) || undefined;
+      existing.kineticScada = existing.kineticScada || entry.kineticScada;
+      existing.networkId = existing.networkId || entry.networkId;
+      existing.subnetworkAnchorId = existing.subnetworkAnchorId || entry.subnetworkAnchorId;
+      existing.sourceId = existing.sourceId || entry.sourceId;
+      existing.scadaKind = existing.scadaKind || entry.scadaKind;
+      existing.isOverstressed = existing.isOverstressed || entry.isOverstressed;
+      existing.hasMissingSource = existing.hasMissingSource || entry.hasMissingSource;
+      existing.isLeaf = existing.isLeaf || entry.isLeaf;
+      existing.isDriver = existing.isDriver || entry.isDriver;
+      existing.extraCount = (existing.extraCount || 1) + 1;
+      return existing;
+    }
+
+    function coordinateEntries(report) {
+      const byCoord = {};
+      const usedScadaCoords = new Set();
+      const scadaByCoord = scadaNodesByCoord(report);
+      const rolesByCoord = aircraftRolesByCoord(report);
+
+      function addEntry(entry) {
+        if (!hasFiniteCoord(entry)) return;
+        const key = coordinateKey(entry);
+        if (byCoord[key]) {
+          mergeMapEntry(byCoord[key], entry);
+        } else {
+          byCoord[key] = entry;
+        }
+      }
+
+      for (const entry of asArray(report.results)) {
+        if (hasFiniteCoord(entry)) addEntry(normalizeRouterResult(entry));
+      }
+
+      for (const entry of asArray(report.peripherals)) {
+        if (!hasFiniteCoord(entry.coord)) continue;
+        const normalized = normalizeAircraftPeripheral(entry, rolesByCoord, scadaByCoord);
+        usedScadaCoords.add(coordinateKey(entry.coord));
+        addEntry(normalized);
+      }
+
+      for (const node of Object.values(scadaByCoord)) {
+        const key = coordinateKey(node.coord);
+        if (!usedScadaCoords.has(key)) addEntry(normalizeScadaNode(node, rolesByCoord));
+      }
+
+      return Object.values(byCoord).sort((left, right) =>
+        left.y - right.y || left.z - right.z || left.x - right.x
       );
+    }
+
+    function hasRouterCoordinates(report) {
+      return coordinateEntries(report).length > 0;
     }
 
     function range(start, end) {
@@ -1256,6 +1487,22 @@ HTML = r"""<!doctype html>
     }
 
     function routerBounds(report, entries) {
+      const scanBounds = report.scanBounds || report.mapBounds;
+      if (
+        Number.isFinite(Number(scanBounds?.xMin)) &&
+        Number.isFinite(Number(scanBounds?.xMax)) &&
+        Number.isFinite(Number(scanBounds?.yMin)) &&
+        Number.isFinite(Number(scanBounds?.yMax)) &&
+        Number.isFinite(Number(scanBounds?.zMin)) &&
+        Number.isFinite(Number(scanBounds?.zMax))
+      ) {
+        return {
+          xs: range(Number(scanBounds.xMin), Number(scanBounds.xMax)),
+          ys: range(Number(scanBounds.yMin), Number(scanBounds.yMax)),
+          zs: range(Number(scanBounds.zMin), Number(scanBounds.zMax))
+        };
+      }
+
       if (
         Number.isFinite(Number(report.xMin)) &&
         Number.isFinite(Number(report.xMax)) &&
@@ -1299,7 +1546,53 @@ HTML = r"""<!doctype html>
     function mapEntryClass(entry) {
       if (!entry) return "empty";
       if (entry.ok === false) return "error";
-      return entry.kind || (entry.inventory ? "inventory" : "wrappable");
+      const classes = [entry.mapKind || entry.kind || (entry.inventory ? "inventory" : "wrappable")];
+      if (entry.networkId) classes.push("has-network");
+      if (entry.isOverstressed) classes.push("scada-bad");
+      else if (entry.hasMissingSource) classes.push("scada-warn");
+      return classes.join(" ");
+    }
+
+    function networkColor(value) {
+      if (!value) return "#6f7f8f";
+      const palette = ["#386fa4", "#55a868", "#c44e52", "#8172b3", "#ccb974", "#64b5cd", "#dd8452", "#4c72b0"];
+      const text = String(value);
+      let hash = 0;
+      for (let index = 0; index < text.length; index += 1) {
+        hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+      }
+      return palette[Math.abs(hash) % palette.length];
+    }
+
+    function mapEntryStyle(entry) {
+      if (!entry?.networkId) return "";
+      return ` style="--network-color: ${networkColor(entry.networkId)}"`;
+    }
+
+    function routerLabel(report) {
+      if (typeof report.router === "string") return report.router;
+      return report.router?.name || "n/a";
+    }
+
+    function entryRoleNetworkText(entry) {
+      const parts = [];
+      if (asArray(entry.roles).length) parts.push(asArray(entry.roles).join(", "));
+      if (entry.networkId) parts.push(`net ${shortId(entry.networkId)}`);
+      if (entry.subnetworkAnchorId) parts.push(`zone ${shortId(entry.subnetworkAnchorId)}`);
+      return parts.join(" | ");
+    }
+
+    function entryDetailText(entry) {
+      const parts = [];
+      const categories = asArray(entry.categories);
+      if (categories.length) parts.push(categories.join(", "));
+      if (entry.scadaKind) parts.push(`kind=${entry.scadaKind}`);
+      if (entry.sourceId) parts.push(`src=${shortId(entry.sourceId)}`);
+      if (entry.isDriver) parts.push("driver");
+      if (entry.isLeaf) parts.push("leaf");
+      if (entry.isOverstressed) parts.push("overstressed");
+      if (entry.hasMissingSource) parts.push("missing source");
+      return parts.join("; ");
     }
 
     function topItems(entry) {
@@ -1326,8 +1619,9 @@ HTML = r"""<!doctype html>
     }
 
     function routerLua(report) {
-      if (report.router && !String(report.router).startsWith("(")) {
-        return `assert(peripheral.wrap(${luaString(report.router)}) or peripheral.find("peripheral_router"))`;
+      const name = routerLabel(report);
+      if (name && name !== "n/a" && !String(name).startsWith("(")) {
+        return `assert(peripheral.wrap(${luaString(name)}) or peripheral.find("peripheral_router"))`;
       }
 
       return 'assert(peripheral.find("peripheral_router"))';
@@ -1438,16 +1732,19 @@ HTML = r"""<!doctype html>
 
       const detail = entry.inventory
         ? `${entry.usedSlots ?? 0}/${entry.size ?? "?"} slots${entry.totalItems === undefined ? "" : `, ${entry.totalItems} items`}`
-        : `${entry.kind || "wrappable"}${entry.methodCount === undefined ? "" : `, ${entry.methodCount} methods`}`;
+        : entryDetailText(entry) || `${entry.kind || "wrappable"}${entry.methodCount === undefined ? "" : `, ${entry.methodCount} methods`}`;
       const items = topItems(entry);
-      const title = `${entry.label || ""} ${entry.displayName || ""} ${items}`.trim();
+      const roleNetwork = entryRoleNetworkText(entry);
+      const title = `${entry.label || ""} ${entry.displayName || ""} ${roleNetwork} ${detail} ${items}`.trim();
 
       return `
-        <div class="map-cell ${escapeHtml(mapEntryClass(entry))}" title="${escapeHtml(title)}" data-copy="${escapeHtml(encodeCopy(copyText))}" data-copy-label="${escapeHtml(copyLabel)}">
+        <div class="map-cell ${escapeHtml(mapEntryClass(entry))}"${mapEntryStyle(entry)} title="${escapeHtml(title)}" data-copy="${escapeHtml(encodeCopy(copyText))}" data-copy-label="${escapeHtml(copyLabel)}">
           <span class="map-coord">${escapeHtml(entry.label || `${x},${y},${z}`)}</span>
           <span class="map-name">${escapeHtml(entry.displayName || (entry.inventory ? "inventory" : entry.kind || "wrappable"))}</span>
+          ${roleNetwork ? `<span class="map-detail">${escapeHtml(roleNetwork)}</span>` : ""}
           <span class="map-detail">${escapeHtml(detail)}</span>
           ${items ? `<span class="map-detail">${escapeHtml(items)}</span>` : ""}
+          ${entry.extraCount ? `<span class="map-detail">merged ${escapeHtml(entry.extraCount)} entries</span>` : ""}
         </div>
       `;
     }
@@ -1483,15 +1780,15 @@ HTML = r"""<!doctype html>
 
       return `
         <table>
-          <thead><tr><th>Coord</th><th>Name</th><th>Kind</th><th>Slots</th><th>Items</th><th>Methods</th><th>Copy</th></tr></thead>
+          <thead><tr><th>Coord</th><th>Name</th><th>Kind</th><th>Role / Network</th><th>Details</th><th>Methods</th><th>Copy</th></tr></thead>
           <tbody>
             ${entries.map((entry) => `
               <tr>
                 <td>${escapeHtml(entry.label || `${entry.x},${entry.y},${entry.z}`)}</td>
                 <td>${escapeHtml(entry.displayName || "")}</td>
-                <td>${escapeHtml(entry.kind || (entry.inventory ? "inventory" : ""))}</td>
-                <td>${entry.inventory ? `${escapeHtml(entry.usedSlots ?? 0)} / ${escapeHtml(entry.size ?? "")}` : ""}</td>
-                <td>${escapeHtml(topItems(entry) || entry.totalItems || "")}</td>
+                <td>${escapeHtml(entry.kind || entry.mapKind || (entry.inventory ? "inventory" : ""))}</td>
+                <td>${escapeHtml(entryRoleNetworkText(entry))}</td>
+                <td>${escapeHtml(entry.inventory ? `${entry.usedSlots ?? 0}/${entry.size ?? "?"} slots ${topItems(entry) || ""}` : entryDetailText(entry))}</td>
                 <td>${escapeHtml(entry.methodCount ?? "")}</td>
                 <td>
                   <div class="copy-actions">
@@ -1506,14 +1803,10 @@ HTML = r"""<!doctype html>
     }
 
     function renderRouterMap(report) {
-      const entries = asArray(report.results).filter((entry) =>
-        Number.isFinite(Number(entry.x)) &&
-        Number.isFinite(Number(entry.y)) &&
-        Number.isFinite(Number(entry.z))
-      );
+      const entries = coordinateEntries(report);
 
       if (!hasRouterCoordinates(report)) {
-        return '<div class="empty">This report does not contain router-relative coordinates. Run <span class="mono">router_inventory_scanner map --radius 8</span>.</div>';
+        return '<div class="empty">This report does not contain router-relative coordinates. Run an aircraft scan or <span class="mono">router_inventory_scanner map --radius 8</span>.</div>';
       }
 
       const bounds = routerBounds(report, entries);
@@ -1523,21 +1816,27 @@ HTML = r"""<!doctype html>
       }
 
       const layers = [...bounds.ys].sort((left, right) => right - left);
+      const networks = uniqueStrings(entries.map((entry) => entry.networkId).filter(Boolean));
+      const drivers = entries.filter((entry) => entry.isDriver || asArray(entry.categories).includes("scalarActuator")).length;
+      const consumers = entries.filter((entry) => asArray(entry.categories).includes("rotorBearing") || entry.scadaKind === "consumer").length;
+      const warnings = entries.filter((entry) => entry.isOverstressed || entry.hasMissingSource).length;
       const metrics = `
         <div class="map-controls">
           <span class="pill">${escapeHtml(report.width || bounds.xs.length)}x${escapeHtml(report.height || bounds.ys.length)}x${escapeHtml(report.depth || bounds.zs.length)}</span>
-          <span class="pill">${escapeHtml(report.inspected ?? "")} checked</span>
-          <span class="pill">${escapeHtml(report.wrappable ?? entries.length)} wrappable</span>
-          <span class="pill">${escapeHtml(report.inventories ?? "")} inventories</span>
-          <span class="pill">router ${escapeHtml(report.router || "n/a")}</span>
+          <span class="pill">${escapeHtml(entries.length)} mapped</span>
+          <span class="pill">${escapeHtml(networks.length)} networks</span>
+          <span class="pill">${escapeHtml(drivers)} drivers</span>
+          <span class="pill">${escapeHtml(consumers)} consumers/rotors</span>
+          ${warnings ? `<span class="pill warn-text">${escapeHtml(warnings)} warnings</span>` : ""}
+          <span class="pill">router ${escapeHtml(routerLabel(report))}</span>
         </div>
       `;
 
       return `
         <section class="block">
-          <h2>Router Map</h2>
+          <h2>Coordinate Map</h2>
           ${metrics}
-          <div id="copyStatus" class="copy-status">Click any map cell to copy a quick Lua p-wrap snippet.</div>
+          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks.</div>
           ${layers.map((y) => routerMapLayer(y, bounds, byCoord)).join("")}
         </section>
         <section class="block">
