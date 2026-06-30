@@ -119,6 +119,12 @@ local function add(rows, config, key, explanation, command, label)
   table.insert(rows, row(key, at(config, key), explanation, command, label))
 end
 
+local function toneRow(key, value, explanation, tone)
+  local result = row(key, value, explanation)
+  result.tone = tone
+  return result
+end
+
 local function section(title, rows, note)
   return {
     title = title,
@@ -484,6 +490,284 @@ function reportTabs.flightOverviewTab(report)
   }, stats
 end
 
+local function sortedKeys(map)
+  local keys = {}
+
+  for key, _ in pairs(map or {}) do
+    table.insert(keys, key)
+  end
+
+  table.sort(keys, function(left, right)
+    return tostring(left) < tostring(right)
+  end)
+
+  return keys
+end
+
+local function listText(values, limit)
+  local parts = {}
+  limit = limit or 5
+
+  for index, value in ipairs(values or {}) do
+    if index > limit then
+      table.insert(parts, "+" .. tostring(#values - limit))
+      break
+    end
+
+    table.insert(parts, tostring(value))
+  end
+
+  if #parts == 0 then
+    return "none"
+  end
+
+  return table.concat(parts, ", ")
+end
+
+local function coordText(coord)
+  if type(coord) ~= "table" then
+    return "?"
+  end
+
+  return "("
+    .. tostring(coord.x)
+    .. ","
+    .. tostring(coord.y)
+    .. ","
+    .. tostring(coord.z)
+    .. ")"
+end
+
+local function speedText(group)
+  if type(group) ~= "table" then
+    return "n/a"
+  end
+
+  if group.speedMin == nil and group.speedMax == nil then
+    return "n/a"
+  end
+
+  if group.speedMin == group.speedMax then
+    return valueText(group.speedMin)
+  end
+
+  return valueText(group.speedMin) .. ".." .. valueText(group.speedMax)
+end
+
+local function stressText(group)
+  if type(group) ~= "table" then
+    return "n/a"
+  end
+
+  return "impact "
+    .. valueText(group.stressImpact or 0)
+    .. " / contribution "
+    .. valueText(group.stressContribution or 0)
+end
+
+local function kindCountsText(kindCounts)
+  local parts = {}
+
+  for _, key in ipairs(sortedKeys(kindCounts)) do
+    table.insert(parts, tostring(key) .. "=" .. tostring(kindCounts[key]))
+  end
+
+  if #parts == 0 then
+    return "none"
+  end
+
+  return table.concat(parts, ", ")
+end
+
+local function groupTone(group)
+  if type(group) ~= "table" then
+    return "warn"
+  end
+
+  if group.overstressed then
+    return "bad"
+  end
+
+  if #(group.consumers or {}) > 0 and #(group.drivers or {}) == 0 then
+    return "warn"
+  end
+
+  return "ok"
+end
+
+local function groupRows(groups, ids, limit)
+  local rows = {}
+  limit = limit or 24
+
+  for index, id in ipairs(ids or {}) do
+    if index > limit then
+      table.insert(rows, toneRow("more", tostring(#ids - limit), "Additional groups omitted from this compact tab. Use Raw JSON for the full graph.", "info"))
+      break
+    end
+
+    local group = groups and groups[id] or {}
+    local value = "nodes="
+      .. tostring(#(group.nodeIds or {}))
+      .. " roots="
+      .. tostring(#(group.roots or {}))
+      .. " leaves="
+      .. tostring(#(group.leaves or {}))
+      .. " drivers="
+      .. tostring(#(group.drivers or {}))
+      .. " consumers="
+      .. tostring(#(group.consumers or {}))
+      .. " speed="
+      .. speedText(group)
+
+    local explanation = stressText(group)
+      .. "; kinds "
+      .. kindCountsText(group.kindCounts)
+      .. "; subnetworks "
+      .. listText(group.subnetworks, 4)
+
+    table.insert(rows, toneRow(id, value, explanation, groupTone(group)))
+  end
+
+  return rows
+end
+
+local function nodeLabel(node)
+  if type(node) ~= "table" then
+    return "missing"
+  end
+
+  local parts = {
+    tostring(node.kind or "?"),
+    coordText(node.coord),
+  }
+
+  if node.speed ~= nil then
+    table.insert(parts, "speed=" .. valueText(node.speed))
+  end
+
+  return table.concat(parts, " ")
+end
+
+local function leafRows(scada, limit)
+  local rows = {}
+  limit = limit or 32
+
+  for index, leafId in ipairs(scada.leafIds or {}) do
+    if index > limit then
+      table.insert(rows, toneRow("more", tostring(#scada.leafIds - limit), "Additional leaves omitted from this compact tab. Use Raw JSON for the full graph.", "info"))
+      break
+    end
+
+    local node = scada.nodes and scada.nodes[leafId]
+    local control = scada.leafControls and scada.leafControls[leafId] or {}
+    local path = control.sourcePath and control.sourcePath.ids or {}
+    local driver = control.upstreamDriverId
+    local value = nodeLabel(node) .. " driver=" .. tostring(driver or "nil")
+    local explanation = "source path " .. listText(path, 8)
+    local tone = driver and "ok" or "warn"
+
+    if control.sourcePath and control.sourcePath.stoppedBy == "cycle" then
+      tone = "bad"
+      explanation = explanation .. "; cycle detected"
+    elseif control.sourcePath and control.sourcePath.stoppedBy == "missing_source" then
+      explanation = explanation .. "; source id not in scan"
+    end
+
+    table.insert(rows, toneRow(leafId, value, explanation, tone))
+  end
+
+  return rows
+end
+
+local function missingRows(title, missing)
+  local rows = {}
+
+  for _, id in ipairs(sortedKeys(missing)) do
+    local entry = missing[id] or {}
+    table.insert(rows, toneRow(id, "referenced by " .. listText(entry.referencedBy, 8), title, "warn"))
+  end
+
+  return rows
+end
+
+local function warningRows(scada)
+  local rows = {}
+
+  for index, warning in ipairs(scada.warnings or {}) do
+    table.insert(rows, toneRow(
+      tostring(index) .. ":" .. tostring(warning.kind or "warning"),
+      valueText(warning.details),
+      "Generated while building the kinetic SCADA graph.",
+      warning.kind == "source_cycle" and "bad" or "warn"
+    ))
+  end
+
+  return rows
+end
+
+function reportTabs.kineticScadaTab(report)
+  local scada = report.kineticScada
+    or (report.summary and report.summary.kineticScada and { summary = report.summary.kineticScada })
+    or {}
+  local summary = scada.summary or {}
+
+  local summaryRows = {
+    toneRow("nodes", summary.nodes or 0, "Kinetic peripherals with a SCADA self id.", (summary.nodes or 0) > 0 and "ok" or "info"),
+    toneRow("networks", summary.networks or 0, "Unique kinetic network ids.", (summary.networks or 0) > 0 and "ok" or "info"),
+    toneRow("subnetworks", summary.subnetworks or 0, "Speed zones keyed by subnetwork anchor id.", (summary.subnetworks or 0) > 0 and "ok" or "info"),
+    toneRow("edges", tostring(summary.resolvedEdges or 0) .. "/" .. tostring(summary.edges or 0), "Resolved immediate source links over total source references.", summary.edges == summary.resolvedEdges and "ok" or "warn"),
+    toneRow("drivers", summary.drivers or 0, "Nodes with recognized control methods such as setSignal or setTargetSpeed.", (summary.drivers or 0) > 0 and "ok" or "warn"),
+    toneRow("consumers", summary.consumers or 0, "Nodes that consume stress or report kind=consumer.", "info"),
+    toneRow("generators", summary.generators or 0, "Nodes that contribute stress capacity or report kind=generator.", "info"),
+    toneRow("leaves", summary.leaves or 0, "Nodes with no scanned children.", "info"),
+    toneRow("unnetworked", summary.unnetworked or 0, "SCADA nodes that reported nil network id. This can be normal for disconnected parts.", (summary.unnetworked or 0) > 0 and "warn" or "ok"),
+    toneRow("overstressed", summary.overstressedNodes or 0, "Nodes reporting an overstressed network.", (summary.overstressedNodes or 0) > 0 and "bad" or "ok"),
+    toneRow("warnings", summary.warnings or 0, "Graph builder warnings such as missing references or duplicate ids.", (summary.warnings or 0) > 0 and "warn" or "ok"),
+  }
+
+  local sections = {
+    section("SCADA Summary", summaryRows, "Green rows are ready, yellow rows need interpretation, red rows are active problems."),
+  }
+
+  local networkRows = groupRows(scada.networks, scada.networkIds, 18)
+  if #networkRows > 0 then
+    table.insert(sections, section("Networks", networkRows, "One row per kinetic network id. Drivers are controllable nodes discovered inside that network."))
+  end
+
+  local subnetworkRows = groupRows(scada.subnetworks, scada.subnetworkIds, 18)
+  if #subnetworkRows > 0 then
+    table.insert(sections, section("Subnetworks", subnetworkRows, "Speed zones grouped by subnetwork anchor id."))
+  end
+
+  local leaves = leafRows(scada, 32)
+  if #leaves > 0 then
+    table.insert(sections, section("Leaves And Upstream Drivers", leaves, "Generic leaf nodes and their nearest upstream controllable node, if one was scanned."))
+  end
+
+  local missingSources = missingRows("Source id was referenced but the source block was not in this scan.", scada.missingSourceIds)
+  if #missingSources > 0 then
+    table.insert(sections, section("Missing Source IDs", missingSources))
+  end
+
+  local missingAnchors = missingRows("Subnetwork anchor id was referenced but the anchor block was not in this scan.", scada.missingAnchorIds)
+  if #missingAnchors > 0 then
+    table.insert(sections, section("Missing Anchor IDs", missingAnchors))
+  end
+
+  local warnings = warningRows(scada)
+  if #warnings > 0 then
+    table.insert(sections, section("Warnings", warnings))
+  end
+
+  return {
+    id = "aircraft-kinetic-scada",
+    label = "Kinetic SCADA",
+    title = "Kinetic SCADA Topology",
+    note = "Derived from Create: Avionics self/source/network/subnetwork ids captured during scan. Raw JSON contains the full graph.",
+    sections = sections,
+  }
+end
+
 local function setMetrics(report, stats)
   local human = report.human
   if not human then
@@ -511,6 +795,19 @@ local function setMetrics(report, stats)
       { label = "Peak Tilt", value = stats and (degText(math.max(stats.peakAxis1 or 0, stats.peakAxis2 or 0))) or "n/a" },
       { label = "Stop", value = timing.stopReason or report.abortReason or settings.mode or "n/a" },
     }
+    return
+  end
+
+  if report.kind == "aircraft_scan" or report.kind == "aircraft_status" then
+    local scada = report.kineticScada or {}
+    local summary = scada.summary or (report.summary and report.summary.kineticScada) or {}
+    human.metrics = {
+      { label = "Kind", value = report.kind },
+      { label = "SCADA Nodes", value = summary.nodes or 0 },
+      { label = "Networks", value = summary.networks or 0 },
+      { label = "Drivers", value = summary.drivers or 0 },
+      { label = "Warnings", value = summary.warnings or 0 },
+    }
   end
 end
 
@@ -527,6 +824,10 @@ function reportTabs.attach(report, config, options)
     local flightTab
     flightTab, stats = reportTabs.flightOverviewTab(report)
     insertFirstTab(human, flightTab)
+  end
+
+  if report.kind == "aircraft_scan" or report.kind == "aircraft_status" then
+    insertFirstTab(human, reportTabs.kineticScadaTab(report))
   end
 
   if config then

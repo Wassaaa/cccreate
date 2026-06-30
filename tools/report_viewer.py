@@ -488,6 +488,38 @@ HTML = r"""<!doctype html>
       font-weight: 650;
     }
 
+    tr.row-ok td:first-child {
+      border-left: 4px solid var(--ok);
+    }
+
+    tr.row-warn td:first-child {
+      border-left: 4px solid var(--warn);
+    }
+
+    tr.row-bad td:first-child {
+      border-left: 4px solid var(--bad);
+    }
+
+    tr.row-info td:first-child {
+      border-left: 4px solid #386fa4;
+    }
+
+    tr.row-ok {
+      background: #f1f8f1;
+    }
+
+    tr.row-warn {
+      background: #fbf6e9;
+    }
+
+    tr.row-bad {
+      background: #fbebe8;
+    }
+
+    tr.row-info {
+      background: #edf4fb;
+    }
+
     .mono {
       font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
     }
@@ -854,6 +886,12 @@ HTML = r"""<!doctype html>
       if (data.length === 0) return '<div class="empty">No rows in this section.</div>';
 
       const hasCommand = data.some((row) => row.command);
+      const rowClass = (row) => {
+        const tone = String(row.tone || row.status || "").toLowerCase();
+        if (["ok", "warn", "bad", "info"].includes(tone)) return ` class="row-${tone}"`;
+        return "";
+      };
+
       return `
         <table>
           <thead>
@@ -866,7 +904,7 @@ HTML = r"""<!doctype html>
           </thead>
           <tbody>
             ${data.map((row) => `
-              <tr>
+              <tr${rowClass(row)}>
                 <td class="mono">${escapeHtml(row.key || row.label || "")}</td>
                 <td>${escapeHtml(row.displayValue ?? row.value ?? "")}</td>
                 <td>${escapeHtml(row.explanation || "")}</td>
