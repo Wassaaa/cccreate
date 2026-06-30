@@ -105,6 +105,7 @@ local function usage()
   print("aircraft config killswitch <true|false> [front|back|left|right|top|bottom] [activeHigh true|false]")
   print("aircraft config killswitch-router <x> <y> <z> [side] [activeHigh true|false]")
   print("aircraft config killswitch-key <true|false> [key]")
+  print("aircraft config killswitch-source <key|side|router>")
   print("aircraft config controller <true|false>")
   print("aircraft config controller-type <redstone_router|keyboard>")
   print("aircraft config controller-layout <shiftX> <shiftY> <shiftZ> [side]")
@@ -537,6 +538,19 @@ local function normalizeComputerSide(side)
   error("side must be front, back, left, right, top, or bottom", 0)
 end
 
+local function normalizeKillSwitchSource(source)
+  local normalized = string.lower(tostring(source or "side"))
+  if normalized == "keyboard" or normalized == "controller" then
+    normalized = "key"
+  end
+
+  if normalized == "key" or normalized == "side" or normalized == "router" then
+    return normalized
+  end
+
+  error("killswitch source must be key, side, or router", 0)
+end
+
 local function validControllerKey(key)
   return key == "w"
     or key == "a"
@@ -876,6 +890,39 @@ local function runConfig()
     print("  source=" .. tostring(config.killSwitch.source))
     print("  keyEnabled=" .. tostring(config.killSwitch.keyEnabled))
     print("  key=" .. tostring(config.killSwitch.key))
+    return
+  elseif subcommand == "killswitch-source" then
+    config.killSwitch = config.killSwitch or {}
+    if not args[3] then
+      error("killswitch-source needs key, side, or router", 0)
+    end
+    local source = normalizeKillSwitchSource(args[3])
+    if source == "router" and not config.killSwitch.binding then
+      error("source=router needs a binding; use aircraft config killswitch-router <x> <y> <z> [side] [activeHigh]", 0)
+    end
+
+    config.killSwitch.enabled = true
+    config.killSwitch.source = source
+    if source == "key" then
+      config.killSwitch.keyEnabled = true
+      config.killSwitch.key = config.killSwitch.key or "k"
+    elseif source == "side" then
+      config.killSwitch.side = config.killSwitch.side or "front"
+      if config.killSwitch.activeHigh == nil then
+        config.killSwitch.activeHigh = true
+      end
+    elseif source == "router" and config.killSwitch.activeHigh == nil then
+      config.killSwitch.activeHigh = true
+    end
+
+    saveConfig(config)
+    print("Saved kill switch source to " .. CONFIG_PATH)
+    print("  enabled=" .. tostring(config.killSwitch.enabled))
+    print("  source=" .. tostring(config.killSwitch.source))
+    print("  keyEnabled=" .. tostring(config.killSwitch.keyEnabled))
+    print("  key=" .. tostring(config.killSwitch.key))
+    print("  side=" .. tostring(config.killSwitch.side))
+    print("  binding=" .. bindingText(config.killSwitch.binding))
     return
   elseif subcommand == "controller" then
     config.controller = config.controller or {}

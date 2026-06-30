@@ -235,10 +235,6 @@ local function hzTarget(settings, health)
   return 0
 end
 
-local function millisText(value)
-  return tostring(math.floor(number(value) * 1000 + 0.5)) .. "ms"
-end
-
 local function timingText(frame, settings)
   local health = timingHealth(frame)
   local hz = tonumber(health.rollingActualHz) or tonumber(health.actualHz) or 0
@@ -251,7 +247,6 @@ local function timingText(frame, settings)
   return "hz " .. fixed(hz, 1)
     .. "/" .. fixed(target, targetDigits)
     .. " miss " .. tostring(math.floor(number(health.missedFrames) + 0.5))
-    .. " late " .. millisText(health.rollingMaxLateness or health.maxLateness or health.lastLateness)
 end
 
 local function telemetryValue(telemetry, role, key)

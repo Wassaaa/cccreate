@@ -475,6 +475,19 @@ local function attitudeRates(rates)
   }
 end
 
+local function normalizeKillSwitchSource(source)
+  local normalized = string.lower(tostring(source or "side"))
+  if normalized == "keyboard" or normalized == "controller" then
+    normalized = "key"
+  end
+
+  if normalized == "key" or normalized == "side" or normalized == "router" then
+    return normalized
+  end
+
+  return "side"
+end
+
 local function stabilizeConfig(config, options)
   local defaults = config.stabilize or {}
   local display = config.display or {}
@@ -523,7 +536,7 @@ local function stabilizeConfig(config, options)
     reportFrameLimit = tonumber(options.reportFrameLimit) or tonumber(defaults.reportFrameLimit) or 600,
     killSwitch = {
       enabled = killSwitchEnabled,
-      source = tostring(killSwitch.source or (killSwitch.binding and "router" or "side")),
+      source = normalizeKillSwitchSource(killSwitch.source or (killSwitch.binding and "router" or "side")),
       side = tostring(killSwitch.side or "front"),
       activeHigh = killSwitch.activeHigh ~= false,
       keyEnabled = killSwitch.keyEnabled ~= false,
@@ -706,7 +719,7 @@ local function readKillSwitch(settings, control, router, routerName)
 
   if source == "router" then
     addCheck(readRouterKillSwitch(killSwitch, router, routerName))
-  elseif source == "controller" or source == "key" then
+  elseif source == "controller" or source == "keyboard" or source == "key" then
     -- Key-only kill switch. Nothing else to read.
   else
     addCheck(readLocalKillSwitch(killSwitch))
@@ -1195,12 +1208,8 @@ local function emptyTimingHealth(settings)
     framesRun = 0,
     missedFrames = 0,
     deadlineMisses = 0,
-    lateFrames = 0,
-    maxLateness = 0,
-    rollingMaxLateness = 0,
     avgFrameSeconds = 0,
     maxFrameSeconds = 0,
-    lastLateness = 0,
     lastFrameSeconds = 0,
     lastMissed = false,
     rollingMissedFrames = 0,
@@ -1212,7 +1221,6 @@ local function updateTimingSummary(timing, frameTiming, recentFrames)
   local finishedAt = tonumber(frameTiming.finishedAt)
     or tonumber(frameTiming.startedAt)
     or 0
-  local lateness = tonumber(frameTiming.lateness) or 0
   local missed = frameTiming.missed == true
 
   timing.framesRun = (tonumber(timing.framesRun) or 0) + 1
@@ -1228,13 +1236,6 @@ local function updateTimingSummary(timing, frameTiming, recentFrames)
     timing.deadlineMisses = tonumber(timing.deadlineMisses) or 0
   end
 
-  if lateness > TIMING_EPSILON then
-    timing.lateFrames = (tonumber(timing.lateFrames) or 0) + 1
-  else
-    timing.lateFrames = tonumber(timing.lateFrames) or 0
-  end
-  timing.maxLateness = math.max(tonumber(timing.maxLateness) or 0, lateness)
-
   if finishedAt > 0 then
     timing.actualHz = timing.framesRun / finishedAt
   else
@@ -1243,7 +1244,6 @@ local function updateTimingSummary(timing, frameTiming, recentFrames)
 
   table.insert(recentFrames, {
     startedAt = tonumber(frameTiming.startedAt) or finishedAt,
-    lateness = lateness,
     total = total,
     missed = missed,
   })
@@ -1259,10 +1259,8 @@ local function updateTimingSummary(timing, frameTiming, recentFrames)
     end
   end
 
-  local rollingMaxLateness = 0
   local rollingMissedFrames = 0
   for _, item in ipairs(recentFrames) do
-    rollingMaxLateness = math.max(rollingMaxLateness, tonumber(item.lateness) or 0)
     if item.missed then
       rollingMissedFrames = rollingMissedFrames + 1
     end
@@ -1270,7 +1268,6 @@ local function updateTimingSummary(timing, frameTiming, recentFrames)
 
   timing.targetHz = timing.targetHz or hzFromInterval(timing.interval)
   timing.rollingActualHz = rollingActualHz
-  timing.rollingMaxLateness = rollingMaxLateness
   timing.rollingMissedFrames = rollingMissedFrames
 
   return {
@@ -1280,12 +1277,8 @@ local function updateTimingSummary(timing, frameTiming, recentFrames)
     framesRun = timing.framesRun,
     missedFrames = timing.missedFrames,
     deadlineMisses = timing.deadlineMisses,
-    lateFrames = timing.lateFrames,
-    maxLateness = timing.maxLateness,
-    rollingMaxLateness = timing.rollingMaxLateness,
     avgFrameSeconds = timing.avgFrameSeconds,
     maxFrameSeconds = timing.maxFrameSeconds,
-    lastLateness = lateness,
     lastFrameSeconds = total,
     lastMissed = missed,
     rollingMissedFrames = rollingMissedFrames,
@@ -1416,9 +1409,6 @@ function flightControl.stabilize(config, options)
     framesRun = 0,
     missedFrames = 0,
     deadlineMisses = 0,
-    lateFrames = 0,
-    maxLateness = 0,
-    rollingMaxLateness = 0,
     rollingMissedFrames = 0,
     avgFrameSeconds = 0,
     maxFrameSeconds = 0,

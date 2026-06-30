@@ -60,8 +60,9 @@ return {
   },
   killSwitch = {
     enabled = false,
-    -- source="side" reads a local computer redstone side.
-    -- source="router" reads binding through a redstone_router coordinate.
+    -- source="key" checks only the configured keyboard/controller key.
+    -- source="side" also reads a local computer redstone side.
+    -- source="router" also reads binding through a redstone_router coordinate.
     source = "side",
     side = "front",
     activeHigh = true,
