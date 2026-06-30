@@ -1923,20 +1923,20 @@ HTML = r"""<!doctype html>
     }
 
     const NBT_LEGEND = [
-      { label: "black shulker: router origin", color: "#1d1d21" },
-      { label: "lime shulker: rotors / consumers", color: "#80c71f" },
-      { label: "orange shulker: drivers / actuators", color: "#f9801d" },
-      { label: "cyan shulker: kinetic SCADA", color: "#169c9c" },
-      { label: "yellow shulker: inferred missing source/anchor", color: "#fed83d" },
-      { label: "gray shulker: generic wrapped or unknown block", color: "#7f7f7f" },
-      { label: "red shulker: overstressed or error", color: "#b02e26" },
-      { label: "purple shulker: attitude sensor", color: "#8932b8" },
-      { label: "green shulker: inventory", color: "#5e7c16" },
-      { label: "light blue shulker: display", color: "#3ab3da" },
-      { label: "blue shulker: fluid", color: "#3c44aa" },
-      { label: "red shulker: energy/redstone", color: "#c51d10" },
-      { label: "gray shulker: modem", color: "#474f52" },
-      { label: "white shulker: terminal", color: "#f0f0f0" }
+      { label: "black wool: router origin", color: "#1d1d21" },
+      { label: "lime wool: rotors / consumers", color: "#80c71f" },
+      { label: "orange wool: drivers / actuators", color: "#f9801d" },
+      { label: "cyan wool: kinetic SCADA", color: "#169c9c" },
+      { label: "yellow wool: inferred missing SCADA source/anchor", color: "#fed83d" },
+      { label: "stone: generic wrapped or unknown block", color: "#7f7f7f" },
+      { label: "red wool: redstone / overstressed / error", color: "#b02e26" },
+      { label: "purple wool: attitude sensor", color: "#8932b8" },
+      { label: "green wool: inventory", color: "#5e7c16" },
+      { label: "light blue wool: display", color: "#3ab3da" },
+      { label: "blue wool: fluid", color: "#3c44aa" },
+      { label: "redstone block: energy", color: "#c51d10" },
+      { label: "gray wool: modem", color: "#474f52" },
+      { label: "white wool: terminal", color: "#f0f0f0" }
     ];
 
     function renderNbtLegend() {
@@ -2081,7 +2081,7 @@ HTML = r"""<!doctype html>
         <section class="block">
           <h2>Coordinate Map</h2>
           ${metrics}
-          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks. Dashed cells are inferred from decoded SCADA IDs, not confirmed peripherals. NBT exports use colored shulker boxes with cc_* block-entity metadata.</div>
+          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks. Dashed cells are inferred from decoded SCADA IDs, not confirmed peripherals. NBT exports use simple visible block colors; yellow means inferred missing SCADA source or anchor.</div>
           ${renderNbtLegend()}
           ${layers.map((y) => routerMapLayer(y, bounds, byCoord)).join("")}
         </section>
@@ -2347,7 +2347,6 @@ def coordinate_entries(report):
             "categories": list_value(raw.get("categories")),
             "methods": list_value(raw.get("methods")),
             "methodCount": raw.get("methodCount"),
-            "scadaId": scada.get("id") or scada.get("selfId"),
             "networkId": scada.get("networkId"),
             "subnetworkAnchorId": scada.get("subnetworkAnchorId"),
             "sourceId": scada.get("sourceId"),
@@ -2366,7 +2365,6 @@ def coordinate_entries(report):
             "y": key[1],
             "z": key[2],
             "categories": list_value(node.get("categories")),
-            "scadaId": node.get("id"),
             "networkId": node.get("networkId"),
             "subnetworkAnchorId": node.get("subnetworkAnchorId"),
             "sourceId": node.get("sourceId"),
@@ -2399,8 +2397,6 @@ def coordinate_entries(report):
                 "mapKind": "inferred",
                 "inferred": True,
                 "inferredKind": kind,
-                "inferredWorld": world,
-                "scadaId": missing_id,
                 "networkId": ref_node.get("networkId"),
                 "subnetworkAnchorId": ref_node.get("subnetworkAnchorId"),
                 "sourceId": missing_id if kind == "missing_source" else None,
@@ -2413,21 +2409,21 @@ def coordinate_entries(report):
 
 
 BLOCK_BY_KIND = {
-    "attitude": "minecraft:purple_shulker_box",
-    "rotor": "minecraft:lime_shulker_box",
-    "scalar": "minecraft:orange_shulker_box",
-    "display": "minecraft:light_blue_shulker_box",
-    "kinetic": "minecraft:cyan_shulker_box",
-    "inventory": "minecraft:green_shulker_box",
-    "fluid": "minecraft:blue_shulker_box",
-    "energy": "minecraft:red_shulker_box",
-    "redstone": "minecraft:red_shulker_box",
-    "terminal": "minecraft:white_shulker_box",
-    "modem": "minecraft:gray_shulker_box",
-    "inferred": "minecraft:yellow_shulker_box",
-    "error": "minecraft:red_shulker_box",
-    "wrappable": "minecraft:gray_shulker_box",
-    "origin": "minecraft:black_shulker_box",
+    "attitude": "minecraft:purple_wool",
+    "rotor": "minecraft:lime_wool",
+    "scalar": "minecraft:orange_wool",
+    "display": "minecraft:light_blue_wool",
+    "kinetic": "minecraft:cyan_wool",
+    "inventory": "minecraft:green_wool",
+    "fluid": "minecraft:blue_wool",
+    "energy": "minecraft:redstone_block",
+    "redstone": "minecraft:red_wool",
+    "terminal": "minecraft:white_wool",
+    "modem": "minecraft:gray_wool",
+    "inferred": "minecraft:yellow_wool",
+    "error": "minecraft:red_wool",
+    "wrappable": "minecraft:stone",
+    "origin": "minecraft:black_wool",
 }
 
 
@@ -2437,127 +2433,6 @@ def block_for_entry(entry):
     if entry.get("inferredKind") == "missing_anchor":
         return BLOCK_BY_KIND["inferred"]
     return BLOCK_BY_KIND.get(entry.get("mapKind"), BLOCK_BY_KIND["wrappable"])
-
-
-def short_id(value):
-    if value is None or value == "":
-        return None
-    text = str(value)
-    if len(text) <= 12:
-        return text
-    return f"{text[:6]}...{text[-4:]}"
-
-
-def csv_value(value):
-    values = [str(item) for item in list_value(value) if item is not None and str(item) != ""]
-    return ", ".join(values) if values else None
-
-
-def coord_text(value):
-    if not has_coord(value):
-        return None
-    return f"{int(value['x'])},{int(value['y'])},{int(value['z'])}"
-
-
-def metadata_string(value):
-    if value is None:
-        return None
-    if value is True:
-        return "true"
-    if value is False:
-        return "false"
-    text = str(value)
-    return text if text != "" else None
-
-
-def metadata_items(metadata):
-    items = []
-    for key, value in sorted(metadata.items()):
-        text = metadata_string(value)
-        if text is not None:
-            items.append((key, text))
-    return tuple(items)
-
-
-def entry_role(entry):
-    if entry.get("isOverstressed"):
-        return "overstressed"
-    if entry.get("inferredKind"):
-        return entry["inferredKind"]
-    if entry.get("mapKind"):
-        return entry["mapKind"]
-    if entry.get("kind"):
-        return entry["kind"]
-    if entry.get("inventory"):
-        return "inventory"
-    return "unknown"
-
-
-def entry_label(entry):
-    role = entry_role(entry)
-    scada_id = entry.get("scadaId") or entry.get("sourceId")
-    if role == "missing_source":
-        return f"missing source {short_id(scada_id) or ''}".strip()
-    if role == "missing_anchor":
-        return f"missing anchor {short_id(scada_id) or ''}".strip()
-    if role == "rotor":
-        return "rotor / kinetic consumer"
-    if role == "scalar":
-        return "driver / scalar actuator"
-    if role == "wrappable":
-        return "generic wrapped or unknown block"
-    return role.replace("_", " ")
-
-
-def entry_note(entry):
-    role = entry_role(entry)
-    if role == "missing_source":
-        return "decoded from a SCADA source id; not found as a wrapped peripheral in this scan"
-    if role == "missing_anchor":
-        return "decoded from a SCADA subnetwork anchor id; not found as a wrapped peripheral in this scan"
-    if role == "wrappable":
-        return "router mapped this block, but the report has no more specific role classification"
-    if entry.get("isOverstressed"):
-        return "node reported overstressed"
-    if entry.get("hasMissingSource"):
-        return "node references a source id that was not discovered as a peripheral"
-    return None
-
-
-def entry_metadata(entry, block_name):
-    role = entry_role(entry)
-    metadata = {
-        "cc_name": f"cc:{role}@{int(entry['x'])},{int(entry['y'])},{int(entry['z'])}",
-        "cc_label": entry_label(entry),
-        "cc_role": role,
-        "cc_block": block_name,
-        "cc_coord": f"{int(entry['x'])},{int(entry['y'])},{int(entry['z'])}",
-        "cc_categories": csv_value(entry.get("categories")),
-        "cc_scada_id": entry.get("scadaId"),
-        "cc_scada_kind": entry.get("scadaKind"),
-        "cc_network_id": entry.get("networkId"),
-        "cc_subnetwork_anchor_id": entry.get("subnetworkAnchorId"),
-        "cc_source_id": entry.get("sourceId"),
-        "cc_inferred": entry.get("inferred") is True or None,
-        "cc_inferred_kind": entry.get("inferredKind"),
-        "cc_inferred_world": coord_text(entry.get("inferredWorld")),
-        "cc_overstressed": entry.get("isOverstressed") is True or None,
-        "cc_has_missing_source": entry.get("hasMissingSource") is True or None,
-        "cc_method_count": entry.get("methodCount"),
-        "cc_note": entry_note(entry),
-    }
-    return dict(metadata_items(metadata))
-
-
-def origin_metadata():
-    return {
-        "cc_name": "cc:origin@0,0,0",
-        "cc_label": "router origin",
-        "cc_role": "origin",
-        "cc_block": BLOCK_BY_KIND["origin"],
-        "cc_coord": "0,0,0",
-        "cc_note": "black wool marker for the router-relative origin",
-    }
 
 
 def nbt_string(value):
@@ -2618,22 +2493,6 @@ def block_state(name, properties=None):
     return data
 
 
-def json_text(value):
-    return json.dumps({"text": str(value)}, separators=(",", ":"))
-
-
-def shulker_box_nbt(metadata):
-    metadata = dict(metadata_items(metadata or {}))
-    label = metadata.get("cc_label") or metadata.get("cc_name") or "ComputerCraft map block"
-    data = {
-        "id": tag_string("minecraft:shulker_box"),
-        "CustomName": tag_string(json_text(label)),
-    }
-    for key, value in metadata.items():
-        data[key] = tag_string(value)
-    return data
-
-
 def structure_nbt_bytes(entries, author="Codex"):
     if not entries:
         raise ValueError("report has no coordinate entries")
@@ -2659,29 +2518,24 @@ def structure_nbt_bytes(entries, author="Codex"):
             palette.append(tag_compound(block_state(name, properties)))
         return palette_index[key]
 
-    def set_block(x, y, z, name, properties=None, metadata=None):
+    def set_block(x, y, z, name, properties=None):
         pos = (x - min_x, y - min_y, z - min_z)
-        block_data = {"state": state_index(name, properties)}
-        if metadata:
-            block_data["nbt"] = shulker_box_nbt(metadata)
-        blocks[pos] = block_data
+        blocks[pos] = state_index(name, properties)
 
     for entry in entries:
-        block_name = block_for_entry(entry)
-        set_block(int(entry["x"]), int(entry["y"]), int(entry["z"]), block_name, metadata=entry_metadata(entry, block_name))
+        set_block(int(entry["x"]), int(entry["y"]), int(entry["z"]), block_for_entry(entry))
 
-    set_block(0, 0, 0, BLOCK_BY_KIND["origin"], metadata=origin_metadata())
+    set_block(0, 0, 0, BLOCK_BY_KIND["origin"])
 
     block_entries = []
-    for (x, y, z), block_data in sorted(blocks.items()):
-        data = {
-            "pos": tag_list(TAG_INT, [x, y, z]),
-            "state": tag_int(block_data["state"]),
-        }
-        if block_data.get("nbt"):
-            data["nbt"] = tag_compound(block_data["nbt"])
+    for (x, y, z), state in sorted(blocks.items()):
         block_entries.append(
-            tag_compound(data)
+            tag_compound(
+                {
+                    "pos": tag_list(TAG_INT, [x, y, z]),
+                    "state": tag_int(state),
+                }
+            )
         )
 
     root = {
