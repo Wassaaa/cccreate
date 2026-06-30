@@ -576,7 +576,7 @@ function reportTabs.flightOverviewTab(report)
 
   local yawRows = {}
   addTextRow(yawRows, "yaw.enabled", settings.yaw and settings.yaw.enabled, "Whether yaw gyro damping was enabled for this run.")
-  addTextRow(yawRows, "yawActiveFrames", stats.yawActiveFrames, "Frames where yaw targets were computed from nav orientation and gyro bearing roles.")
+  addTextRow(yawRows, "yawActiveFrames", stats.yawActiveFrames, "Frames where yaw targets were computed from craft-local bearing geometry.")
   addTextRow(yawRows, "yawSkippedFrames", stats.yawSkippedFrames, "Frames where yaw was enabled but skipped because a dependency was missing or errored.")
   addTextRow(yawRows, "yawWriteFrames", stats.yawWriteFrames, "Frames that wrote manual yaw targets to gyro bearings.")
   addTextRow(yawRows, "yawWriteSkippedFrames", stats.yawWriteSkippedFrames, "Frames skipped by yaw.writeInterval/yaw.writeDeadband.")

@@ -1459,32 +1459,18 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices, contro
     return result
   end
 
-  if not sensors or not sensors.navigation then
-    result.skipped = "navigation table missing"
-    return result
-  end
-
   local center = roleCenter(gyroDevices)
   if not center then
     result.skipped = "manual gyro bearings missing"
     return result
   end
 
-  local orientation, orientationError = callGetter(sensors.navigation.object, "getOrientation")
-  if orientationError then
-    result.skipped = "navigation getOrientation failed"
-    result.error = orientationError
-    return result
-  end
-  if type(orientation) ~= "table" then
-    result.skipped = "navigation getOrientation returned non-table"
-    return result
-  end
-
-  local heading = readOptionalGetter(sensors.navigation.object, "getHeadingRad")
   local craftUp = orientationUpVector(scan)
   craftUp = vectorNormalize(craftUp, vector(0, 1, 0))
-  local worldUp = vector(0, 1, 0)
+  local heading = sensors
+    and sensors.navigation
+    and sensors.navigation.object
+    and readOptionalGetter(sensors.navigation.object, "getHeadingRad")
 
   local activeRate = yawRate
   if math.abs(activeRate) < (tonumber(yawSettings.deadband) or 0) then
@@ -1501,12 +1487,10 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices, contro
   result.headingRad = heading and heading.ok and heading.value or nil
   result.headingRadRead = heading
   result.center = center
-  result.up = worldUp
+  result.up = craftUp
   result.craftUp = craftUp
-  result.worldUp = worldUp
-  result.targetMode = "manual_local_from_world_target"
-  result.yawTangentMode = "world_up_cross_world_radial"
-  result.orientation = copyPlain(orientation)
+  result.targetMode = "manual_local_from_craft_target"
+  result.yawTangentMode = "craft_up_cross_local_radial"
   result.activeYawRate = activeRate
   result.rateLateral = rateLateral
   result.commandLateral = commandLateral
@@ -1520,8 +1504,7 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices, contro
     local device = gyroDevices and gyroDevices[role]
 
     if device and device.coord then
-      local localBaseTarget = rotateByInverseQuaternion(orientation, worldUp)
-      localBaseTarget = vectorNormalize(localBaseTarget, craftUp)
+      local localBaseTarget = craftUp
       local relative = coords.sub(vector(device.coord.x, device.coord.y, device.coord.z), center)
       local vertical = vectorScale(craftUp, coords.dot(relative, craftUp))
       local radial = coords.sub(relative, vertical)
@@ -1530,46 +1513,19 @@ local function buildYawFrame(settings, state, scan, sensors, gyroDevices, contro
       if radius > 0.000001 then
         local tangent = coords.cross(craftUp, radialUnit)
         tangent = vectorNormalize(tangent)
+        local localTarget = coords.add(localBaseTarget, vectorScale(tangent, lateral))
+        localTarget = vectorNormalize(localTarget, localBaseTarget)
 
-        local worldRelative = rotateByQuaternion(orientation, relative)
-        local worldVertical = vectorScale(worldUp, coords.dot(worldRelative, worldUp))
-        local worldRadial = coords.sub(worldRelative, worldVertical)
-        local worldRadialUnit, worldRadius = vectorNormalize(worldRadial)
-
-        if worldRadius <= 0.000001 then
-          result.commands[role] = {
-            role = role,
-            coord = copyPlain(device.coord),
-            radius = radius,
-            radial = radialUnit,
-            skipped = "rotor is on world yaw centerline",
-          }
-        else
-          local worldTangent = coords.cross(worldUp, worldRadialUnit)
-          worldTangent = vectorNormalize(worldTangent)
-
-          local worldTarget = coords.add(worldUp, vectorScale(worldTangent, lateral))
-          worldTarget = vectorNormalize(worldTarget, worldUp)
-          local localTarget = rotateByInverseQuaternion(orientation, worldTarget)
-          localTarget = vectorNormalize(localTarget, localBaseTarget)
-
-          result.commands[role] = {
-            role = role,
-            coord = copyPlain(device.coord),
-            radius = radius,
-            radial = radialUnit,
-            tangent = tangent,
-            worldRelative = worldRelative,
-            worldRadius = worldRadius,
-            worldRadial = worldRadialUnit,
-            worldTangent = worldTangent,
-            baseTarget = localBaseTarget,
-            localTarget = localTarget,
-            worldBaseTarget = worldUp,
-            worldTarget = worldTarget,
-            target = vectorToList(localTarget),
-          }
-        end
+        result.commands[role] = {
+          role = role,
+          coord = copyPlain(device.coord),
+          radius = radius,
+          radial = radialUnit,
+          tangent = tangent,
+          baseTarget = localBaseTarget,
+          localTarget = localTarget,
+          target = vectorToList(localTarget),
+        }
       else
         result.commands[role] = {
           role = role,
@@ -2288,6 +2244,8 @@ local function compactYawFrame(yaw)
     lateral = yaw.lateral,
     tiltDeg = yaw.tiltDeg,
     sign = yaw.sign,
+    targetMode = yaw.targetMode,
+    yawTangentMode = yaw.yawTangentMode,
     write = compactWriteDecision(yaw.write),
     commands = tableHasEntries(commands) and commands or nil,
   }

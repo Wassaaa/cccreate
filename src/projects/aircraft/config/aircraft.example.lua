@@ -105,8 +105,8 @@ return {
   },
   yaw = {
     -- Damps spin around the craft up axis by tilting gyroscopic propeller
-    -- bearings with setManualTarget. Requires a navigation table in the scan
-    -- for body-frame to world-frame target conversion.
+    -- bearings with setManualTarget. Neutral targets stay on craft-local up;
+    -- yaw damping adds only a local tangential tilt.
     enabled = true,
     rateKd = 0.15,
     maxTiltDeg = 8,
