@@ -816,58 +816,125 @@ local function assignNearestDisplays(displayEntries, targetRoles)
   return roles
 end
 
+local STATUS_STRIP_AXES = {
+  { x = 1, y = 0, z = 0 },
+  { x = 0, y = 1, z = 0 },
+  { x = 0, y = 0, z = 1 },
+}
+
 local STATUS_STRIP_CELLS = {
-  { key = "throttle", offset = 0 },
+  { key = "text", offset = 0 },
   { key = "hold", offset = 1 },
   { key = "moveTarget", offset = 2 },
 }
 
-local function statusStripReservation(config)
-  local strip = config
-    and config.display
-    and config.display.statusStrip
+local function coordOffset(coord, axis, amount)
+  return {
+    x = coord.x + axis.x * amount,
+    y = coord.y + axis.y * amount,
+    z = coord.z + axis.z * amount,
+  }
+end
 
-  if type(strip) ~= "table" or strip.enabled ~= true then
+local function entryDistanceFrom(entry, origin)
+  if entry and entry.coord and origin then
+    return distanceSquared(entry.coord, origin)
+  elseif entry and entry.coord then
+    return math.abs(tonumber(entry.coord.x) or 0)
+      + math.abs(tonumber(entry.coord.y) or 0)
+      + math.abs(tonumber(entry.coord.z) or 0)
+  end
+
+  return math.huge
+end
+
+local function autoStatusStrip(displayEntries, origin)
+  local byKey = {}
+  local textDisplays = {}
+
+  for _, entry in ipairs(displayEntries or {}) do
+    if entry.coord and displayKind(entry) == "text" then
+      byKey[coords.key(entry.coord.x, entry.coord.y, entry.coord.z)] = entry
+      table.insert(textDisplays, entry)
+    end
+  end
+
+  local candidates = {}
+  for _, entry in ipairs(textDisplays) do
+    for _, axis in ipairs(STATUS_STRIP_AXES) do
+      local previous = coordOffset(entry.coord, axis, -1)
+      if not byKey[coords.key(previous.x, previous.y, previous.z)] then
+        local stripEntries = {}
+        local offset = 0
+
+        while true do
+          local current = coordOffset(entry.coord, axis, offset)
+          local currentEntry = byKey[coords.key(current.x, current.y, current.z)]
+          if not currentEntry then
+            break
+          end
+
+          table.insert(stripEntries, currentEntry)
+          offset = offset + 1
+        end
+
+        if #stripEntries >= 3 then
+          table.insert(candidates, {
+            entries = stripEntries,
+            axis = copyVector(axis),
+            length = #stripEntries,
+            distance = entryDistanceFrom(stripEntries[1], origin),
+            key = coords.key(stripEntries[1].coord.x, stripEntries[1].coord.y, stripEntries[1].coord.z),
+          })
+        end
+      end
+    end
+  end
+
+  table.sort(candidates, function(left, right)
+    if left.length ~= right.length then
+      return left.length < right.length
+    elseif left.distance ~= right.distance then
+      return left.distance < right.distance
+    end
+
+    return left.key < right.key
+  end)
+
+  local best = candidates[1]
+  if not best then
     return nil
   end
 
-  local anchor = {
-    x = tonumber(strip.x),
-    y = tonumber(strip.y),
-    z = tonumber(strip.z),
-  }
-  local axis = coords.parseAxis(strip.axis or "+X")
   local result = {
     enabled = true,
-    anchor = copyCoord(anchor),
-    axis = axis and coords.axisLabel(axis) or tostring(strip.axis),
+    status = "auto",
+    coord = copyCoord(best.entries[1].coord),
+    axis = coords.axisLabel(best.axis),
+    length = best.length,
     cells = {},
     keys = {},
   }
 
-  if type(anchor.x) ~= "number" or type(anchor.y) ~= "number" or type(anchor.z) ~= "number" then
-    result.status = "invalid anchor"
-    return result
-  elseif not axis then
-    result.status = "invalid axis"
-    return result
+  for index, entry in ipairs(best.entries) do
+    local key = coords.key(entry.coord.x, entry.coord.y, entry.coord.z)
+    result.keys[key] = true
+    result.cells[index] = {
+      coord = copyCoord(entry.coord),
+      offset = index - 1,
+    }
   end
 
   for _, cell in ipairs(STATUS_STRIP_CELLS) do
-    local coord = {
-      x = anchor.x + axis.x * cell.offset,
-      y = anchor.y + axis.y * cell.offset,
-      z = anchor.z + axis.z * cell.offset,
-    }
-    coord.key = coords.key(coord.x, coord.y, coord.z)
-    result.cells[cell.key] = {
-      coord = copyCoord(coord),
-      offset = cell.offset,
-    }
-    result.keys[coord.key] = true
+    local entry = best.entries[cell.offset + 1]
+    if entry then
+      result.cells[cell.key] = {
+        coord = copyCoord(entry.coord),
+        offset = cell.offset,
+      }
+    end
   end
 
-  result.status = "reserved"
   return result
 end
 
@@ -879,10 +946,11 @@ local function statusStripReservationSummary(reservation)
   return {
     enabled = reservation.enabled,
     status = reservation.status,
-    anchor = copyCoord(reservation.anchor),
+    coord = copyCoord(reservation.coord),
     axis = reservation.axis,
+    length = reservation.length,
     cells = {
-      throttle = reservation.cells and reservation.cells.throttle and copyCoord(reservation.cells.throttle.coord) or nil,
+      text = reservation.cells and reservation.cells.text and copyCoord(reservation.cells.text.coord) or nil,
       hold = reservation.cells and reservation.cells.hold and copyCoord(reservation.cells.hold.coord) or nil,
       moveTarget = reservation.cells and reservation.cells.moveTarget and copyCoord(reservation.cells.moveTarget.coord) or nil,
     },
@@ -1117,7 +1185,7 @@ local function inferRoles(report)
   local allDisplays = roleCandidates(report, function(entry)
     return hasCategory(entry, "displaySink")
   end)
-  local statusStrip = statusStripReservation(report.config)
+  local statusStrip = autoStatusStrip(allDisplays, orientation.computerCoord)
   local displays = filterReservedDisplays(allDisplays, statusStrip)
   local navigationSensors = roleCandidates(report, function(entry)
     return hasCategory(entry, "navigationSensor")
@@ -1196,10 +1264,6 @@ function scanner.scan(config)
       absoluteSignalMax = config.absoluteSignalMax,
       maxAttitudeDelta = config.maxAttitudeDelta,
       scanParallelism = scanParallelism(config),
-      display = {
-        absoluteRotorValues = config.display and config.display.absoluteRotorValues,
-        statusStrip = sanitize(config.display and config.display.statusStrip),
-      },
     },
     router = {
       name = routerName,

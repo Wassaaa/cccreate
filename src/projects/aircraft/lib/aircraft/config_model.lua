@@ -123,8 +123,7 @@ local ORDERS = {
   },
   bindings = { "shift", "a", "s", "d", "space", "q", "w", "e", "k", "hold", "moveTarget" },
   binding = { "x", "y", "z", "side" },
-  display = { "enabled", "stabilizeEnabled", "stabilizeInterval", "absoluteRotorValues", "statusStrip" },
-  statusStrip = { "enabled", "x", "y", "z", "axis" },
+  display = { "enabled", "stabilizeEnabled", "stabilizeInterval" },
   hud = { "enabled", "interval", "monitorScale", "monitorName" },
   killSwitch = { "enabled", "source", "side", "activeHigh", "keyEnabled", "key", "binding" },
 }
@@ -211,7 +210,6 @@ function configModel.normalize(config)
   result.controller = pick(config.controller, ORDERS.controller)
   result.controller.bindings = normalizeBindings(config.controller and config.controller.bindings)
   result.display = pick(config.display, ORDERS.display)
-  result.display.statusStrip = pick(config.display and config.display.statusStrip, ORDERS.statusStrip)
   result.hud = pick(config.hud, ORDERS.hud)
   result.killSwitch = pick(config.killSwitch, ORDERS.killSwitch)
   set(result, "reportPath", config.reportPath)

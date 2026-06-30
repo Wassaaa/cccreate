@@ -372,10 +372,12 @@ local function printOrientation(report)
     print(
       "statusStrip "
         .. tostring(statusStrip.status)
-        .. " anchor="
-        .. coords.label(statusStrip.anchor)
+        .. " coord="
+        .. coords.label(statusStrip.coord)
         .. " axis="
         .. tostring(statusStrip.axis)
+        .. " len="
+        .. tostring(statusStrip.length)
     )
   end
 end
