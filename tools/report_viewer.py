@@ -535,6 +535,37 @@ HTML = r"""<!doctype html>
       margin-bottom: 8px;
     }
 
+    .nbt-legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 6px;
+      margin: 0 0 12px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 28px;
+      padding: 4px 7px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #fbfcf8;
+      font-size: 12px;
+    }
+
+    .legend-swatch {
+      width: 16px;
+      height: 16px;
+      border: 1px solid rgba(36, 42, 38, .25);
+      border-radius: 3px;
+      flex: 0 0 auto;
+    }
+
+    .legend-label {
+      overflow-wrap: anywhere;
+    }
+
     .status-line {
       display: flex;
       gap: 8px;
@@ -1891,6 +1922,37 @@ HTML = r"""<!doctype html>
       return `<button class="copy-btn" data-copy="${escapeHtml(encodeCopy(text))}" data-copy-label="${escapeHtml(label)}">${escapeHtml(label)}</button>`;
     }
 
+    const NBT_LEGEND = [
+      { label: "black wool: router origin", color: "#1d1d21" },
+      { label: "lime wool: rotors / consumers", color: "#80c71f" },
+      { label: "orange wool: drivers / actuators", color: "#f9801d" },
+      { label: "cyan wool: kinetic SCADA", color: "#169c9c" },
+      { label: "yellow wool: inferred missing source", color: "#fed83d" },
+      { label: "gold block: inferred missing anchor", color: "#f8c627" },
+      { label: "stone: generic wrapped or unknown block", color: "#7f7f7f" },
+      { label: "red wool: overstressed or error", color: "#b02e26" },
+      { label: "purple wool: attitude sensor", color: "#8932b8" },
+      { label: "green wool: inventory", color: "#5e7c16" },
+      { label: "light blue wool: display", color: "#3ab3da" },
+      { label: "blue wool: fluid", color: "#3c44aa" },
+      { label: "redstone block: energy", color: "#c51d10" },
+      { label: "gray wool: modem", color: "#474f52" },
+      { label: "white wool: terminal", color: "#f0f0f0" }
+    ];
+
+    function renderNbtLegend() {
+      return `
+        <div class="nbt-legend">
+          ${NBT_LEGEND.map((item) => `
+            <div class="legend-item">
+              <span class="legend-swatch" style="background: ${escapeHtml(item.color)}"></span>
+              <span class="legend-label">${escapeHtml(item.label)}</span>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
     function bindCopyActions() {
       for (const node of els.view.querySelectorAll("[data-copy]")) {
         node.addEventListener("click", (event) => {
@@ -2020,7 +2082,8 @@ HTML = r"""<!doctype html>
         <section class="block">
           <h2>Coordinate Map</h2>
           ${metrics}
-          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks. Dashed cells are inferred from decoded SCADA IDs, not confirmed peripherals.</div>
+          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks. Dashed cells are inferred from decoded SCADA IDs, not confirmed peripherals. NBT exports include this legend as a strip two blocks past the +X side of the map.</div>
+          ${renderNbtLegend()}
           ${layers.map((y) => routerMapLayer(y, bounds, byCoord)).join("")}
         </section>
         <section class="block">
@@ -2347,27 +2410,46 @@ def coordinate_entries(report):
 
 
 BLOCK_BY_KIND = {
-    "attitude": "minecraft:purple_concrete",
-    "rotor": "minecraft:lime_concrete",
-    "scalar": "minecraft:orange_concrete",
-    "display": "minecraft:light_blue_concrete",
-    "kinetic": "minecraft:cyan_concrete",
-    "inventory": "minecraft:green_concrete",
-    "fluid": "minecraft:blue_concrete",
+    "attitude": "minecraft:purple_wool",
+    "rotor": "minecraft:lime_wool",
+    "scalar": "minecraft:orange_wool",
+    "display": "minecraft:light_blue_wool",
+    "kinetic": "minecraft:cyan_wool",
+    "inventory": "minecraft:green_wool",
+    "fluid": "minecraft:blue_wool",
     "energy": "minecraft:redstone_block",
-    "redstone": "minecraft:red_concrete",
-    "terminal": "minecraft:white_concrete",
-    "modem": "minecraft:gray_concrete",
-    "inferred": "minecraft:yellow_concrete",
-    "error": "minecraft:red_concrete",
+    "redstone": "minecraft:red_wool",
+    "terminal": "minecraft:white_wool",
+    "modem": "minecraft:gray_wool",
+    "inferred": "minecraft:yellow_wool",
+    "error": "minecraft:red_wool",
     "wrappable": "minecraft:stone",
-    "origin": "minecraft:black_concrete",
+    "origin": "minecraft:black_wool",
 }
+
+
+NBT_LEGEND_BLOCKS = [
+    ("origin", BLOCK_BY_KIND["origin"]),
+    ("rotor", BLOCK_BY_KIND["rotor"]),
+    ("scalar", BLOCK_BY_KIND["scalar"]),
+    ("kinetic", BLOCK_BY_KIND["kinetic"]),
+    ("missing_source", BLOCK_BY_KIND["inferred"]),
+    ("missing_anchor", "minecraft:gold_block"),
+    ("wrappable", BLOCK_BY_KIND["wrappable"]),
+    ("error", BLOCK_BY_KIND["error"]),
+    ("attitude", BLOCK_BY_KIND["attitude"]),
+    ("inventory", BLOCK_BY_KIND["inventory"]),
+    ("display", BLOCK_BY_KIND["display"]),
+    ("fluid", BLOCK_BY_KIND["fluid"]),
+    ("energy", BLOCK_BY_KIND["energy"]),
+    ("modem", BLOCK_BY_KIND["modem"]),
+    ("terminal", BLOCK_BY_KIND["terminal"]),
+]
 
 
 def block_for_entry(entry):
     if entry.get("isOverstressed"):
-        return "minecraft:red_concrete"
+        return BLOCK_BY_KIND["error"]
     if entry.get("inferredKind") == "missing_anchor":
         return "minecraft:gold_block"
     return BLOCK_BY_KIND.get(entry.get("mapKind"), "minecraft:stone")
@@ -2435,8 +2517,22 @@ def structure_nbt_bytes(entries, author="Codex"):
     if not entries:
         raise ValueError("report has no coordinate entries")
 
-    coords = [(int(entry["x"]), int(entry["y"]), int(entry["z"])) for entry in entries]
-    coords.append((0, 0, 0))
+    entry_coords = [(int(entry["x"]), int(entry["y"]), int(entry["z"])) for entry in entries]
+    entry_coords.append((0, 0, 0))
+    entry_min_x = min(x for x, _, _ in entry_coords)
+    entry_min_y = min(y for _, y, _ in entry_coords)
+    entry_min_z = min(z for _, _, z in entry_coords)
+    entry_max_x = max(x for x, _, _ in entry_coords)
+
+    legend_x = entry_max_x + 2
+    legend_y = entry_min_y
+    legend_z = entry_min_z
+    legend_blocks = [
+        (legend_x, legend_y, legend_z + index, block_name)
+        for index, (_, block_name) in enumerate(NBT_LEGEND_BLOCKS)
+    ]
+
+    coords = entry_coords + [(x, y, z) for x, y, z, _ in legend_blocks]
     min_x = min(x for x, _, _ in coords)
     min_y = min(y for _, y, _ in coords)
     min_z = min(z for _, _, z in coords)
@@ -2463,6 +2559,9 @@ def structure_nbt_bytes(entries, author="Codex"):
         set_block(int(entry["x"]), int(entry["y"]), int(entry["z"]), block_for_entry(entry))
 
     set_block(0, 0, 0, BLOCK_BY_KIND["origin"])
+
+    for x, y, z, block_name in legend_blocks:
+        set_block(x, y, z, block_name)
 
     block_entries = []
     for (x, y, z), state in sorted(blocks.items()):
