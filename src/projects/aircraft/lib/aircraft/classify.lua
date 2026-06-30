@@ -247,12 +247,6 @@ function classify.classifyMethods(methods)
         "setSpeed",
       }) then
     add("speedActuator", "target rotational speed setter is present")
-  elseif containsAny(methodSet, {
-        "getTargetSpeed",
-        "getGeneratedSpeed",
-        "getOutputSpeed",
-      }) then
-    add("speedActuator", "target rotational speed readout method is present")
   end
 
   if containsAny(methodSet, {
