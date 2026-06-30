@@ -220,15 +220,6 @@ local function configSections(config)
   add(stabilize, config, "stabilize.brakeOnExit", "Writes brakeSignal when stabilize exits, errors, or aborts.")
   add(stabilize, config, "stabilize.reportFrameLimit", "Maximum recent control frames kept in the saved report. Lower saves space; higher gives more history.", nil)
 
-  local verticalAssist = {}
-  add(verticalAssist, config, "verticalAssist.enabled", "When true, stabilize adds collective while measured vertical speed is below the configured target.", "aircraft config vertical-assist true 0.1 0.05 0.8 3 35 80")
-  add(verticalAssist, config, "verticalAssist.targetVerticalSpeed", "Vertical speed target for descent assist. Positive values bias toward a slow climb.")
-  add(verticalAssist, config, "verticalAssist.deadband", "No assist is added while vertical speed is within this margin above/below the target.")
-  add(verticalAssist, config, "verticalAssist.powerPerVerticalSpeed", "Redstone backend power added per m/s of vertical speed deficit.")
-  add(verticalAssist, config, "verticalAssist.maxPower", "Maximum extra redstone power vertical assist may add.")
-  add(verticalAssist, config, "verticalAssist.rpmPerVerticalSpeed", "rotation_speed backend RPM added per m/s of vertical speed deficit.")
-  add(verticalAssist, config, "verticalAssist.maxRpm", "Maximum extra RPM vertical assist may add.")
-
   local yaw = {}
   add(yaw, config, "yaw.enabled", "When true, stabilize damps yaw rate by tilting gyroscopic propeller bearings with setManualTarget.", "aircraft config yaw true 0.15 8 1 0.08")
   add(yaw, config, "yaw.rateKd", "Yaw-rate damping gain. Higher values command more tilt for the same spin rate.")
@@ -288,7 +279,6 @@ local function configSections(config)
     section("Scan", scan),
     section("Orientation and Level", orientation),
     section("Stabilizer", stabilize, "axis1 is roll/A-D/left-right. axis2 is pitch/W-S/front-back."),
-    section("Vertical Assist", verticalAssist, "Optional collective-only descent assist. This is not a full altitude hold."),
     section("Yaw Gyros", yaw),
     section("Controller", controller),
     section("Controller Bindings", bindings),
@@ -380,10 +370,6 @@ local function frameStats(report)
     correctionLimited = 0,
     desaturatedFrames = 0,
     tiltedCompensatedFrames = 0,
-    verticalAssistActiveFrames = 0,
-    verticalAssistSkippedFrames = 0,
-    maxVerticalAssistPower = 0,
-    maxVerticalAssistRpm = 0,
     yawActiveFrames = 0,
     yawSkippedFrames = 0,
     controllerActiveFrames = 0,
@@ -424,29 +410,6 @@ local function frameStats(report)
     end
     if math.abs(tonumber(mixed.tiltCompensationPower) or 0) > 0.0001 then
       stats.tiltedCompensatedFrames = stats.tiltedCompensatedFrames + 1
-    end
-    local verticalAssist = mixed.verticalAssist or {}
-    if verticalAssist.enabled then
-      if verticalAssist.active then
-        stats.verticalAssistActiveFrames = stats.verticalAssistActiveFrames + 1
-      end
-      if verticalAssist.skipped then
-        stats.verticalAssistSkippedFrames = stats.verticalAssistSkippedFrames + 1
-      end
-      stats.maxVerticalAssistPower = math.max(
-        stats.maxVerticalAssistPower,
-        math.abs(tonumber(verticalAssist.power) or 0)
-      )
-      stats.maxVerticalAssistRpm = math.max(
-        stats.maxVerticalAssistRpm,
-        math.abs(tonumber(verticalAssist.rpm) or 0)
-      )
-      if type(verticalAssist.verticalSpeed) == "number" then
-        stats.minVerticalSpeed = stats.minVerticalSpeed and math.min(stats.minVerticalSpeed, verticalAssist.verticalSpeed)
-          or verticalAssist.verticalSpeed
-        stats.maxVerticalSpeed = stats.maxVerticalSpeed and math.max(stats.maxVerticalSpeed, verticalAssist.verticalSpeed)
-          or verticalAssist.verticalSpeed
-      end
     end
     if yaw.enabled and not yaw.skipped then
       stats.yawActiveFrames = stats.yawActiveFrames + 1
@@ -543,7 +506,6 @@ function reportTabs.flightOverviewTab(report)
   local timing = report.timing or {}
   local request = report.request or {}
   local finalMixed = stats.final and stats.final.mixed or {}
-  local finalVerticalAssist = finalMixed.verticalAssist or {}
   local finalYaw = stats.final and (stats.final.yaw or (stats.final.mixed and stats.final.mixed.yaw)) or {}
   local actuatorSettings = report.actuators and report.actuators.settings or settings.actuator or {}
   local outputLabel = actuatorSettings.outputLabel or "output"
@@ -590,13 +552,6 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(stabilizerRows, "tiltCompensation", settings.tiltCompensation, "Whether tilt-based collective compensation was enabled.")
   addTextRow(stabilizerRows, "tiltCompensatedFrames", stats.tiltedCompensatedFrames, "Frames where tilt compensation added collective power.")
   addTextRow(stabilizerRows, "finalTiltCompPower", finalMixed.tiltCompensationPower, "Last extra power added by tilt compensation.")
-  addTextRow(stabilizerRows, "verticalAssist", settings.verticalAssist and settings.verticalAssist.enabled, "Whether descent collective assist was enabled.")
-  addTextRow(stabilizerRows, "verticalAssistTarget", settings.verticalAssist and settings.verticalAssist.targetVerticalSpeed, "Vertical speed target used by descent assist.")
-  addTextRow(stabilizerRows, "verticalAssistActiveFrames", stats.verticalAssistActiveFrames, "Frames where vertical assist added collective.")
-  addTextRow(stabilizerRows, "verticalAssistSkippedFrames", stats.verticalAssistSkippedFrames, "Frames where vertical assist was enabled but could not read vertical speed.")
-  addTextRow(stabilizerRows, "verticalSpeedRange", stats.minVerticalSpeed and (valueText(stats.minVerticalSpeed) .. ".." .. valueText(stats.maxVerticalSpeed)) or "n/a", "Measured vertical speed range from assist reads.")
-  addTextRow(stabilizerRows, "maxVerticalAssist", "power " .. valueText(stats.maxVerticalAssistPower) .. " | rpm " .. valueText(stats.maxVerticalAssistRpm), "Largest collective added by vertical assist.")
-  addTextRow(stabilizerRows, "finalVerticalAssist", "speed " .. valueText(finalVerticalAssist.verticalSpeed) .. " | power " .. valueText(finalVerticalAssist.power) .. " | rpm " .. valueText(finalVerticalAssist.rpm), "Last vertical assist state.")
   addTextRow(stabilizerRows, "maxAttitudeDelta", degText(settings.maxAttitudeDelta), "Angle error abort threshold for this run.")
   addTextRow(stabilizerRows, "angleGetter", "getAnglesRad", "Gimbal getter used for pitch/roll attitude.")
   addTextRow(stabilizerRows, "rateGetter", "getAngularRatesRad", "Gimbal getter used for damping.")

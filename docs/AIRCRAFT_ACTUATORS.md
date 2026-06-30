@@ -57,8 +57,6 @@ baseRpm + controllerThrottle * throttleRpmPerPower +/- axis RPM corrections
 
 The local unsigned target is clamped to `minTargetRpm..maxTargetRpm`, then multiplied by global `sign` and per-corner `roleSign`, then clamped to `minRpm..maxRpm` before writing. Fractional RPM is sent by default; set `round=true` only for a future block that rejects floats. `roleSign` defaults to scan-derived controller-to-rotor geometry when `autoRoleSigns=true`; use `aircraft config rotation-speed-signs 1 1 -1 -1` for an explicit override.
 
-`verticalAssist` is a separate, optional collective helper for descent tests. When enabled, stabilize reads the scanned altitude sensor's `getVerticalSpeed()` each control frame. If vertical speed is below `targetVerticalSpeed - deadband`, it adds bounded collective before the roll/pitch corrections are mixed. The redstone backend adds `power`, and the rotation-speed backend adds native `rpm`, so the same switch can be tested on both actuator systems without sharing the attitude gains.
-
 ## Migration Flow
 
 Keep the current craft on `redstone_signal` until four speed controllers are physically placed and connected.
@@ -75,7 +73,6 @@ aircraft config rotation-speed-signs auto
 aircraft config rotation-speed 256 0 1 0 -256 256
 aircraft config rotation-speed-control <baseRpm> <maxCorrectionRpm> <axis1KpRpm> <axis1KdRpm> [axis2KpRpm] [axis2KdRpm] [throttleRpmPerPower]
 aircraft config rotation-speed-writes 0.1 0.5
-aircraft config vertical-assist true 0.1 0.05 0.8 3 35 80
 aircraft scan
 aircraft status
 aircraft stabilize --seconds 1

@@ -628,7 +628,6 @@ local function stabilizeConfig(config, options)
   local yaw = config.yaw or {}
   local display = config.display or {}
   local killSwitch = config.killSwitch or {}
-  local verticalAssist = config.verticalAssist or {}
   local actuatorSettings = actuators.settings(config, options)
   local interval = tonumber(options.interval) or tonumber(defaults.interval) or 0.05
   local nixiesEnabled = display.stabilizeEnabled == true
@@ -676,15 +675,6 @@ local function stabilizeConfig(config, options)
     tiltCompensationGain = tonumber(defaults.tiltCompensationGain) or 1,
     tiltCompensationMaxPower = tonumber(defaults.tiltCompensationMaxPower) or 2,
     signalDither = defaults.signalDither ~= false,
-    verticalAssist = {
-      enabled = verticalAssist.enabled == true,
-      targetVerticalSpeed = tonumber(verticalAssist.targetVerticalSpeed) or 0,
-      deadband = math.max(0, tonumber(verticalAssist.deadband) or 0.05),
-      powerPerVerticalSpeed = math.max(0, tonumber(verticalAssist.powerPerVerticalSpeed) or 0.8),
-      maxPower = math.max(0, tonumber(verticalAssist.maxPower) or 3),
-      rpmPerVerticalSpeed = math.max(0, tonumber(verticalAssist.rpmPerVerticalSpeed) or 35),
-      maxRpm = math.max(0, tonumber(verticalAssist.maxRpm) or 80),
-    },
     maxAttitudeDelta = tonumber(options.maxAttitudeDelta)
         or (tonumber(options.maxAttitudeDeg) and tonumber(options.maxAttitudeDeg) * math.pi / 180)
         or tonumber(defaults.maxAttitudeDelta)
@@ -1120,89 +1110,8 @@ local function tiltCompensationPower(settings, target1, target2, basePower)
   }
 end
 
-local function readVerticalAssistInput(sensors)
-  if not sensors or not sensors.altitude then
-    return {
-      ok = false,
-      skipped = "no altitude sensor",
-    }
-  end
-
-  local read = readOptionalGetter(sensors.altitude.object, "getVerticalSpeed")
-  local value = read and read.ok == true and tonumber(read.value) or nil
-
-  return {
-    ok = value ~= nil,
-    source = sensors.altitude.source,
-    coord = copyPlain(sensors.altitude.coord),
-    verticalSpeed = value,
-    readOk = read and read.ok == true or false,
-    readError = read and read.error or nil,
-    skipped = value == nil and "vertical speed unavailable" or nil,
-  }
-end
-
-local function verticalAssistCollective(settings, input)
-  local assist = settings.verticalAssist or {}
-  local result = {
-    enabled = assist.enabled == true,
-    targetVerticalSpeed = tonumber(assist.targetVerticalSpeed) or 0,
-    deadband = math.max(0, tonumber(assist.deadband) or 0),
-    powerPerVerticalSpeed = math.max(0, tonumber(assist.powerPerVerticalSpeed) or 0),
-    maxPower = math.max(0, tonumber(assist.maxPower) or 0),
-    rpmPerVerticalSpeed = math.max(0, tonumber(assist.rpmPerVerticalSpeed) or 0),
-    maxRpm = math.max(0, tonumber(assist.maxRpm) or 0),
-    power = 0,
-    rpm = 0,
-    active = false,
-  }
-
-  if not result.enabled then
-    return result
-  end
-
-  if not input or input.ok ~= true then
-    result.skipped = input and input.skipped or "vertical speed unavailable"
-    result.readOk = input and input.readOk
-    result.readError = input and input.readError
-    return result
-  end
-
-  local verticalSpeed = tonumber(input.verticalSpeed)
-  if verticalSpeed == nil then
-    result.skipped = "vertical speed unavailable"
-    return result
-  end
-
-  local error = result.targetVerticalSpeed - verticalSpeed
-  result.source = input.source
-  result.coord = copyPlain(input.coord)
-  result.verticalSpeed = verticalSpeed
-  result.error = error
-
-  if error <= result.deadband then
-    return result
-  end
-
-  local effectiveError = error - result.deadband
-  local rawPower = effectiveError * result.powerPerVerticalSpeed
-  local rawRpm = effectiveError * result.rpmPerVerticalSpeed
-
-  result.effectiveError = effectiveError
-  result.rawPower = rawPower
-  result.rawRpm = rawRpm
-  result.power = clamp(rawPower, 0, result.maxPower)
-  result.rpm = clamp(rawRpm, 0, result.maxRpm)
-  result.powerLimited = result.power ~= rawPower
-  result.rpmLimited = result.rpm ~= rawRpm
-  result.active = result.power > 0.0001 or result.rpm > 0.0001
-
-  return result
-end
-
-local function mixerSignals(settings, state, control, signalResiduals, environment)
+local function mixerSignals(settings, state, control, signalResiduals)
   control = control or {}
-  environment = environment or {}
 
   local currentTilt = attitudeAngles(state.angles)
   local rates = attitudeRates(state.angularRates)
@@ -1224,14 +1133,11 @@ local function mixerSignals(settings, state, control, signalResiduals, environme
   local controlPower2 = targetAssistPower(rawControlPower2, error2, target2)
   local rate1 = rawRate1
   local rate2 = rawRate2
-  local verticalAssist = verticalAssistCollective(settings, environment.verticalAssist)
 
   if settings.actuator and settings.actuator.type == "rotation_speed" then
     local rpm = settings.actuator
     local throttleRpm = (tonumber(control.throttlePower) or 0) * (tonumber(rpm.throttleRpmPerPower) or 0)
-    local verticalAssistRpm = tonumber(verticalAssist.rpm) or 0
-    local baseRpmBeforeAssist = (tonumber(rpm.baseRpm) or 0) + throttleRpm
-    local baseRpmBeforeTilt = baseRpmBeforeAssist + verticalAssistRpm
+    local baseRpmBeforeTilt = (tonumber(rpm.baseRpm) or 0) + throttleRpm
     local rawControlRpm1 = rawControlPower1 * (tonumber(rpm.axisPowerRpmPerPower) or tonumber(rpm.throttleRpmPerPower) or 1)
     local rawControlRpm2 = rawControlPower2 * (tonumber(rpm.axisPowerRpmPerPower) or tonumber(rpm.throttleRpmPerPower) or 1)
     local controlRpm1 = targetAssistPower(rawControlRpm1, error1, target1)
@@ -1317,14 +1223,9 @@ local function mixerSignals(settings, state, control, signalResiduals, environme
       correction2Rpm = correction2Rpm,
       correctionLimited = correction1Rpm ~= rawCorrection1Rpm
         or correction2Rpm ~= rawCorrection2Rpm,
-      basePowerBeforeAssist = baseRpmBeforeAssist,
-      baseRpmBeforeAssist = baseRpmBeforeAssist,
       basePowerBeforeTilt = baseRpmBeforeTilt,
       baseRpmBeforeTilt = baseRpmBeforeTilt,
       throttleRpm = throttleRpm,
-      verticalAssist = verticalAssist,
-      verticalAssistPower = 0,
-      verticalAssistRpm = verticalAssistRpm,
       tiltCompensationPower = 0,
       tiltCompensation = {
         enabled = false,
@@ -1355,9 +1256,7 @@ local function mixerSignals(settings, state, control, signalResiduals, environme
   local rawCorrection2 = -(settings.axis2Kp * error2 + settings.axis2Kd * rate2) + settings.axis2Trim + controlPower2
   local correction1 = clamp(rawCorrection1, -settings.maxCorrection, settings.maxCorrection)
   local correction2 = clamp(rawCorrection2, -settings.maxCorrection, settings.maxCorrection)
-  local verticalAssistPower = tonumber(verticalAssist.power) or 0
-  local basePowerBeforeAssist = settings.basePower + (tonumber(control.throttlePower) or 0)
-  local basePowerBeforeTilt = basePowerBeforeAssist + verticalAssistPower
+  local basePowerBeforeTilt = settings.basePower + (tonumber(control.throttlePower) or 0)
   local tiltCompensation, tiltCompensationDetails = tiltCompensationPower(
     settings,
     target1,
@@ -1421,11 +1320,7 @@ local function mixerSignals(settings, state, control, signalResiduals, environme
     correction2 = correction2,
     correctionLimited = correction1 ~= rawCorrection1
       or correction2 ~= rawCorrection2,
-    basePowerBeforeAssist = basePowerBeforeAssist,
     basePowerBeforeTilt = basePowerBeforeTilt,
-    verticalAssist = verticalAssist,
-    verticalAssistPower = verticalAssistPower,
-    verticalAssistRpm = 0,
     tiltCompensationPower = tiltCompensation,
     tiltCompensation = tiltCompensationDetails,
     basePower = basePower,
@@ -1827,14 +1722,9 @@ local function compactMixedFrame(mixed)
     correction1Rpm = mixed.correction1Rpm,
     correction2Rpm = mixed.correction2Rpm,
     correctionLimited = mixed.correctionLimited == true,
-    basePowerBeforeAssist = mixed.basePowerBeforeAssist,
-    baseRpmBeforeAssist = mixed.baseRpmBeforeAssist,
     basePowerBeforeTilt = mixed.basePowerBeforeTilt,
     baseRpmBeforeTilt = mixed.baseRpmBeforeTilt,
     throttleRpm = mixed.throttleRpm,
-    verticalAssist = copyPlain(mixed.verticalAssist),
-    verticalAssistPower = mixed.verticalAssistPower,
-    verticalAssistRpm = mixed.verticalAssistRpm,
     tiltCompensationPower = mixed.tiltCompensationPower,
     tiltCompensation = copyPlain(mixed.tiltCompensation),
     basePower = mixed.basePower,
@@ -2020,7 +1910,6 @@ local function compactStabilizeFrame(frame)
     abortReason = frame.abortReason,
     killSwitch = copyPlain(frame.killSwitch),
     controller = compactControllerFrame(frame.controller),
-    verticalAssistInput = copyPlain(frame.verticalAssistInput),
     mixed = compactMixedFrame(frame.mixed),
     actuatorWrite = copyPlain(frame.actuatorWrite),
     setResults = copyPlain(frame.setResults),
@@ -2247,16 +2136,7 @@ function flightControl.stabilize(config, options)
       timing.phases.controller = os.clock() - phaseStart
 
       phaseStart = os.clock()
-      local verticalAssistInput = nil
-      if settings.verticalAssist and settings.verticalAssist.enabled then
-        verticalAssistInput = readVerticalAssistInput(sensors)
-      end
-      timing.phases.verticalAssist = os.clock() - phaseStart
-
-      phaseStart = os.clock()
-      local mixed = mixerSignals(settings, state, control, signalResiduals, {
-        verticalAssist = verticalAssistInput,
-      })
+      local mixed = mixerSignals(settings, state, control, signalResiduals)
       local attitudeExceeded = math.abs(mixed.error1) > settings.maxAttitudeDelta
           or math.abs(mixed.error2) > settings.maxAttitudeDelta
       timing.phases.mix = os.clock() - phaseStart
@@ -2276,7 +2156,6 @@ function flightControl.stabilize(config, options)
         state = state,
         killSwitch = killSwitch,
         controller = control,
-        verticalAssistInput = verticalAssistInput,
         mixed = mixed,
         yaw = yawFrame,
       }
