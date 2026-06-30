@@ -2081,7 +2081,7 @@ HTML = r"""<!doctype html>
         <section class="block">
           <h2>Coordinate Map</h2>
           ${metrics}
-          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks. Dashed cells are inferred from decoded SCADA IDs, not confirmed peripherals. NBT exports use simple visible block colors; yellow means inferred missing SCADA source or anchor.</div>
+          <div id="copyStatus" class="copy-status">Click any cell to copy a quick Lua router-wrap snippet. Cell color shows role family; top stripe color groups SCADA networks. Dashed cells are inferred from decoded SCADA IDs, not confirmed peripherals. NBT exports use router-relative block positions, so black wool is 0,0,0 and negative coordinates are intentional.</div>
           ${renderNbtLegend()}
           ${layers.map((y) => routerMapLayer(y, bounds, byCoord)).join("")}
         </section>
@@ -2519,7 +2519,7 @@ def structure_nbt_bytes(entries, author="Codex"):
         return palette_index[key]
 
     def set_block(x, y, z, name, properties=None):
-        pos = (x - min_x, y - min_y, z - min_z)
+        pos = (x, y, z)
         blocks[pos] = state_index(name, properties)
 
     for entry in entries:
