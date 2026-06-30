@@ -851,6 +851,148 @@ local function assignFirstSensor(entries)
   }
 end
 
+local function sortedSensorEntries(entries)
+  local sortedEntries = {}
+
+  for _, entry in ipairs(entries or {}) do
+    table.insert(sortedEntries, entry)
+  end
+
+  table.sort(sortedEntries, function(left, right)
+    local leftDistance = math.abs(tonumber(left.coord and left.coord.x) or 0)
+      + math.abs(tonumber(left.coord and left.coord.y) or 0)
+      + math.abs(tonumber(left.coord and left.coord.z) or 0)
+    local rightDistance = math.abs(tonumber(right.coord and right.coord.x) or 0)
+      + math.abs(tonumber(right.coord and right.coord.y) or 0)
+      + math.abs(tonumber(right.coord and right.coord.z) or 0)
+
+    if leftDistance ~= rightDistance then
+      return leftDistance < rightDistance
+    end
+
+    return coords.key(left.coord.x, left.coord.y, left.coord.z)
+      < coords.key(right.coord.x, right.coord.y, right.coord.z)
+  end)
+
+  return sortedEntries
+end
+
+local function velocityAxis(entry)
+  local value = sampleValue(entry, "getAxis")
+  if type(value) == "string" then
+    local axis = string.lower(value)
+    if axis == "x" or axis == "y" or axis == "z" then
+      return axis
+    end
+  end
+
+  if hasMethod(entry, "getVelocityX") then
+    return "x"
+  elseif hasMethod(entry, "getVelocityY") then
+    return "y"
+  elseif hasMethod(entry, "getVelocityZ") then
+    return "z"
+  end
+
+  return nil
+end
+
+local function sensorSummary(entry, extra)
+  if not entry then
+    return nil
+  end
+
+  local result = {
+    coord = copyCoord(entry.coord),
+    methodCount = entry.methodCount,
+    categories = copyList(entry.categories),
+  }
+
+  for key, value in pairs(extra or {}) do
+    result[key] = value
+  end
+
+  return result
+end
+
+local function axisFromVector(vector)
+  if not coords.isCardinal(vector) then
+    return nil
+  elseif vector.x ~= 0 then
+    return "x", vector.x
+  elseif vector.y ~= 0 then
+    return "y", vector.y
+  elseif vector.z ~= 0 then
+    return "z", vector.z
+  end
+
+  return nil
+end
+
+local function assignVelocitySensors(entries, frontVector, leftVector)
+  local byAxis = {}
+  local grouped = {
+    x = {},
+    y = {},
+    z = {},
+  }
+
+  for _, entry in ipairs(entries or {}) do
+    local axis = velocityAxis(entry)
+    if axis and grouped[axis] then
+      table.insert(grouped[axis], entry)
+    end
+  end
+
+  for axis, axisEntries in pairs(grouped) do
+    local first = sortedSensorEntries(axisEntries)[1]
+    if first then
+      byAxis[axis] = sensorSummary(first, {
+        axis = axis,
+        velocity = sampleValue(first, "getVelocity"),
+      })
+    end
+  end
+
+  local frontAxis, frontSign = axisFromVector(frontVector)
+  local leftAxis, leftSign = axisFromVector(leftVector)
+  local result = {
+    byAxis = byAxis,
+    front = frontAxis and byAxis[frontAxis] and sensorSummary(byAxis[frontAxis], {
+      axis = frontAxis,
+      sign = frontSign,
+      role = "front",
+    }) or nil,
+    left = leftAxis and byAxis[leftAxis] and sensorSummary(byAxis[leftAxis], {
+      axis = leftAxis,
+      sign = leftSign,
+      role = "left",
+    }) or nil,
+    required = {
+      front = frontAxis and {
+        axis = frontAxis,
+        sign = frontSign,
+        vector = copyVector(frontVector),
+      } or nil,
+      left = leftAxis and {
+        axis = leftAxis,
+        sign = leftSign,
+        vector = copyVector(leftVector),
+      } or nil,
+    },
+  }
+
+  if result.front and result.left then
+    result.status = "ready"
+  elseif not frontAxis or not leftAxis then
+    result.status = "missing aircraft axes"
+  else
+    result.status = "missing required velocity axes"
+  end
+
+  return result
+end
+
 local function hasAnyRole(roles)
   for _, role in ipairs({ "front_left", "front_right", "rear_left", "rear_right" }) do
     if roles and roles[role] then
@@ -892,6 +1034,9 @@ local function inferRoles(report)
   local altitudeSensors = roleCandidates(report, function(entry)
     return hasCategory(entry, "altitudeSensor")
   end)
+  local velocitySensors = roleCandidates(report, function(entry)
+    return hasCategory(entry, "velocitySensor")
+  end)
   local rotorRoles = assignRoles(rotors, orientation.frontVector, orientation.leftVector)
   local scalarRoles = assignRoles(scalarControls, orientation.frontVector, orientation.leftVector)
   local speedRoles = assignRoles(speedControls, orientation.frontVector, orientation.leftVector)
@@ -908,6 +1053,7 @@ local function inferRoles(report)
   orientation.sensors = {
     navigationSensor = assignFirstSensor(navigationSensors),
     altitudeSensor = assignFirstSensor(altitudeSensors),
+    velocitySensor = assignVelocitySensors(velocitySensors, orientation.frontVector, orientation.leftVector),
   }
   orientation.roleCounts = {
     rotorBearing = #rotors,
@@ -916,6 +1062,7 @@ local function inferRoles(report)
     displaySink = #displays,
     navigationSensor = #navigationSensors,
     altitudeSensor = #altitudeSensors,
+    velocitySensor = #velocitySensors,
   }
 end
 

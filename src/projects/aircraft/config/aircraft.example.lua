@@ -120,6 +120,30 @@ return {
     writeInterval = 0.1,
     writeDeadband = 0.01,
   },
+  hold = {
+    -- H toggles velocity hold during stabilize when controller input is enabled.
+    -- With hold active and no WASD movement input, the stabilizer tilts to
+    -- reduce body-frame front/left velocity from velocity_sensor peripherals.
+    enabled = true,
+    defaultActive = false,
+    maxTiltDeg = 4,
+    velocityKp = 0.08,
+    velocityDeadband = 0.05,
+    -- Flip these if the first hold test increases drift on that axis.
+    axis1Sign = 1,
+    axis2Sign = -1,
+  },
+  moveTarget = {
+    -- T toggles move-target during stabilize. It only acts while velocity hold
+    -- is active and a navigation table has a live target inside captureRadius.
+    enabled = true,
+    defaultActive = false,
+    maxVelocity = 1,
+    targetKp = 0.2,
+    deadband = 1,
+    captureRadius = 8,
+    velocitySlew = 0.5,
+  },
   display = {
     enabled = true,
     stabilizeEnabled = true,
@@ -172,6 +196,9 @@ return {
       q = { x = 2, y = -1, z = -4, side = "up" },
       w = { x = 1, y = -1, z = -4, side = "up" },
       e = { x = 0, y = -1, z = -4, side = "up" },
+      -- Optional redstone-router buttons can be added with:
+      -- aircraft config controller-bind hold <x> <y> <z> [side]
+      -- aircraft config controller-bind move-target <x> <y> <z> [side]
     },
   },
 

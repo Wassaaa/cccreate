@@ -7,8 +7,10 @@ local GLFW_CODES = {
   [65] = "a",
   [68] = "d",
   [69] = "e",
+  [72] = "hold",
   [81] = "q",
   [83] = "s",
+  [84] = "moveTarget",
   [87] = "w",
   [75] = "k",
   [340] = "shift",
@@ -25,6 +27,11 @@ local NAME_ALIASES = {
   rshift = "shift",
   shift = "shift",
   space = "space",
+  hold = "hold",
+  moveTarget = "moveTarget",
+  movetarget = "moveTarget",
+  move_target = "moveTarget",
+  ["move-target"] = "moveTarget",
 }
 
 local function addKeyConstant(codes, name, logical)
@@ -47,6 +54,8 @@ local function defaultKeyCodes()
   addKeyConstant(codes, "q", "q")
   addKeyConstant(codes, "e", "e")
   addKeyConstant(codes, "k", "k")
+  addKeyConstant(codes, "h", "hold")
+  addKeyConstant(codes, "t", "moveTarget")
   addKeyConstant(codes, "space", "space")
   addKeyConstant(codes, "leftShift", "shift")
   addKeyConstant(codes, "rightShift", "shift")

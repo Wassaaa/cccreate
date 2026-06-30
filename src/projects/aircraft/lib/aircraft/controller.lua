@@ -13,6 +13,8 @@ local INPUT_ORDER = {
   "q",
   "e",
   "k",
+  "hold",
+  "moveTarget",
 }
 
 local SIDE_ALIASES = {
@@ -230,6 +232,10 @@ local function settingsFrom(config, options)
     enabled = enabled,
     type = controlInput.normalizeType(typeName),
     inputs = INPUT_ORDER,
+    optionalInputs = {
+      hold = true,
+      moveTarget = true,
+    },
     threshold = numberOr(cfg.threshold, 1),
     throttleMode = normalizeThrottleMode(cfg.throttleMode),
     throttlePower = numberOr(cfg.throttlePower, 1),
@@ -242,6 +248,8 @@ local function settingsFrom(config, options)
     keyMap = copyPlain(cfg.keyMap),
     pulseInputs = {
       k = true,
+      hold = true,
+      moveTarget = true,
     },
     bindings = bindings,
   }
@@ -308,6 +316,8 @@ function controller.sample(context)
   local axis1 = inputValue(reads.d) - inputValue(reads.a)
   local axis2 = inputValue(reads.w) - inputValue(reads.s)
   local yaw = inputValue(reads.q) - inputValue(reads.e)
+  local holdToggle = inputValue(reads.hold)
+  local moveTargetToggle = inputValue(reads.moveTarget)
   local degToRad = math.pi / 180
 
   return {
@@ -324,6 +334,8 @@ function controller.sample(context)
     axis2Target = axis2 * context.settings.axis2TargetDeg * degToRad,
     axis1Power = axis1 * context.settings.axis1Power,
     axis2Power = axis2 * context.settings.axis2Power,
+    holdToggle = holdToggle,
+    moveTargetToggle = moveTargetToggle,
     reads = reads,
   }
 end

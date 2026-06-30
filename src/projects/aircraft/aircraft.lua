@@ -97,6 +97,24 @@ local DEFAULT_CONFIG = {
     writeInterval = 0.1,
     writeDeadband = 0.01,
   },
+  hold = {
+    enabled = true,
+    defaultActive = false,
+    maxTiltDeg = 4,
+    velocityKp = 0.08,
+    velocityDeadband = 0.05,
+    axis1Sign = 1,
+    axis2Sign = -1,
+  },
+  moveTarget = {
+    enabled = true,
+    defaultActive = false,
+    maxVelocity = 1,
+    targetKp = 0.2,
+    deadband = 1,
+    captureRadius = 8,
+    velocitySlew = 0.5,
+  },
   display = {
     enabled = true,
     stabilizeEnabled = true,
@@ -157,6 +175,11 @@ local function usage()
   print("aircraft config report-frames <n>")
   print("aircraft config yaw <true|false> [rateKd] [maxTiltDeg] [sign] [commandLateral]")
   print("aircraft config yaw-writes <intervalSeconds> [deadband]")
+  print("aircraft config hold <true|false> [maxTiltDeg] [velocityKp] [velocityDeadband]")
+  print("aircraft config hold-default <true|false>")
+  print("aircraft config hold-signs <axis1Sign> <axis2Sign>")
+  print("aircraft config move-target <true|false> [maxVelocity] [targetKp] [captureRadius] [deadband] [velocitySlew]")
+  print("aircraft config move-target-default <true|false>")
   print("aircraft config display <true|false>")
   print("aircraft config stabilize-nixies <true|false> [interval]")
   print("aircraft config hud <true|false>")
@@ -176,7 +199,7 @@ local function usage()
   print("aircraft controller [--seconds n] [--interval n]")
   print("aircraft killswitch [--seconds n] [--interval n] [--controller-type type]")
   print("aircraft displays [--seconds n] [--interval n]")
-  print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--base-rpm n] [--kp n] [--kd n] [--kp-rpm n] [--kd-rpm n] [--axis1-trim n] [--axis2-trim n] [--axis1-trim-rpm n] [--axis2-trim-rpm n] [--controller] [--controller-type type] [--yaw|--no-yaw] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
+  print("aircraft stabilize [--apply] [--seconds n|--forever] [--base-power n] [--base-rpm n] [--kp n] [--kd n] [--kp-rpm n] [--kd-rpm n] [--axis1-trim n] [--axis2-trim n] [--axis1-trim-rpm n] [--axis2-trim-rpm n] [--controller] [--controller-type type] [--hold|--no-hold] [--move-target|--no-move-target] [--yaw|--no-yaw] [--no-hud] [--nixies] [--killswitch|--no-killswitch]")
   print("aircraft recover [--apply] [--seconds n] [--base-power n] [--base-rpm n] [--axis1-target-deg n] [--axis2-target-deg n] [--axis1-power n] [--axis2-power n] [--pulse-seconds n]")
   print("aircraft signal <role|all> <0-15> [--apply] [--seconds n] [--after-signal n]")
   print("aircraft help")
@@ -204,6 +227,8 @@ local function usage()
   print("  --yaw-command <n>  Q/E yaw command strength before max-tilt clamp")
   print("  --yaw-write-interval <n> minimum seconds between yaw gyro target writes")
   print("  --yaw-write-deadband <n> minimum target-vector delta for yaw writes")
+  print("  --hold/--no-hold enable or disable velocity hold for this run")
+  print("  --move-target/--no-move-target enable or disable nav-table move-target for this run")
   print("  --actuator-type <type> override actuator backend for this run")
   print("")
   print("signal/brake are dry-run unless --apply is used and config dryRun=false.")
@@ -550,6 +575,30 @@ local function printSummary(report, path)
           print("  " .. category .. "=missing")
         end
       end
+
+      local velocity = report.orientation.sensors.velocitySensor
+      if velocity and velocity.front and velocity.left then
+        print(
+          "  velocitySensor.front="
+            .. coords.label(velocity.front.coord)
+            .. " axis="
+            .. tostring(velocity.front.axis)
+            .. " sign="
+            .. tostring(velocity.front.sign)
+        )
+        print(
+          "  velocitySensor.left="
+            .. coords.label(velocity.left.coord)
+            .. " axis="
+            .. tostring(velocity.left.axis)
+            .. " sign="
+            .. tostring(velocity.left.sign)
+        )
+      elseif velocity then
+        print("  velocitySensor=" .. tostring(velocity.status or "missing"))
+      else
+        print("  velocitySensor=missing")
+      end
     end
   end
 
@@ -647,7 +696,21 @@ local function normalizeKillSwitchSource(source)
   error("killswitch source must be key, side, or router", 0)
 end
 
+local function normalizeControllerKey(key)
+  key = string.lower(tostring(key or ""))
+  key = string.gsub(key, "%s+", "")
+  key = string.gsub(key, "_", "-")
+
+  if key == "movetarget" or key == "move-target" then
+    return "moveTarget"
+  end
+
+  return key
+end
+
 local function validControllerKey(key)
+  key = normalizeControllerKey(key)
+
   return key == "w"
     or key == "a"
     or key == "s"
@@ -657,6 +720,8 @@ local function validControllerKey(key)
     or key == "space"
     or key == "shift"
     or key == "k"
+    or key == "hold"
+    or key == "moveTarget"
 end
 
 local function normalizeThrottleMode(value)
@@ -767,6 +832,20 @@ local function printConfig(config, source)
   print("  yaw.clearOnExit=" .. tostring(config.yaw and config.yaw.clearOnExit))
   print("  yaw.writeInterval=" .. tostring(config.yaw and config.yaw.writeInterval))
   print("  yaw.writeDeadband=" .. tostring(config.yaw and config.yaw.writeDeadband))
+  print("  hold.enabled=" .. tostring(config.hold and config.hold.enabled))
+  print("  hold.defaultActive=" .. tostring(config.hold and config.hold.defaultActive))
+  print("  hold.maxTiltDeg=" .. tostring(config.hold and config.hold.maxTiltDeg))
+  print("  hold.velocityKp=" .. tostring(config.hold and config.hold.velocityKp))
+  print("  hold.velocityDeadband=" .. tostring(config.hold and config.hold.velocityDeadband))
+  print("  hold.axis1Sign=" .. tostring(config.hold and config.hold.axis1Sign))
+  print("  hold.axis2Sign=" .. tostring(config.hold and config.hold.axis2Sign))
+  print("  moveTarget.enabled=" .. tostring(config.moveTarget and config.moveTarget.enabled))
+  print("  moveTarget.defaultActive=" .. tostring(config.moveTarget and config.moveTarget.defaultActive))
+  print("  moveTarget.maxVelocity=" .. tostring(config.moveTarget and config.moveTarget.maxVelocity))
+  print("  moveTarget.targetKp=" .. tostring(config.moveTarget and config.moveTarget.targetKp))
+  print("  moveTarget.deadband=" .. tostring(config.moveTarget and config.moveTarget.deadband))
+  print("  moveTarget.captureRadius=" .. tostring(config.moveTarget and config.moveTarget.captureRadius))
+  print("  moveTarget.velocitySlew=" .. tostring(config.moveTarget and config.moveTarget.velocitySlew))
   print("  display.enabled=" .. tostring(config.display and config.display.enabled))
   print("  display.stabilizeEnabled=" .. tostring(config.display and config.display.stabilizeEnabled))
   print("  display.stabilizeInterval=" .. tostring(config.display and config.display.stabilizeInterval))
@@ -1233,6 +1312,139 @@ local function runConfig()
     print("  writeInterval=" .. tostring(config.yaw.writeInterval))
     print("  writeDeadband=" .. tostring(config.yaw.writeDeadband))
     return
+  elseif subcommand == "hold" then
+    config.hold = config.hold or {}
+    config.hold.enabled = parseBoolean(args[3])
+
+    if args[4] then
+      config.hold.maxTiltDeg = parseNumber(args[4], "maxTiltDeg")
+      if config.hold.maxTiltDeg < 0 then
+        error("maxTiltDeg must be non-negative", 0)
+      end
+    elseif config.hold.maxTiltDeg == nil then
+      config.hold.maxTiltDeg = 4
+    end
+
+    if args[5] then
+      config.hold.velocityKp = parseNumber(args[5], "velocityKp")
+      if config.hold.velocityKp < 0 then
+        error("velocityKp must be non-negative", 0)
+      end
+    elseif config.hold.velocityKp == nil then
+      config.hold.velocityKp = 0.08
+    end
+
+    if args[6] then
+      config.hold.velocityDeadband = parseNumber(args[6], "velocityDeadband")
+      if config.hold.velocityDeadband < 0 then
+        error("velocityDeadband must be non-negative", 0)
+      end
+    elseif config.hold.velocityDeadband == nil then
+      config.hold.velocityDeadband = 0.05
+    end
+
+    if config.hold.defaultActive == nil then
+      config.hold.defaultActive = false
+    end
+    if config.hold.axis1Sign == nil then
+      config.hold.axis1Sign = 1
+    end
+    if config.hold.axis2Sign == nil then
+      config.hold.axis2Sign = -1
+    end
+
+    saveConfig(config)
+    print("Saved velocity hold to " .. CONFIG_PATH)
+    print("  enabled=" .. tostring(config.hold.enabled))
+    print("  defaultActive=" .. tostring(config.hold.defaultActive))
+    print("  maxTiltDeg=" .. tostring(config.hold.maxTiltDeg))
+    print("  velocityKp=" .. tostring(config.hold.velocityKp))
+    print("  velocityDeadband=" .. tostring(config.hold.velocityDeadband))
+    return
+  elseif subcommand == "hold-default" then
+    config.hold = config.hold or {}
+    config.hold.defaultActive = parseBoolean(args[3])
+    saveConfig(config)
+    print("Saved hold.defaultActive=" .. tostring(config.hold.defaultActive) .. " to " .. CONFIG_PATH)
+    return
+  elseif subcommand == "hold-signs" then
+    config.hold = config.hold or {}
+    config.hold.axis1Sign = parseNumber(args[3], "axis1Sign") < 0 and -1 or 1
+    config.hold.axis2Sign = parseNumber(args[4], "axis2Sign") < 0 and -1 or 1
+    saveConfig(config)
+    print("Saved hold signs to " .. CONFIG_PATH)
+    print("  axis1Sign=" .. tostring(config.hold.axis1Sign))
+    print("  axis2Sign=" .. tostring(config.hold.axis2Sign))
+    return
+  elseif subcommand == "move-target" then
+    config.moveTarget = config.moveTarget or {}
+    config.moveTarget.enabled = parseBoolean(args[3])
+
+    if args[4] then
+      config.moveTarget.maxVelocity = parseNumber(args[4], "maxVelocity")
+      if config.moveTarget.maxVelocity < 0 then
+        error("maxVelocity must be non-negative", 0)
+      end
+    elseif config.moveTarget.maxVelocity == nil then
+      config.moveTarget.maxVelocity = 1
+    end
+
+    if args[5] then
+      config.moveTarget.targetKp = parseNumber(args[5], "targetKp")
+      if config.moveTarget.targetKp < 0 then
+        error("targetKp must be non-negative", 0)
+      end
+    elseif config.moveTarget.targetKp == nil then
+      config.moveTarget.targetKp = 0.2
+    end
+
+    if args[6] then
+      config.moveTarget.captureRadius = parseNumber(args[6], "captureRadius")
+      if config.moveTarget.captureRadius < 0 then
+        error("captureRadius must be non-negative", 0)
+      end
+    elseif config.moveTarget.captureRadius == nil then
+      config.moveTarget.captureRadius = 8
+    end
+
+    if args[7] then
+      config.moveTarget.deadband = parseNumber(args[7], "deadband")
+      if config.moveTarget.deadband < 0 then
+        error("deadband must be non-negative", 0)
+      end
+    elseif config.moveTarget.deadband == nil then
+      config.moveTarget.deadband = 1
+    end
+
+    if args[8] then
+      config.moveTarget.velocitySlew = parseNumber(args[8], "velocitySlew")
+      if config.moveTarget.velocitySlew < 0 then
+        error("velocitySlew must be non-negative", 0)
+      end
+    elseif config.moveTarget.velocitySlew == nil then
+      config.moveTarget.velocitySlew = 0.5
+    end
+
+    if config.moveTarget.defaultActive == nil then
+      config.moveTarget.defaultActive = false
+    end
+
+    saveConfig(config)
+    print("Saved move-target to " .. CONFIG_PATH)
+    print("  enabled=" .. tostring(config.moveTarget.enabled))
+    print("  defaultActive=" .. tostring(config.moveTarget.defaultActive))
+    print("  maxVelocity=" .. tostring(config.moveTarget.maxVelocity))
+    print("  targetKp=" .. tostring(config.moveTarget.targetKp))
+    print("  captureRadius=" .. tostring(config.moveTarget.captureRadius))
+    print("  deadband=" .. tostring(config.moveTarget.deadband))
+    print("  velocitySlew=" .. tostring(config.moveTarget.velocitySlew))
+    return
+  elseif subcommand == "move-target-default" then
+    config.moveTarget = config.moveTarget or {}
+    config.moveTarget.defaultActive = parseBoolean(args[3])
+    saveConfig(config)
+    print("Saved moveTarget.defaultActive=" .. tostring(config.moveTarget.defaultActive) .. " to " .. CONFIG_PATH)
+    return
   elseif subcommand == "display" then
     config.display = config.display or {}
     config.display.enabled = parseBoolean(args[3])
@@ -1399,9 +1611,9 @@ local function runConfig()
     print("  e=" .. bindingText(config.controller.bindings.e))
     return
   elseif subcommand == "controller-bind" then
-    local key = string.lower(tostring(args[3] or ""))
+    local key = normalizeControllerKey(args[3])
     if not validControllerKey(key) then
-      error("controller key must be w, a, s, d, q, e, space, shift, or k", 0)
+      error("controller key must be w, a, s, d, q, e, space, shift, k, hold, or move-target", 0)
     end
 
     config.controller = config.controller or {}
@@ -1547,6 +1759,18 @@ local function parseCommandOptions(startIndex)
         error("--controller-type needs a type", 0)
       end
       i = i + 2
+    elseif arg == "--hold" then
+      options.hold = true
+      i = i + 1
+    elseif arg == "--no-hold" then
+      options.hold = false
+      i = i + 1
+    elseif arg == "--move-target" then
+      options.moveTarget = true
+      i = i + 1
+    elseif arg == "--no-move-target" then
+      options.moveTarget = false
+      i = i + 1
     elseif arg == "--actuator-type" then
       if not args[i + 1] then
         error("--actuator-type needs a type", 0)

@@ -4,6 +4,7 @@ local CATEGORY_ORDER = {
   "attitudeSensor",
   "navigationSensor",
   "altitudeSensor",
+  "velocitySensor",
   "scalarActuator",
   "speedActuator",
   "vectorActuator",
@@ -83,6 +84,8 @@ local SAMPLE_METHODS = {
   "getVelocityX",
   "getVelocityY",
   "getVelocityZ",
+  "getVelocity",
+  "getAxis",
   "getAltitude",
   "getHeight",
   "getAirPressure",
@@ -218,6 +221,19 @@ function classify.classifyMethods(methods)
       })
       or methodNameContains(methods, { "altitude", "height", "verticalspeed", "airpressure" }) then
     add("altitudeSensor", "altitude/pressure/vertical-speed getter methods")
+  end
+
+  if (
+        containsName(methodSet, "getVelocity")
+        and containsName(methodSet, "getAxis")
+      )
+      or containsAny(methodSet, {
+        "getVelocityX",
+        "getVelocityY",
+        "getVelocityZ",
+      })
+      or methodNameContains(methods, { "velocitysensor", "velocity_sensor" }) then
+    add("velocitySensor", "body-frame velocity getter methods")
   end
 
   if containsAny(methodSet, {

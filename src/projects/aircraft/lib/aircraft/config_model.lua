@@ -12,6 +12,8 @@ local ROOT_ORDER = {
   "statusReadLimit",
   "stabilize",
   "yaw",
+  "hold",
+  "moveTarget",
   "controller",
   "display",
   "hud",
@@ -86,6 +88,24 @@ local ORDERS = {
     "writeInterval",
     "writeDeadband",
   },
+  hold = {
+    "enabled",
+    "defaultActive",
+    "maxTiltDeg",
+    "velocityKp",
+    "velocityDeadband",
+    "axis1Sign",
+    "axis2Sign",
+  },
+  moveTarget = {
+    "enabled",
+    "defaultActive",
+    "maxVelocity",
+    "targetKp",
+    "deadband",
+    "captureRadius",
+    "velocitySlew",
+  },
   controller = {
     "enabled",
     "type",
@@ -101,7 +121,7 @@ local ORDERS = {
     "keyMap",
     "bindings",
   },
-  bindings = { "shift", "a", "s", "d", "space", "q", "w", "e", "k" },
+  bindings = { "shift", "a", "s", "d", "space", "q", "w", "e", "k", "hold", "moveTarget" },
   binding = { "x", "y", "z", "side" },
   display = { "enabled", "stabilizeEnabled", "stabilizeInterval" },
   hud = { "enabled", "interval", "monitorScale", "monitorName" },
@@ -185,6 +205,8 @@ function configModel.normalize(config)
   set(result, "statusReadLimit", config.statusReadLimit)
   result.stabilize = pick(config.stabilize, ORDERS.stabilize)
   result.yaw = pick(config.yaw, ORDERS.yaw)
+  result.hold = pick(config.hold, ORDERS.hold)
+  result.moveTarget = pick(config.moveTarget, ORDERS.moveTarget)
   result.controller = pick(config.controller, ORDERS.controller)
   result.controller.bindings = normalizeBindings(config.controller and config.controller.bindings)
   result.display = pick(config.display, ORDERS.display)

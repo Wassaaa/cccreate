@@ -24,6 +24,8 @@ local BINDING_ORDER = {
   "d",
   "space",
   "k",
+  "hold",
+  "moveTarget",
 }
 
 local function copyPlain(value, depth)
@@ -149,6 +151,14 @@ local function bindingText(binding)
     .. tostring(binding.side)
 end
 
+local function controllerCommandKey(key)
+  if key == "moveTarget" then
+    return "move-target"
+  end
+
+  return key
+end
+
 local function configSections(config)
   config = config or {}
 
@@ -232,6 +242,22 @@ local function configSections(config)
   add(yaw, config, "yaw.writeInterval", "Minimum seconds between manual yaw target writes unless this is the first write.", "aircraft config yaw-writes 0.1 0.01")
   add(yaw, config, "yaw.writeDeadband", "Minimum max component delta before another manual yaw target write.")
 
+  local hold = {}
+  add(hold, config, "hold.enabled", "Feature gate for velocity hold. H can toggle it during stabilize when enabled.", "aircraft config hold true 4 0.08 0.05")
+  add(hold, config, "hold.defaultActive", "Whether velocity hold starts active for a stabilize run.", "aircraft config hold-default false")
+  add(hold, config, "hold.maxTiltDeg", "Maximum roll/pitch attitude target velocity hold may inject.")
+  add(hold, config, "hold.velocityKp", "Velocity-to-attitude gain in radians per m/s.")
+  add(hold, config, "hold.velocityDeadband", "Velocity error below this m/s is ignored.")
+  add(hold, config, "hold.axis1Sign", "Use -1 if left/right velocity hold correction is reversed.", "aircraft config hold-signs 1 -1")
+  add(hold, config, "hold.axis2Sign", "Use -1 if front/back velocity hold correction is reversed.")
+  add(hold, config, "moveTarget.enabled", "Feature gate for navigation table move-target. T can toggle it during stabilize.", "aircraft config move-target true 1 0.2 8")
+  add(hold, config, "moveTarget.defaultActive", "Whether move-target starts active for a stabilize run.", "aircraft config move-target-default false")
+  add(hold, config, "moveTarget.maxVelocity", "Maximum desired body-frame velocity toward the nav target.")
+  add(hold, config, "moveTarget.targetKp", "Target-distance to desired-velocity gain.")
+  add(hold, config, "moveTarget.deadband", "Horizontal distance inside which move-target asks for zero velocity.")
+  add(hold, config, "moveTarget.captureRadius", "Move-target only acts inside this horizontal radius; outside it falls back to velocity hold.")
+  add(hold, config, "moveTarget.velocitySlew", "Maximum change in desired velocity per second while move-target is active.")
+
   local controller = {}
   add(controller, config, "controller.enabled", "Default controller enable flag. A run can still use --controller or --no-controller.", "aircraft config controller true")
   add(controller, config, "controller.type", "Controller input backend: redstone_router or keyboard.", "aircraft config controller-type keyboard")
@@ -251,7 +277,7 @@ local function configSections(config)
       "controller.bindings." .. key,
       value,
       "Redstone-router coordinate and side read for the " .. key .. " controller input. Used only when controller.type is redstone_router.",
-      "aircraft config controller-bind " .. key .. " <x> <y> <z> [side]"
+      "aircraft config controller-bind " .. controllerCommandKey(key) .. " <x> <y> <z> [side]"
     ))
   end
 
@@ -283,6 +309,7 @@ local function configSections(config)
     section("Orientation and Level", orientation),
     section("Stabilizer", stabilize, "axis1 is roll/A-D/left-right. axis2 is pitch/W-S/front-back."),
     section("Yaw Gyros", yaw),
+    section("Velocity Hold", hold),
     section("Controller", controller),
     section("Controller Bindings", bindings),
     section("Displays and HUD", display),
@@ -362,6 +389,8 @@ local function controlsActive(control)
   return math.abs(tonumber(control.axis1Target) or 0) > 0.0001
     or math.abs(tonumber(control.axis2Target) or 0) > 0.0001
     or math.abs(tonumber(control.yaw) or 0) > 0.0001
+    or math.abs(tonumber(control.holdToggle) or 0) > 0.0001
+    or math.abs(tonumber(control.moveTargetToggle) or 0) > 0.0001
     or math.abs(tonumber(control.throttlePower) or 0) > 0.0001
     or math.abs(tonumber(control.axis1Power) or 0) > 0.0001
     or math.abs(tonumber(control.axis2Power) or 0) > 0.0001
@@ -377,6 +406,12 @@ local function frameStats(report)
     yawSkippedFrames = 0,
     yawWriteFrames = 0,
     yawWriteSkippedFrames = 0,
+    holdActiveFrames = 0,
+    holdSkippedFrames = 0,
+    holdToggleFrames = 0,
+    moveTargetActiveFrames = 0,
+    moveTargetSkippedFrames = 0,
+    moveTargetToggleFrames = 0,
     controllerActiveFrames = 0,
     actuatorWriteFrames = 0,
     actuatorSkippedFrames = 0,
@@ -391,6 +426,7 @@ local function frameStats(report)
     stats.frames = stats.frames + 1
     local mixed = frame.mixed or {}
     local yaw = frame.yaw or mixed.yaw or {}
+    local hold = frame.hold or {}
     local control = frame.controller or {}
 
     if type(mixed.measured1) == "number" then
@@ -428,6 +464,29 @@ local function frameStats(report)
     end
     if type(yaw.yawRate) == "number" then
       stats.peakYawRate = math.max(stats.peakYawRate or 0, math.abs(yaw.yawRate))
+    end
+    if hold.enabled and hold.active and not hold.skipped then
+      stats.holdActiveFrames = stats.holdActiveFrames + 1
+    elseif hold.enabled and hold.skipped then
+      stats.holdSkippedFrames = stats.holdSkippedFrames + 1
+    end
+    if hold.toggled and hold.toggled.hold then
+      stats.holdToggleFrames = stats.holdToggleFrames + 1
+    end
+    if hold.moveTarget and hold.moveTarget.enabled and hold.moveTarget.active and not hold.moveTarget.skipped then
+      stats.moveTargetActiveFrames = stats.moveTargetActiveFrames + 1
+    elseif hold.moveTarget and hold.moveTarget.enabled and hold.moveTarget.active and hold.moveTarget.skipped then
+      stats.moveTargetSkippedFrames = stats.moveTargetSkippedFrames + 1
+    end
+    if hold.toggled and hold.toggled.moveTarget then
+      stats.moveTargetToggleFrames = stats.moveTargetToggleFrames + 1
+    end
+    if hold.velocityError then
+      stats.peakVelocityError = math.max(
+        stats.peakVelocityError or 0,
+        math.abs(tonumber(hold.velocityError.front) or 0),
+        math.abs(tonumber(hold.velocityError.left) or 0)
+      )
     end
     if controlsActive(control) then
       stats.controllerActiveFrames = stats.controllerActiveFrames + 1
@@ -517,6 +576,7 @@ function reportTabs.flightOverviewTab(report)
   local request = report.request or {}
   local finalMixed = stats.final and stats.final.mixed or {}
   local finalYaw = stats.final and (stats.final.yaw or (stats.final.mixed and stats.final.mixed.yaw)) or {}
+  local finalHold = stats.final and stats.final.hold or {}
   local actuatorSettings = report.actuators and report.actuators.settings or settings.actuator or {}
   local outputLabel = actuatorSettings.outputLabel or "output"
   local recovery = report.recoverySummary or {}
@@ -589,6 +649,26 @@ function reportTabs.flightOverviewTab(report)
   addTextRow(yawRows, "yawSkipped", finalYaw.skipped or "none", "Why the last yaw frame skipped, if it did.")
   addTextRow(yawRows, "yawSign", settings.yaw and settings.yaw.sign, "Invert this if a small applied run increases spin.")
 
+  local holdRows = {}
+  addTextRow(holdRows, "hold.enabled", settings.hold and settings.hold.enabled, "Feature gate for velocity hold.")
+  addTextRow(holdRows, "hold.defaultActive", settings.hold and settings.hold.defaultActive, "Whether velocity hold starts active at run start.")
+  addTextRow(holdRows, "holdActiveFrames", stats.holdActiveFrames, "Frames where velocity hold injected attitude targets.")
+  addTextRow(holdRows, "holdSkippedFrames", stats.holdSkippedFrames, "Frames where hold was enabled but skipped.")
+  addTextRow(holdRows, "holdToggleFrames", stats.holdToggleFrames, "Frames where the hold toggle button changed mode.")
+  addTextRow(holdRows, "finalHoldActive", finalHold.active, "Velocity hold state on the last kept frame.")
+  addTextRow(holdRows, "finalHoldSkipped", finalHold.skipped or "none", "Why velocity hold skipped on the last kept frame.")
+  addTextRow(holdRows, "finalVelocity", "front " .. valueText(finalHold.measuredVelocity and finalHold.measuredVelocity.front) .. " | left " .. valueText(finalHold.measuredVelocity and finalHold.measuredVelocity.left), "Last measured body-frame velocity from velocity sensors.")
+  addTextRow(holdRows, "finalDesiredVelocity", "front " .. valueText(finalHold.desiredVelocity and finalHold.desiredVelocity.front) .. " | left " .. valueText(finalHold.desiredVelocity and finalHold.desiredVelocity.left), "Velocity hold target after move-target and slew limiting.")
+  addTextRow(holdRows, "finalHoldTargets", "A1 " .. degText(finalHold.axis1Target) .. " | A2 " .. degText(finalHold.axis2Target), "Attitude targets injected into the stabilizer.")
+  addTextRow(holdRows, "peakVelocityError", valueText(stats.peakVelocityError), "Largest absolute front/left velocity error kept in the report.")
+  addTextRow(holdRows, "moveTarget.enabled", settings.moveTarget and settings.moveTarget.enabled, "Feature gate for navigation table move-target.")
+  addTextRow(holdRows, "moveTarget.defaultActive", settings.moveTarget and settings.moveTarget.defaultActive, "Whether move-target starts active at run start.")
+  addTextRow(holdRows, "moveTargetActiveFrames", stats.moveTargetActiveFrames, "Frames where move-target produced a desired velocity.")
+  addTextRow(holdRows, "moveTargetSkippedFrames", stats.moveTargetSkippedFrames, "Frames where move-target was active but fell back to zero-velocity hold.")
+  addTextRow(holdRows, "moveTargetToggleFrames", stats.moveTargetToggleFrames, "Frames where the move-target toggle button changed mode.")
+  addTextRow(holdRows, "finalMoveTargetSkipped", finalHold.moveTarget and finalHold.moveTarget.skipped or "none", "Why move-target skipped on the last kept frame.")
+  addTextRow(holdRows, "finalMoveTargetDistance", finalHold.moveTarget and finalHold.moveTarget.horizontalDistance, "Last horizontal distance to the nav target.")
+
   local controllerRows = {}
   addTextRow(controllerRows, "controller.enabled", report.controller and report.controller.enabled, "Whether controller input was open for this run.")
   addTextRow(controllerRows, "controller.type", report.controller and report.controller.type, "Input backend used by this run.")
@@ -609,6 +689,7 @@ function reportTabs.flightOverviewTab(report)
       section("Run", runRows),
       section("Stabilizer", stabilizerRows),
       section("Yaw Gyros", yawRows),
+      section("Velocity Hold", holdRows),
       section("Controller and Recovery", controllerRows),
     },
   }, stats

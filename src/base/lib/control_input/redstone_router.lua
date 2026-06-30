@@ -146,7 +146,18 @@ function redstoneRouter.sample(context)
   for _, inputName in ipairs(context.settings.inputs or {}) do
     local name = inputName
     table.insert(tasks, function()
-      reads[name] = readBinding(context, context.settings.bindings and context.settings.bindings[name])
+      local binding = context.settings.bindings and context.settings.bindings[name]
+      if not binding and context.settings.optionalInputs and context.settings.optionalInputs[name] then
+        reads[name] = {
+          ok = true,
+          signal = 0,
+          value = 0,
+          pressed = false,
+          source = "unbound_optional",
+        }
+      else
+        reads[name] = readBinding(context, binding)
+      end
     end)
   end
 

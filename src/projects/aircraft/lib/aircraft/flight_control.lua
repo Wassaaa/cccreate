@@ -396,6 +396,158 @@ local function tryAltitudeAt(router, coord)
   return nil
 end
 
+local function tryVelocityAt(router, coord)
+  local ok, objectOrError = pcall(router.wrap, coord.x, coord.y, coord.z)
+  if not ok or not objectOrError then
+    return nil
+  end
+
+  if type(objectOrError.getVelocity) == "function"
+      and type(objectOrError.getAxis) == "function" then
+    return objectOrError
+  end
+
+  return nil
+end
+
+local function velocityAxisFromVector(value)
+  if not coords.isCardinal(value) then
+    return nil, nil
+  elseif value.x ~= 0 then
+    return "x", value.x
+  elseif value.y ~= 0 then
+    return "y", value.y
+  elseif value.z ~= 0 then
+    return "z", value.z
+  end
+
+  return nil, nil
+end
+
+local function normalizeVelocityAxis(value)
+  if type(value) ~= "string" then
+    return nil
+  end
+
+  local axis = string.lower(value)
+  if axis == "x" or axis == "y" or axis == "z" then
+    return axis
+  end
+
+  return nil
+end
+
+local function scanVelocityRequirement(scan, role)
+  local mapped = scan.orientation
+    and scan.orientation.sensors
+    and scan.orientation.sensors.velocitySensor
+  local roleMapped = mapped and mapped[role]
+  if roleMapped and roleMapped.axis and roleMapped.sign then
+    return roleMapped.axis, roleMapped.sign, roleMapped
+  end
+
+  local orientation = scan.orientation or {}
+  local vectorField = role == "front" and "frontVector" or "leftVector"
+  return velocityAxisFromVector(orientation[vectorField])
+end
+
+local function sortedVelocityEntries(scan)
+  local entries = {}
+
+  for _, entry in ipairs(scan.peripherals or {}) do
+    if entry.coord and hasCategory(entry, "velocitySensor") then
+      table.insert(entries, entry)
+    end
+  end
+
+  table.sort(entries, function(left, right)
+    local leftDistance = math.abs(tonumber(left.coord and left.coord.x) or 0)
+      + math.abs(tonumber(left.coord and left.coord.y) or 0)
+      + math.abs(tonumber(left.coord and left.coord.z) or 0)
+    local rightDistance = math.abs(tonumber(right.coord and right.coord.x) or 0)
+      + math.abs(tonumber(right.coord and right.coord.y) or 0)
+      + math.abs(tonumber(right.coord and right.coord.z) or 0)
+
+    if leftDistance ~= rightDistance then
+      return leftDistance < rightDistance
+    end
+
+    return coords.key(left.coord.x, left.coord.y, left.coord.z)
+      < coords.key(right.coord.x, right.coord.y, right.coord.z)
+  end)
+
+  return entries
+end
+
+local function wrapVelocitySensor(router, coord, expectedAxis, sign, role, source)
+  local object = tryVelocityAt(router, coord)
+  if not object then
+    return nil, "No velocity sensor with getVelocity/getAxis at " .. coords.label(coord)
+  end
+
+  local axisRead = readOptionalGetter(object, "getAxis")
+  local axis = axisRead and axisRead.ok and normalizeVelocityAxis(axisRead.value) or nil
+  if not axis then
+    return nil, "velocity sensor at " .. coords.label(coord) .. " did not report a usable axis"
+  end
+
+  if expectedAxis and axis ~= expectedAxis then
+    return nil,
+      "velocity sensor at "
+        .. coords.label(coord)
+        .. " axis="
+        .. tostring(axis)
+        .. " expected="
+        .. tostring(expectedAxis)
+  end
+
+  return {
+    role = role,
+    source = source,
+    coord = copyPlain(coord),
+    object = object,
+    axis = axis,
+    sign = sign or 1,
+    axisRead = axisRead,
+  }, nil
+end
+
+local function findVelocitySensor(scan, router, role)
+  local expectedAxis, sign, mapped = scanVelocityRequirement(scan, role)
+  if not expectedAxis then
+    return nil, "No aircraft " .. role .. " axis available for velocity mapping"
+  end
+
+  local mappedError = nil
+  if mapped and mapped.coord then
+    local sensor, errorText = wrapVelocitySensor(router, mapped.coord, expectedAxis, sign, role, "scan_velocity_" .. role)
+    if sensor then
+      return sensor, nil
+    end
+
+    mappedError = errorText
+  end
+
+  for _, entry in ipairs(sortedVelocityEntries(scan)) do
+    local sensor = wrapVelocitySensor(router, entry.coord, expectedAxis, sign, role, "scan_velocity_category")
+    if sensor then
+      return sensor, nil
+    end
+  end
+
+  return nil, mappedError or "No " .. role .. " velocity sensor found for body axis " .. tostring(expectedAxis)
+end
+
+local function wrapVelocitySensors(scan, router)
+  local sensors = {}
+  local errors = {}
+
+  sensors.front, errors.front = findVelocitySensor(scan, router, "front")
+  sensors.left, errors.left = findVelocitySensor(scan, router, "left")
+
+  return sensors, errors
+end
+
 local function findFirstCategoryDevice(scan, router, category, tryWrap, label)
   local mapped = scan.orientation
     and scan.orientation.sensors
@@ -446,6 +598,7 @@ local function wrapOptionalSensors(scan, router)
     tryAltitudeAt,
     "altitude sensor"
   )
+  sensors.velocity, errors.velocity = wrapVelocitySensors(scan, router)
 
   return sensors, errors
 end
@@ -626,6 +779,8 @@ end
 local function stabilizeConfig(config, options)
   local defaults = config.stabilize or {}
   local yaw = config.yaw or {}
+  local hold = config.hold or {}
+  local moveTarget = config.moveTarget or {}
   local display = config.display or {}
   local killSwitch = config.killSwitch or {}
   local actuatorSettings = actuators.settings(config, options)
@@ -633,6 +788,10 @@ local function stabilizeConfig(config, options)
   local nixiesEnabled = display.stabilizeEnabled == true
   local killSwitchEnabled = killSwitch.enabled == true
   local yawEnabled = yaw.enabled ~= false
+  local holdEnabled = hold.enabled == true
+  local holdDefaultActive = hold.defaultActive == true
+  local moveTargetEnabled = moveTarget.enabled == true
+  local moveTargetDefaultActive = moveTarget.defaultActive == true
   local yawMaxTiltDeg = clamp(math.abs(tonumber(options.yawMaxTiltDeg) or tonumber(yaw.maxTiltDeg) or 8), 0, 12)
   local yawDeadbandDegPerSecond = math.max(
     0,
@@ -651,6 +810,14 @@ local function stabilizeConfig(config, options)
   end
   if options.yaw ~= nil then
     yawEnabled = options.yaw == true
+  end
+  if options.hold ~= nil then
+    holdEnabled = options.hold == true
+    holdDefaultActive = options.hold == true
+  end
+  if options.moveTarget ~= nil then
+    moveTargetEnabled = options.moveTarget == true
+    moveTargetDefaultActive = options.moveTarget == true
   end
 
   return {
@@ -694,6 +861,25 @@ local function stabilizeConfig(config, options)
       clearOnExit = yaw.clearOnExit ~= false,
       writeInterval = math.max(0, tonumber(options.yawWriteInterval) or tonumber(yaw.writeInterval) or 0.1),
       writeDeadband = math.max(0, tonumber(options.yawWriteDeadband) or tonumber(yaw.writeDeadband) or 0.01),
+    },
+    hold = {
+      enabled = holdEnabled,
+      defaultActive = holdDefaultActive,
+      maxTiltDeg = math.max(0, tonumber(hold.maxTiltDeg) or 4),
+      maxTilt = radians(math.max(0, tonumber(hold.maxTiltDeg) or 4)),
+      velocityKp = math.max(0, tonumber(hold.velocityKp) or 0.08),
+      velocityDeadband = math.max(0, tonumber(hold.velocityDeadband) or 0.05),
+      axis1Sign = (tonumber(hold.axis1Sign) or 1) < 0 and -1 or 1,
+      axis2Sign = (tonumber(hold.axis2Sign) or -1) < 0 and -1 or 1,
+    },
+    moveTarget = {
+      enabled = moveTargetEnabled,
+      defaultActive = moveTargetDefaultActive,
+      maxVelocity = math.max(0, tonumber(moveTarget.maxVelocity) or 1),
+      targetKp = math.max(0, tonumber(moveTarget.targetKp) or 0.2),
+      deadband = math.max(0, tonumber(moveTarget.deadband) or 1),
+      captureRadius = math.max(0, tonumber(moveTarget.captureRadius) or 8),
+      velocitySlew = math.max(0, tonumber(moveTarget.velocitySlew) or 0.5),
     },
     killSwitch = {
       enabled = killSwitchEnabled,
@@ -981,6 +1167,346 @@ local function recoveryContext(test)
       throttleMode = "momentary",
     },
   }
+end
+
+local function controlInputPressed(control, name)
+  local read = control and control.reads and control.reads[name]
+  return read and read.pressed == true
+end
+
+local function updateHoldModes(settings, control, modeState)
+  local holdSettings = settings.hold or {}
+  local moveSettings = settings.moveTarget or {}
+  modeState.initialized = true
+
+  if modeState.holdActive == nil then
+    modeState.holdActive = holdSettings.enabled == true and holdSettings.defaultActive == true
+  end
+  if modeState.moveTargetActive == nil then
+    modeState.moveTargetActive = moveSettings.enabled == true and moveSettings.defaultActive == true
+  end
+
+  local holdPressed = controlInputPressed(control, "hold")
+  local moveTargetPressed = controlInputPressed(control, "moveTarget")
+  local holdToggled = holdPressed and not modeState.holdPressed
+  local moveTargetToggled = moveTargetPressed and not modeState.moveTargetPressed
+
+  if holdSettings.enabled ~= true then
+    modeState.holdActive = false
+  elseif holdToggled then
+    modeState.holdActive = not modeState.holdActive
+  end
+
+  if moveSettings.enabled ~= true then
+    modeState.moveTargetActive = false
+  elseif moveTargetToggled then
+    modeState.moveTargetActive = not modeState.moveTargetActive
+  end
+
+  modeState.holdPressed = holdPressed
+  modeState.moveTargetPressed = moveTargetPressed
+
+  return {
+    hold = holdToggled,
+    moveTarget = moveTargetToggled,
+  }
+end
+
+local function manualMovementActive(control)
+  return math.abs(tonumber(control and control.axis1) or 0) > 0.0001
+    or math.abs(tonumber(control and control.axis2) or 0) > 0.0001
+    or math.abs(tonumber(control and control.axis1Power) or 0) > 0.0001
+    or math.abs(tonumber(control and control.axis2Power) or 0) > 0.0001
+    or (control and control.synthetic == true and control.pulseActive == true)
+end
+
+local function readNumber(read)
+  if type(read) ~= "table" or read.ok ~= true then
+    return nil
+  end
+
+  if type(read.value) == "number" then
+    return read.value
+  elseif type(read.value) == "table" then
+    return tonumber(read.value[1])
+  end
+
+  return tonumber(read.value)
+end
+
+local function readBoolean(read)
+  if type(read) ~= "table" or read.ok ~= true then
+    return nil
+  end
+
+  return read.value == true
+end
+
+local function readHoldSensors(sensors, includeNavigation)
+  local reads = {
+    velocity = {},
+  }
+  local tasks = {}
+
+  if sensors and sensors.velocity and sensors.velocity.front then
+    table.insert(tasks, function()
+      reads.velocity.front = readOptionalGetter(sensors.velocity.front.object, "getVelocity")
+    end)
+  end
+  if sensors and sensors.velocity and sensors.velocity.left then
+    table.insert(tasks, function()
+      reads.velocity.left = readOptionalGetter(sensors.velocity.left.object, "getVelocity")
+    end)
+  end
+
+  if includeNavigation and sensors and sensors.navigation then
+    local navigation = sensors.navigation.object
+    reads.navigation = {}
+    table.insert(tasks, function()
+      reads.navigation.hasTarget = readOptionalGetter(navigation, "hasTarget")
+    end)
+    table.insert(tasks, function()
+      reads.navigation.bearingRad = readOptionalGetter(navigation, "getBearingRad")
+    end)
+    table.insert(tasks, function()
+      reads.navigation.distanceToTarget = readOptionalGetter(navigation, "getDistanceToTarget")
+    end)
+    table.insert(tasks, function()
+      reads.navigation.verticalOffsetToTarget = readOptionalGetter(navigation, "getVerticalOffsetToTarget")
+    end)
+    table.insert(tasks, function()
+      reads.navigation.closureRate = readOptionalGetter(navigation, "getClosureRate")
+    end)
+  end
+
+  if #tasks > 0 then
+    parallel.waitForAll(unpack(tasks))
+  end
+
+  return reads
+end
+
+local function horizontalDistance(distance, verticalOffset)
+  distance = tonumber(distance) or 0
+  verticalOffset = tonumber(verticalOffset)
+  if not verticalOffset then
+    return distance
+  end
+
+  return math.sqrt(math.max(0, distance * distance - verticalOffset * verticalOffset))
+end
+
+local function desiredVelocityFromTarget(moveSettings, navigation)
+  local hasTarget = readBoolean(navigation and navigation.hasTarget)
+  if not hasTarget then
+    return {
+      front = 0,
+      left = 0,
+      skipped = "no nav target",
+    }
+  end
+
+  local bearing = readNumber(navigation.bearingRad)
+  local distance = readNumber(navigation.distanceToTarget)
+  if not bearing or not distance then
+    return {
+      front = 0,
+      left = 0,
+      skipped = "nav target read failed",
+    }
+  end
+
+  local verticalOffset = readNumber(navigation.verticalOffsetToTarget)
+  local horizontal = horizontalDistance(distance, verticalOffset)
+  local captureRadius = tonumber(moveSettings.captureRadius) or 0
+  if horizontal > captureRadius then
+    return {
+      front = 0,
+      left = 0,
+      skipped = "outside capture radius",
+      bearingRad = bearing,
+      distance = distance,
+      horizontalDistance = horizontal,
+      verticalOffset = verticalOffset,
+      captureRadius = captureRadius,
+    }
+  end
+
+  local deadband = tonumber(moveSettings.deadband) or 0
+  local maxVelocity = tonumber(moveSettings.maxVelocity) or 0
+  local speed = 0
+  if horizontal > deadband then
+    speed = math.min(maxVelocity, (horizontal - deadband) * (tonumber(moveSettings.targetKp) or 0))
+  end
+
+  return {
+    front = math.cos(bearing) * speed,
+    left = -math.sin(bearing) * speed,
+    bearingRad = bearing,
+    distance = distance,
+    horizontalDistance = horizontal,
+    verticalOffset = verticalOffset,
+    captureRadius = captureRadius,
+    speed = speed,
+    closureRate = readNumber(navigation.closureRate),
+  }
+end
+
+local function applyVelocityDeadband(value, deadband)
+  value = tonumber(value) or 0
+  deadband = tonumber(deadband) or 0
+  if math.abs(value) < deadband then
+    return 0
+  end
+
+  return value
+end
+
+local function buildHoldFrame(settings, sensors, control, modeState, dt)
+  local holdSettings = settings.hold or {}
+  local moveSettings = settings.moveTarget or {}
+  local toggled = updateHoldModes(settings, control, modeState)
+  local result = {
+    enabled = holdSettings.enabled == true,
+    active = modeState.holdActive == true,
+    defaultActive = holdSettings.defaultActive == true,
+    toggled = toggled,
+    moveTarget = {
+      enabled = moveSettings.enabled == true,
+      active = modeState.moveTargetActive == true,
+      defaultActive = moveSettings.defaultActive == true,
+    },
+  }
+
+  if not result.enabled then
+    result.skipped = "hold disabled"
+    return result
+  end
+
+  if not result.active then
+    result.skipped = "hold inactive"
+    modeState.desiredVelocity = { front = 0, left = 0 }
+    return result
+  end
+
+  if manualMovementActive(control) then
+    result.skipped = "manual movement input"
+    return result
+  end
+
+  if not sensors or not sensors.velocity or not sensors.velocity.front or not sensors.velocity.left then
+    result.skipped = "velocity sensors missing"
+    return result
+  end
+
+  local includeNavigation = result.moveTarget.enabled and result.moveTarget.active and sensors.navigation ~= nil
+  local reads = readHoldSensors(sensors, includeNavigation)
+  local frontRaw = readNumber(reads.velocity.front)
+  local leftRaw = readNumber(reads.velocity.left)
+  if not frontRaw or not leftRaw then
+    result.skipped = "velocity read failed"
+    result.reads = {
+      front = copyPlain(reads.velocity.front),
+      left = copyPlain(reads.velocity.left),
+    }
+    return result
+  end
+
+  local measured = {
+    front = frontRaw * (tonumber(sensors.velocity.front.sign) or 1),
+    left = leftRaw * (tonumber(sensors.velocity.left.sign) or 1),
+  }
+  local desired = {
+    front = 0,
+    left = 0,
+  }
+  local moveTargetFrame = result.moveTarget
+
+  if result.moveTarget.enabled and result.moveTarget.active then
+    if not sensors.navigation then
+      moveTargetFrame.skipped = "navigation table missing"
+    else
+      desired = desiredVelocityFromTarget(moveSettings, reads.navigation)
+      moveTargetFrame.skipped = desired.skipped
+      moveTargetFrame.bearingRad = desired.bearingRad
+      moveTargetFrame.distance = desired.distance
+      moveTargetFrame.horizontalDistance = desired.horizontalDistance
+      moveTargetFrame.verticalOffset = desired.verticalOffset
+      moveTargetFrame.captureRadius = desired.captureRadius
+      moveTargetFrame.speed = desired.speed
+      moveTargetFrame.closureRate = desired.closureRate
+    end
+  end
+
+  if result.moveTarget.enabled and result.moveTarget.active and not moveTargetFrame.skipped then
+    local previous = modeState.desiredVelocity or { front = 0, left = 0 }
+    local maxDelta = (tonumber(moveSettings.velocitySlew) or 0) * (tonumber(dt) or 0)
+    desired = {
+      front = slewValue(previous.front, desired.front, maxDelta),
+      left = slewValue(previous.left, desired.left, maxDelta),
+    }
+  else
+    desired = {
+      front = 0,
+      left = 0,
+    }
+  end
+
+  modeState.desiredVelocity = {
+    front = desired.front,
+    left = desired.left,
+  }
+
+  local deadband = tonumber(holdSettings.velocityDeadband) or 0
+  local errorFront = applyVelocityDeadband(measured.front - desired.front, deadband)
+  local errorLeft = applyVelocityDeadband(measured.left - desired.left, deadband)
+  local maxTilt = tonumber(holdSettings.maxTilt) or 0
+  local axis1Target = clamp(
+    (tonumber(holdSettings.axis1Sign) or 1) * (tonumber(holdSettings.velocityKp) or 0) * errorLeft,
+    -maxTilt,
+    maxTilt
+  )
+  local axis2Target = clamp(
+    (tonumber(holdSettings.axis2Sign) or -1) * (tonumber(holdSettings.velocityKp) or 0) * errorFront,
+    -maxTilt,
+    maxTilt
+  )
+
+  result.measuredVelocity = measured
+  result.desiredVelocity = desired
+  result.velocityError = {
+    front = errorFront,
+    left = errorLeft,
+  }
+  result.axis1Target = axis1Target
+  result.axis2Target = axis2Target
+  result.maxTilt = maxTilt
+  result.maxTiltDeg = holdSettings.maxTiltDeg
+  result.velocityKp = holdSettings.velocityKp
+  result.velocityDeadband = deadband
+  result.sensorAxes = {
+    front = sensors.velocity.front.axis,
+    left = sensors.velocity.left.axis,
+  }
+  result.sensorSigns = {
+    front = sensors.velocity.front.sign,
+    left = sensors.velocity.left.sign,
+  }
+
+  return result
+end
+
+local function controlWithHold(control, holdFrame)
+  local result = copyPlain(control or {})
+  result.hold = holdFrame
+
+  if holdFrame and holdFrame.active and not holdFrame.skipped then
+    result.axis1Target = holdFrame.axis1Target or 0
+    result.axis2Target = holdFrame.axis2Target or 0
+    result.holdInjected = true
+  end
+
+  return result
 end
 
 local function targetAssistPower(controlPower, error, target)
@@ -1394,6 +1920,8 @@ local function readSensorTelemetry(sensors)
       targetType = readOptionalGetter(navigation, "getTargetType"),
       bearingRad = readOptionalGetter(navigation, "getBearingRad"),
       distanceToTarget = readOptionalGetter(navigation, "getDistanceToTarget"),
+      verticalOffsetToTarget = readOptionalGetter(navigation, "getVerticalOffsetToTarget"),
+      closureRate = readOptionalGetter(navigation, "getClosureRate"),
     }
   end
 
@@ -1406,6 +1934,23 @@ local function readSensorTelemetry(sensors)
       verticalSpeed = readOptionalGetter(altitude, "getVerticalSpeed"),
       airPressure = readOptionalGetter(altitude, "getAirPressure"),
     }
+  end
+
+  if sensors and sensors.velocity then
+    result.velocity = {}
+    for _, role in ipairs({ "front", "left" }) do
+      local sensor = sensors.velocity[role]
+      if sensor then
+        result.velocity[role] = {
+          coord = copyPlain(sensor.coord),
+          source = sensor.source,
+          axis = sensor.axis,
+          sign = sensor.sign,
+          axisRead = sensor.axisRead,
+          velocity = readOptionalGetter(sensor.object, "getVelocity"),
+        }
+      end
+    end
   end
 
   return result
@@ -1721,7 +2266,7 @@ end
 local function pressedControls(control)
   local pressed = {}
 
-  for _, name in ipairs({ "shift", "space", "w", "a", "s", "d", "q", "e", "k" }) do
+  for _, name in ipairs({ "shift", "space", "w", "a", "s", "d", "q", "e", "k", "hold", "moveTarget" }) do
     local read = control and control.reads and control.reads[name]
     if read and read.pressed then
       table.insert(pressed, name)
@@ -1744,6 +2289,7 @@ local function compactControllerFrame(control)
     throttleMode = control.throttleMode,
     heldThrottlePower = control.heldThrottlePower,
     pressed = #pressed > 0 and pressed or nil,
+    holdInjected = control.holdInjected == true and true or nil,
   }
 
   if control.synthetic == true then
@@ -1763,6 +2309,12 @@ local function compactControllerFrame(control)
   end
   if math.abs(tonumber(control.yaw) or 0) > 0.0001 then
     result.yaw = control.yaw
+  end
+  if math.abs(tonumber(control.holdToggle) or 0) > 0.0001 then
+    result.holdToggle = control.holdToggle
+  end
+  if math.abs(tonumber(control.moveTargetToggle) or 0) > 0.0001 then
+    result.moveTargetToggle = control.moveTargetToggle
   end
   if math.abs(tonumber(control.axis1Target) or 0) > 0.0001 then
     result.axis1Target = control.axis1Target
@@ -2251,6 +2803,49 @@ local function compactYawFrame(yaw)
   }
 end
 
+local function compactHoldFrame(hold)
+  if not hold then
+    return nil
+  end
+
+  local toggled = nil
+  if hold.toggled and (hold.toggled.hold or hold.toggled.moveTarget) then
+    toggled = {
+      hold = hold.toggled.hold == true and true or nil,
+      moveTarget = hold.toggled.moveTarget == true and true or nil,
+    }
+  end
+
+  return {
+    enabled = hold.enabled == true,
+    active = hold.active == true,
+    skipped = hold.skipped,
+    toggled = toggled,
+    measuredVelocity = copyPlain(hold.measuredVelocity),
+    desiredVelocity = copyPlain(hold.desiredVelocity),
+    velocityError = copyPlain(hold.velocityError),
+    axis1Target = hold.axis1Target,
+    axis2Target = hold.axis2Target,
+    maxTiltDeg = hold.maxTiltDeg,
+    velocityKp = hold.velocityKp,
+    velocityDeadband = hold.velocityDeadband,
+    sensorAxes = copyPlain(hold.sensorAxes),
+    sensorSigns = copyPlain(hold.sensorSigns),
+    moveTarget = hold.moveTarget and {
+      enabled = hold.moveTarget.enabled == true,
+      active = hold.moveTarget.active == true,
+      skipped = hold.moveTarget.skipped,
+      bearingRad = hold.moveTarget.bearingRad,
+      distance = hold.moveTarget.distance,
+      horizontalDistance = hold.moveTarget.horizontalDistance,
+      verticalOffset = hold.moveTarget.verticalOffset,
+      captureRadius = hold.moveTarget.captureRadius,
+      speed = hold.moveTarget.speed,
+      closureRate = hold.moveTarget.closureRate,
+    } or nil,
+  }
+end
+
 local function compactRotorTelemetry(telemetry)
   if type(telemetry) ~= "table" then
     return telemetry
@@ -2302,6 +2897,23 @@ local function compactSensorTelemetry(sensors)
 
   local navigation = sensors.navigation
   local altitude = sensors.altitude
+  local velocity = sensors.velocity
+  local compactVelocity = nil
+  if type(velocity) == "table" then
+    compactVelocity = {}
+    for _, role in ipairs({ "front", "left" }) do
+      local sensor = velocity[role]
+      if sensor then
+        compactVelocity[role] = {
+          source = sensor.source,
+          axis = sensor.axis,
+          sign = sensor.sign,
+          velocity = compactRead(sensor.velocity),
+        }
+      end
+    end
+  end
+
   return {
     navigation = navigation and {
       source = navigation.source,
@@ -2311,6 +2923,8 @@ local function compactSensorTelemetry(sensors)
       targetType = compactRead(navigation.targetType),
       bearingRad = compactRead(navigation.bearingRad),
       distanceToTarget = compactRead(navigation.distanceToTarget),
+      verticalOffsetToTarget = compactRead(navigation.verticalOffsetToTarget),
+      closureRate = compactRead(navigation.closureRate),
     } or nil,
     altitude = altitude and {
       source = altitude.source,
@@ -2318,6 +2932,7 @@ local function compactSensorTelemetry(sensors)
       verticalSpeed = compactRead(altitude.verticalSpeed),
       airPressure = compactRead(altitude.airPressure),
     } or nil,
+    velocity = tableHasEntries(compactVelocity) and compactVelocity or nil,
   }
 end
 
@@ -2351,6 +2966,7 @@ local function compactStabilizeFrame(frame)
     abortReason = frame.abortReason,
     killSwitch = compactKillSwitchFrame(frame.killSwitch),
     controller = compactControllerFrame(frame.controller),
+    hold = compactHoldFrame(frame.hold),
     mixed = compactMixedFrame(frame.mixed),
     actuatorWrite = compactWriteDecision(frame.actuatorWrite),
     setResults = compactRoleResults(frame.setResults, false),
@@ -2476,6 +3092,20 @@ function flightControl.stabilize(config, options)
       source = sensors.altitude.source,
       coord = copyPlain(sensors.altitude.coord),
     } or nil,
+    velocity = sensors.velocity and {
+      front = sensors.velocity.front and {
+        source = sensors.velocity.front.source,
+        coord = copyPlain(sensors.velocity.front.coord),
+        axis = sensors.velocity.front.axis,
+        sign = sensors.velocity.front.sign,
+      } or nil,
+      left = sensors.velocity.left and {
+        source = sensors.velocity.left.source,
+        coord = copyPlain(sensors.velocity.left.coord),
+        axis = sensors.velocity.left.axis,
+        sign = sensors.velocity.left.sign,
+      } or nil,
+    } or nil,
     errors = copyPlain(sensorErrors),
   }
   report.frames = {}
@@ -2547,6 +3177,11 @@ function flightControl.stabilize(config, options)
     local previousYawWriteElapsed = nil
     local recentTimingFrames = {}
     local previousTimingHealth = emptyTimingHealth(settings)
+    local holdModeState = {
+      holdActive = settings.hold and settings.hold.enabled == true and settings.hold.defaultActive == true,
+      moveTargetActive = settings.moveTarget and settings.moveTarget.enabled == true and settings.moveTarget.defaultActive == true,
+      desiredVelocity = { front = 0, left = 0 },
+    }
 
     while true do
       if active and deadline and frameIndex > 1 and os.clock() >= deadline then
@@ -2575,8 +3210,13 @@ function flightControl.stabilize(config, options)
       phaseStart = os.clock()
       local rawControl = recoveryControl(options.recoveryTest, elapsed) or controller.sample(controllerContext)
       local controlContext = options.recoveryTest and testControlContext or controllerContext
-      local control = smoothControl(controlContext, rawControl, previousControl, dt)
+      local baseControl = smoothControl(controlContext, rawControl, previousControl, dt)
       timing.phases.controller = os.clock() - phaseStart
+
+      phaseStart = os.clock()
+      local holdFrame = buildHoldFrame(settings, sensors, baseControl, holdModeState, dt)
+      local control = controlWithHold(baseControl, holdFrame)
+      timing.phases.hold = os.clock() - phaseStart
 
       phaseStart = os.clock()
       local mixed = mixerSignals(settings, state, control, signalResiduals)
@@ -2599,6 +3239,7 @@ function flightControl.stabilize(config, options)
         state = state,
         killSwitch = killSwitch,
         controller = control,
+        hold = holdFrame,
         mixed = mixed,
         yaw = yawFrame,
       }
@@ -2725,10 +3366,10 @@ function flightControl.stabilize(config, options)
         measured2 = mixed.measured2,
       }
       previousControl = {
-        axis1Target = control.axis1Target,
-        axis2Target = control.axis2Target,
-        throttlePower = control.throttlePower,
-        heldThrottlePower = control.heldThrottlePower,
+        axis1Target = baseControl and baseControl.axis1Target,
+        axis2Target = baseControl and baseControl.axis2Target,
+        throttlePower = baseControl and baseControl.throttlePower,
+        heldThrottlePower = baseControl and baseControl.heldThrottlePower,
       }
       frameIndex = frameIndex + 1
       nextFrameTime = nextFrameTime + settings.interval

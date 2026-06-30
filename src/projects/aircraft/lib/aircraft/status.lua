@@ -22,6 +22,7 @@ local FAMILY_ORDER = {
 local SENSOR_ORDER = {
   "navigationSensor",
   "altitudeSensor",
+  "velocitySensor",
 }
 
 local function copyPlain(value, depth)
