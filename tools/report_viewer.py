@@ -2,12 +2,25 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 import argparse
+import gzip
 import json
 import os
+import re
+import struct
 
 
 ROOT = Path(__file__).resolve().parents[1]
 INBOX = ROOT / "inbox"
+
+
+TAG_END = 0
+TAG_BYTE = 1
+TAG_INT = 3
+TAG_STRING = 8
+TAG_LIST = 9
+TAG_COMPOUND = 10
+
+DATA_VERSION = 3953
 
 
 HTML = r"""<!doctype html>
@@ -492,6 +505,8 @@ HTML = r"""<!doctype html>
     }
 
     .copy-btn {
+      display: inline-flex;
+      align-items: center;
       border: 1px solid var(--line);
       border-radius: 5px;
       padding: 4px 7px;
@@ -500,6 +515,7 @@ HTML = r"""<!doctype html>
       font: inherit;
       font-size: 12px;
       cursor: pointer;
+      text-decoration: none;
     }
 
     .copy-btn:hover {
@@ -1984,6 +2000,7 @@ HTML = r"""<!doctype html>
       const warnings = entries.filter((entry) => entry.isOverstressed || entry.hasMissingSource).length;
       const inferred = entries.filter((entry) => entry.inferred).length;
       const frame = inferScadaFrame(report);
+      const structureUrl = `/api/structure?file=${encodeURIComponent(state.selectedFile)}`;
       const metrics = `
         <div class="map-controls">
           <span class="pill">${escapeHtml(report.width || bounds.xs.length)}x${escapeHtml(report.height || bounds.ys.length)}x${escapeHtml(report.depth || bounds.zs.length)}</span>
@@ -1995,6 +2012,7 @@ HTML = r"""<!doctype html>
           ${warnings ? `<span class="pill warn-text">${escapeHtml(warnings)} warnings</span>` : ""}
           ${frame ? `<span class="pill">SCADA offset ${escapeHtml(frame.offset.x)},${escapeHtml(frame.offset.y)},${escapeHtml(frame.offset.z)} from ${escapeHtml(frame.count)} ids</span>` : ""}
           <span class="pill">router ${escapeHtml(routerLabel(report))}</span>
+          <a class="copy-btn" href="${escapeHtml(structureUrl)}">Download NBT</a>
         </div>
       `;
 
@@ -2083,6 +2101,404 @@ def report_summary(path: Path):
     }
 
 
+def has_coord(value):
+    if not isinstance(value, dict):
+        return False
+    try:
+        int(value.get("x"))
+        int(value.get("y"))
+        int(value.get("z"))
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def coord_tuple(value):
+    return (int(value["x"]), int(value["y"]), int(value["z"]))
+
+
+def list_value(value):
+    return value if isinstance(value, list) else []
+
+
+def dict_value(value):
+    return value if isinstance(value, dict) else {}
+
+
+def object_items(value):
+    if isinstance(value, dict):
+        return value.items()
+    if isinstance(value, list):
+        pairs = []
+        for index, item in enumerate(value):
+            if isinstance(item, dict) and item.get("id"):
+                pairs.append((str(item["id"]), item))
+            elif isinstance(item, str):
+                pairs.append((item, {}))
+            else:
+                pairs.append((str(index), item))
+        return pairs
+    return ()
+
+
+def decode_scada_block_pos(block_id):
+    text = str(block_id or "").strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{16}", text):
+        return None
+
+    packed = int(text, 16)
+    x = (packed >> 38) & ((1 << 26) - 1)
+    y = packed & ((1 << 12) - 1)
+    z = (packed >> 12) & ((1 << 26) - 1)
+
+    if x >= 1 << 25:
+        x -= 1 << 26
+    if y >= 1 << 11:
+        y -= 1 << 12
+    if z >= 1 << 25:
+        z -= 1 << 26
+
+    return {"x": x, "y": y, "z": z}
+
+
+def infer_scada_frame(report):
+    candidates = {}
+
+    for node_id, node in object_items(dict_value(report.get("kineticScada")).get("nodes")):
+        node = dict_value(node)
+        coord = node.get("coord")
+        if not has_coord(coord):
+            continue
+
+        world = decode_scada_block_pos(node.get("id") or node_id)
+        if not world:
+            continue
+
+        offset = (
+            world["x"] - int(coord["x"]),
+            world["y"] - int(coord["y"]),
+            world["z"] - int(coord["z"]),
+        )
+        candidates[offset] = candidates.get(offset, 0) + 1
+
+    if not candidates:
+        return None
+
+    offset, count = max(candidates.items(), key=lambda item: item[1])
+    return {"offset": {"x": offset[0], "y": offset[1], "z": offset[2]}, "count": count}
+
+
+def world_to_relative(world, frame):
+    if not world or not frame:
+        return None
+    offset = frame["offset"]
+    return {
+        "x": world["x"] - offset["x"],
+        "y": world["y"] - offset["y"],
+        "z": world["z"] - offset["z"],
+    }
+
+
+def scada_nodes_by_coord(report):
+    by_coord = {}
+
+    for node_id, node in object_items(dict_value(report.get("kineticScada")).get("nodes")):
+        node = dict_value(node)
+        coord = node.get("coord")
+        if has_coord(coord):
+            by_coord[coord_tuple(coord)] = {**node, "id": node.get("id") or node_id}
+
+    return by_coord
+
+
+def map_kind_for_entry(entry, scada=None):
+    categories = set(list_value(entry.get("categories")))
+    scada = dict_value(scada)
+
+    if entry.get("inferred"):
+        return "inferred"
+    if "attitudeSensor" in categories:
+        return "attitude"
+    if "rotorBearing" in categories:
+        return "rotor"
+    if "scalarActuator" in categories:
+        return "scalar"
+    if "displaySink" in categories:
+        return "display"
+    if "kineticScada" in categories or scada:
+        return "kinetic"
+    if entry.get("inventory"):
+        return "inventory"
+    return entry.get("kind") or "wrappable"
+
+
+def add_map_entry(entries, entry):
+    if not has_coord(entry):
+        return
+
+    key = coord_tuple(entry)
+    existing = entries.get(key)
+    if not existing:
+        entries[key] = entry
+        return
+
+    existing["categories"] = sorted(set(list_value(existing.get("categories"))) | set(list_value(entry.get("categories"))))
+    existing["networkId"] = existing.get("networkId") or entry.get("networkId")
+    existing["mapKind"] = existing.get("mapKind") or entry.get("mapKind")
+    existing["inferred"] = existing.get("inferred") or entry.get("inferred")
+    existing["isOverstressed"] = existing.get("isOverstressed") or entry.get("isOverstressed")
+    existing["hasMissingSource"] = existing.get("hasMissingSource") or entry.get("hasMissingSource")
+    existing["merged"] = existing.get("merged", 1) + 1
+
+
+def coordinate_entries(report):
+    entries = {}
+    scada_by_coord = scada_nodes_by_coord(report)
+    used_scada = set()
+
+    for raw in list_value(report.get("results")):
+        if not has_coord(raw):
+            continue
+        entry = {
+            **dict_value(raw),
+            "x": int(raw["x"]),
+            "y": int(raw["y"]),
+            "z": int(raw["z"]),
+            "mapKind": raw.get("kind") or ("inventory" if raw.get("inventory") else "wrappable"),
+        }
+        add_map_entry(entries, entry)
+
+    for raw in list_value(report.get("peripherals")):
+        raw = dict_value(raw)
+        coord = raw.get("coord")
+        if not has_coord(coord):
+            continue
+
+        key = coord_tuple(coord)
+        scada_node = scada_by_coord.get(key, {})
+        scada = {**scada_node, **dict_value(raw.get("kineticScada"))}
+        used_scada.add(key)
+        entry = {
+            "x": int(coord["x"]),
+            "y": int(coord["y"]),
+            "z": int(coord["z"]),
+            "categories": list_value(raw.get("categories")),
+            "methods": list_value(raw.get("methods")),
+            "methodCount": raw.get("methodCount"),
+            "networkId": scada.get("networkId"),
+            "subnetworkAnchorId": scada.get("subnetworkAnchorId"),
+            "sourceId": scada.get("sourceId"),
+            "scadaKind": scada.get("kind"),
+            "isOverstressed": scada.get("isOverstressed") is True,
+            "hasMissingSource": scada_node.get("hasMissingSource") is True,
+        }
+        entry["mapKind"] = map_kind_for_entry(entry, scada)
+        add_map_entry(entries, entry)
+
+    for key, node in scada_by_coord.items():
+        if key in used_scada:
+            continue
+        entry = {
+            "x": key[0],
+            "y": key[1],
+            "z": key[2],
+            "categories": list_value(node.get("categories")),
+            "networkId": node.get("networkId"),
+            "subnetworkAnchorId": node.get("subnetworkAnchorId"),
+            "sourceId": node.get("sourceId"),
+            "scadaKind": node.get("kind"),
+            "isOverstressed": node.get("isOverstressed") is True,
+            "hasMissingSource": node.get("hasMissingSource") is True,
+            "mapKind": "scalar" if node.get("isDriver") else "kinetic",
+        }
+        add_map_entry(entries, entry)
+
+    frame = infer_scada_frame(report)
+    nodes = dict(object_items(dict_value(report.get("kineticScada")).get("nodes")))
+    missing_groups = [
+        ("missing_source", dict_value(report.get("kineticScada")).get("missingSourceIds")),
+        ("missing_anchor", dict_value(report.get("kineticScada")).get("missingAnchorIds")),
+    ]
+    for kind, missing in missing_groups:
+        for missing_id, data in object_items(missing):
+            world = decode_scada_block_pos(missing_id)
+            rel = world_to_relative(world, frame)
+            if not rel:
+                continue
+            data = dict_value(data)
+            referenced_by = list_value(data.get("referencedBy"))
+            ref_node = dict_value(nodes.get(referenced_by[0])) if referenced_by else {}
+            entry = {
+                "x": rel["x"],
+                "y": rel["y"],
+                "z": rel["z"],
+                "mapKind": "inferred",
+                "inferred": True,
+                "inferredKind": kind,
+                "networkId": ref_node.get("networkId"),
+                "subnetworkAnchorId": ref_node.get("subnetworkAnchorId"),
+                "sourceId": missing_id if kind == "missing_source" else None,
+                "categories": ["inferredScada"],
+                "hasMissingSource": True,
+            }
+            add_map_entry(entries, entry)
+
+    return list(entries.values())
+
+
+BLOCK_BY_KIND = {
+    "attitude": "minecraft:purple_concrete",
+    "rotor": "minecraft:lime_concrete",
+    "scalar": "minecraft:orange_concrete",
+    "display": "minecraft:light_blue_concrete",
+    "kinetic": "minecraft:cyan_concrete",
+    "inventory": "minecraft:green_concrete",
+    "fluid": "minecraft:blue_concrete",
+    "energy": "minecraft:redstone_block",
+    "redstone": "minecraft:red_concrete",
+    "terminal": "minecraft:white_concrete",
+    "modem": "minecraft:gray_concrete",
+    "inferred": "minecraft:yellow_concrete",
+    "error": "minecraft:red_concrete",
+    "wrappable": "minecraft:stone",
+    "origin": "minecraft:black_concrete",
+}
+
+
+def block_for_entry(entry):
+    if entry.get("isOverstressed"):
+        return "minecraft:red_concrete"
+    if entry.get("inferredKind") == "missing_anchor":
+        return "minecraft:gold_block"
+    return BLOCK_BY_KIND.get(entry.get("mapKind"), "minecraft:stone")
+
+
+def nbt_string(value):
+    data = str(value).encode("utf-8")
+    return struct.pack(">H", len(data)) + data
+
+
+def nbt_named_header(tag_type, name):
+    return struct.pack(">B", tag_type) + nbt_string(name)
+
+
+def tag_int(value):
+    return (TAG_INT, int(value))
+
+
+def tag_string(value):
+    return (TAG_STRING, str(value))
+
+
+def tag_list(element_type, values):
+    return (TAG_LIST, (element_type, values))
+
+
+def tag_compound(values):
+    return (TAG_COMPOUND, values)
+
+
+def write_nbt_payload(tag_type, value):
+    if tag_type == TAG_BYTE:
+        return struct.pack(">b", int(value))
+    if tag_type == TAG_INT:
+        return struct.pack(">i", int(value))
+    if tag_type == TAG_STRING:
+        return nbt_string(value)
+    if tag_type == TAG_LIST:
+        element_type, values = value
+        body = struct.pack(">Bi", element_type, len(values))
+        payloads = []
+        for child in values:
+            if isinstance(child, tuple) and len(child) == 2 and child[0] == element_type:
+                child = child[1]
+            payloads.append(write_nbt_payload(element_type, child))
+        return body + b"".join(payloads)
+    if tag_type == TAG_COMPOUND:
+        body = b""
+        for name, child in value.items():
+            child_type, child_value = child
+            body += nbt_named_header(child_type, name)
+            body += write_nbt_payload(child_type, child_value)
+        return body + struct.pack(">B", TAG_END)
+    raise ValueError(f"unsupported NBT tag type {tag_type}")
+
+
+def block_state(name, properties=None):
+    data = {"Name": tag_string(name)}
+    if properties:
+        data["Properties"] = tag_compound({key: tag_string(value) for key, value in sorted(properties.items())})
+    return data
+
+
+def structure_nbt_bytes(entries, author="Codex"):
+    if not entries:
+        raise ValueError("report has no coordinate entries")
+
+    coords = [(int(entry["x"]), int(entry["y"]), int(entry["z"])) for entry in entries]
+    coords.append((0, 0, 0))
+    min_x = min(x for x, _, _ in coords)
+    min_y = min(y for _, y, _ in coords)
+    min_z = min(z for _, _, z in coords)
+    max_x = max(x for x, _, _ in coords)
+    max_y = max(y for _, y, _ in coords)
+    max_z = max(z for _, _, z in coords)
+
+    palette = []
+    palette_index = {}
+    blocks = {}
+
+    def state_index(name, properties=None):
+        key = (name, tuple(sorted((properties or {}).items())))
+        if key not in palette_index:
+            palette_index[key] = len(palette)
+            palette.append(tag_compound(block_state(name, properties)))
+        return palette_index[key]
+
+    def set_block(x, y, z, name, properties=None):
+        pos = (x - min_x, y - min_y, z - min_z)
+        blocks[pos] = state_index(name, properties)
+
+    for entry in entries:
+        set_block(int(entry["x"]), int(entry["y"]), int(entry["z"]), block_for_entry(entry))
+
+    set_block(0, 0, 0, BLOCK_BY_KIND["origin"])
+
+    block_entries = []
+    for (x, y, z), state in sorted(blocks.items()):
+        block_entries.append(
+            tag_compound(
+                {
+                    "pos": tag_list(TAG_INT, [x, y, z]),
+                    "state": tag_int(state),
+                }
+            )
+        )
+
+    root = {
+        "DataVersion": tag_int(DATA_VERSION),
+        "author": tag_string(author),
+        "size": tag_list(TAG_INT, [max_x - min_x + 1, max_y - min_y + 1, max_z - min_z + 1]),
+        "palette": tag_list(TAG_COMPOUND, palette),
+        "blocks": tag_list(TAG_COMPOUND, block_entries),
+        "entities": tag_list(TAG_COMPOUND, []),
+    }
+
+    payload = nbt_named_header(TAG_COMPOUND, "") + write_nbt_payload(TAG_COMPOUND, root)
+    return gzip.compress(payload)
+
+
+def report_structure_nbt(report):
+    entries = coordinate_entries(report)
+    return structure_nbt_bytes(entries, author="ComputerCraft report viewer")
+
+
+def nbt_download_name(filename: str):
+    stem = Path(filename).stem.replace("latest-report", "cc-map")
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "cc-map"
+    return f"{stem}.nbt"
+
+
 class ReportViewerHandler(BaseHTTPRequestHandler):
     def send_json(self, payload, status=200):
         body = json.dumps(payload, indent=2).encode("utf-8")
@@ -2098,6 +2514,15 @@ class ReportViewerHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_bytes(self, body: bytes, content_type: str, filename: str):
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -2123,6 +2548,12 @@ class ReportViewerHandler(BaseHTTPRequestHandler):
             self.send_reports()
             return
 
+        if parsed.path == "/api/structure":
+            query = parse_qs(parsed.query)
+            filename = query.get("file", ["latest-report.json"])[0]
+            self.send_structure(filename)
+            return
+
         self.send_error(404, "not found")
 
     def send_report(self, filename: str):
@@ -2146,6 +2577,23 @@ class ReportViewerHandler(BaseHTTPRequestHandler):
         reports = sorted(INBOX.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
         summaries = [report_summary(path) for path in reports[:100]]
         self.send_json({"reports": summaries})
+
+    def send_structure(self, filename: str):
+        safe_name = Path(filename).name
+        path = INBOX / safe_name
+
+        if not path.exists():
+            self.send_json({"ok": False, "error": f"report not found: {safe_name}"}, status=404)
+            return
+
+        report = read_report(path)
+        try:
+            body = report_structure_nbt(report)
+        except Exception as exc:
+            self.send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+
+        self.send_bytes(body, "application/octet-stream", nbt_download_name(safe_name))
 
     def log_message(self, format, *args):
         print("%s - %s" % (self.address_string(), format % args))
