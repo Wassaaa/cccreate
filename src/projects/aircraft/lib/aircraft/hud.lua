@@ -14,6 +14,17 @@ local ROLE_LABELS = {
   rear_right = "RR",
 }
 
+local function ccColor(name)
+  local palette = nil
+  if type(colors) == "table" then
+    palette = colors
+  elseif type(colours) == "table" then
+    palette = colours
+  end
+
+  return palette and palette[name] or nil
+end
+
 local function wrapMonitor(name)
   if not name then
     return nil, nil
@@ -100,6 +111,17 @@ local function call(target, method, ...)
   return ok
 end
 
+local function setStyle(target, foreground, background)
+  if foreground then
+    call(target, "setTextColor", foreground)
+    call(target, "setTextColour", foreground)
+  end
+  if background then
+    call(target, "setBackgroundColor", background)
+    call(target, "setBackgroundColour", background)
+  end
+end
+
 local function number(value, fallback)
   if type(value) == "number" then
     return value
@@ -158,7 +180,17 @@ local function trim(text, width)
   return string.sub(text, 1, width)
 end
 
-local function writeAt(target, x, y, text, width, alignRight)
+local function clearRow(target, row, width, background)
+  if width <= 0 then
+    return
+  end
+
+  setStyle(target, nil, background or ccColor("black"))
+  call(target, "setCursorPos", 1, math.max(1, row))
+  call(target, "write", string.rep(" ", width))
+end
+
+local function writeAt(target, x, y, text, width, alignRight, foreground, background)
   width = width or #tostring(text or "")
   text = trim(text, width)
 
@@ -166,19 +198,20 @@ local function writeAt(target, x, y, text, width, alignRight)
     x = x + width - #text
   end
 
+  setStyle(target, foreground or ccColor("white"), background)
   call(target, "setCursorPos", math.max(1, x), math.max(1, y))
   call(target, "write", text)
 end
 
-local function writeLine(target, row, text, width)
-  call(target, "setCursorPos", 1, row)
-  call(target, "clearLine")
-  writeAt(target, 1, row, text, width)
+local function writeLine(target, row, text, width, foreground, background, alignRight)
+  clearRow(target, row, width, background)
+  writeAt(target, 1, row, text, width, alignRight, foreground, background)
 end
 
-local function writeCentered(target, row, text, width)
+local function writeCentered(target, row, text, width, foreground, background)
   text = trim(text, width)
-  writeAt(target, math.floor((width - #text) / 2) + 1, row, text, #text)
+  clearRow(target, row, width, background)
+  writeAt(target, math.floor((width - #text) / 2) + 1, row, text, #text, false, foreground, background)
 end
 
 local function roleValues(values, digits)
@@ -274,6 +307,109 @@ local function timingText(frame, settings)
     .. " miss " .. tostring(math.floor(number(health.missedFrames) + 0.5))
 end
 
+local function statusBackground(status, frame)
+  if frame and frame.aborted then
+    return ccColor("red")
+  elseif status == "APPLY" then
+    return ccColor("green")
+  elseif status == "DRY" then
+    return ccColor("orange") or ccColor("yellow")
+  end
+
+  return ccColor("gray")
+end
+
+local function modeSegment(label, enabled, active, skipped)
+  if not enabled then
+    return label .. " DIS", ccColor("gray")
+  elseif active and skipped then
+    return label .. " SKIP", ccColor("orange") or ccColor("yellow")
+  elseif active then
+    return label .. " ON", ccColor("lime") or ccColor("green")
+  end
+
+  return label .. " OFF", ccColor("lightGray") or ccColor("gray")
+end
+
+local function visibleSkip(reason)
+  if reason == "hold inactive" then
+    return nil
+  end
+
+  return reason
+end
+
+local function modeText(frame)
+  local hold = frame and frame.hold or {}
+  local target = hold.moveTarget or {}
+  local holdText = modeSegment("H HOLD", hold.enabled == true, hold.active == true, hold.skipped)
+  local targetText = modeSegment("T TARGET", target.enabled == true, target.active == true, target.skipped)
+  local reason = visibleSkip(hold.skipped) or visibleSkip(target.skipped)
+
+  if reason then
+    return holdText .. "  " .. targetText .. "  " .. tostring(reason)
+  end
+
+  return holdText .. "  " .. targetText
+end
+
+local function modeColor(frame)
+  local hold = frame and frame.hold or {}
+  local target = hold.moveTarget or {}
+  if visibleSkip(hold.skipped) or visibleSkip(target.skipped) then
+    return ccColor("orange") or ccColor("yellow")
+  elseif hold.active or target.active then
+    return ccColor("lime") or ccColor("green")
+  end
+
+  return ccColor("lightGray") or ccColor("white")
+end
+
+local function velocityHoldText(frame)
+  local hold = frame and frame.hold
+  if not hold then
+    return "hold no frame data"
+  elseif hold.skipped and not hold.measuredVelocity then
+    local reason = visibleSkip(hold.skipped)
+    if reason then
+      return "hold " .. tostring(reason)
+    end
+
+    return "hold OFF  press H for velocity hold"
+  end
+
+  local measured = hold.measuredVelocity or {}
+  local desired = hold.desiredVelocity or {}
+  return "vel F " .. signed(measured.front, 2)
+    .. " L " .. signed(measured.left, 2)
+    .. "  want F " .. signed(desired.front, 2)
+    .. " L " .. signed(desired.left, 2)
+end
+
+local function holdTargetText(frame)
+  local hold = frame and frame.hold or {}
+  local target = hold.moveTarget or {}
+  local text = nil
+
+  if hold.active ~= true then
+    text = "hold target idle"
+  else
+    text = "hold tgt A1 " .. signed(degrees(hold.axis1Target), 1)
+      .. " A2 " .. signed(degrees(hold.axis2Target), 1)
+  end
+
+  if target.active and target.horizontalDistance then
+    text = text
+      .. "  nav "
+      .. fixed(target.horizontalDistance, 1)
+      .. "m"
+  elseif target.skipped then
+    text = text .. "  target " .. tostring(target.skipped)
+  end
+
+  return text
+end
+
 local function telemetryValue(telemetry, role, key)
   local read = telemetry
     and telemetry.roles
@@ -328,30 +464,36 @@ end
 local function drawRolePanel(target, role, x, y, width, mixed, telemetry, alignRight)
   local lines = roleText(role, mixed, telemetry)
 
-  writeAt(target, x, y, lines[1], width, alignRight)
-  writeAt(target, x, y + 1, lines[2], width, alignRight)
+  writeAt(target, x, y, lines[1], width, alignRight, ccColor("cyan"))
+  writeAt(target, x, y + 1, lines[2], width, alignRight, ccColor("lightGray") or ccColor("white"))
 end
 
 local function drawCompact(target, frame, settings, active, status, width, height)
   local mixed = frame.mixed or {}
   local outputLabel = mixed.actuator and mixed.actuator.outputLabel or "signal"
-
-  writeLine(target, 1, "AIRCRAFT STABILIZE " .. status, width)
-  writeLine(target, 2, timeText(frame, settings) .. " " .. baseText(settings, mixed), width)
-  writeLine(target, 3, "err A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1) .. " deg", width)
-  writeLine(target, 4, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
-  writeLine(target, 5, correctionText(settings, mixed), width)
-  writeLine(target, 6, tostring(outputLabel) .. " " .. roleValues(mixed.outputs or mixed.signals), width)
-  if isRotationSpeed(settings, mixed) then
-    writeLine(target, 7, "local  " .. roleValues(mixed.targetRpm or mixed.power, 1), width)
-  else
-    writeLine(target, 7, "power  " .. roleValues(mixed.power, 1), width)
+  local function line(row, text, foreground, background)
+    if not height or row <= height then
+      writeLine(target, row, text, width, foreground, background)
+    end
   end
-  if height and height >= 9 then
-    writeLine(target, 8, timingText(frame, settings), width)
-    writeLine(target, 9, statusText(frame, mixed, settings), width)
+
+  line(1, " AIRCRAFT STABILIZE " .. status, ccColor("white"), statusBackground(status, frame))
+  line(2, modeText(frame), modeColor(frame))
+  line(3, timeText(frame, settings) .. " " .. baseText(settings, mixed), ccColor("white"))
+  line(4, "err A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1) .. " deg", ccColor("cyan"))
+  line(5, velocityHoldText(frame), ccColor("lightGray") or ccColor("white"))
+  line(6, correctionText(settings, mixed), ccColor("white"))
+  line(7, tostring(outputLabel) .. " " .. roleValues(mixed.outputs or mixed.signals), ccColor("white"))
+  if isRotationSpeed(settings, mixed) then
+    line(8, "local  " .. roleValues(mixed.targetRpm or mixed.power, 1), ccColor("lightGray") or ccColor("white"))
   else
-    writeLine(target, 8, timingText(frame, settings), width)
+    line(8, "power  " .. roleValues(mixed.power, 1), ccColor("lightGray") or ccColor("white"))
+  end
+  if height and height >= 10 then
+    line(9, holdTargetText(frame), ccColor("lightGray") or ccColor("white"))
+    line(10, timingText(frame, settings) .. "  " .. statusText(frame, mixed, settings), ccColor("white"))
+  elseif height and height >= 9 then
+    line(9, timingText(frame, settings) .. "  " .. statusText(frame, mixed, settings), ccColor("white"))
   end
 end
 
@@ -361,28 +503,33 @@ local function drawCornerLayout(target, frame, settings, status, width, height)
   local panelWidth = math.max(12, math.min(18, math.floor(width / 2) - 1))
   local rightX = width - panelWidth + 1
   local bottomY = math.max(8, height - 2)
-  local centerY = math.max(5, math.floor(height / 2) - 1)
+  local centerY = math.max(7, math.floor(height / 2) - 1)
+  local centerLines = {
+    "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1),
+    "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2),
+    correctionText(settings, mixed),
+    velocityHoldText(frame),
+    holdTargetText(frame),
+    timingText(frame, settings),
+  }
 
-  writeCentered(target, 1, "AIRCRAFT STABILIZE " .. status, width)
-  writeCentered(target, 2, timeText(frame, settings) .. "  " .. baseText(settings, mixed), width)
+  writeLine(target, 1, " AIRCRAFT STABILIZE " .. status, width, ccColor("white"), statusBackground(status, frame))
+  writeLine(target, 2, " " .. modeText(frame), width, modeColor(frame), ccColor("black"))
+  writeCentered(target, 3, timeText(frame, settings) .. "  " .. baseText(settings, mixed), width, ccColor("white"))
 
-  drawRolePanel(target, "front_left", 1, 3, panelWidth, mixed, telemetry, false)
-  drawRolePanel(target, "front_right", rightX, 3, panelWidth, mixed, telemetry, true)
+  drawRolePanel(target, "front_left", 1, 4, panelWidth, mixed, telemetry, false)
+  drawRolePanel(target, "front_right", rightX, 4, panelWidth, mixed, telemetry, true)
   drawRolePanel(target, "rear_left", 1, bottomY, panelWidth, mixed, telemetry, false)
   drawRolePanel(target, "rear_right", rightX, bottomY, panelWidth, mixed, telemetry, true)
 
-  if centerY + 4 < bottomY then
-    writeCentered(target, centerY, "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1), width)
-    writeCentered(target, centerY + 1, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
-    writeCentered(target, centerY + 2, correctionText(settings, mixed), width)
-    writeCentered(target, centerY + 3, timingText(frame, settings), width)
-  elseif centerY + 3 < bottomY then
-    writeCentered(target, centerY, "err deg A1=" .. signed(degrees(mixed.error1), 1) .. " A2=" .. signed(degrees(mixed.error2), 1), width)
-    writeCentered(target, centerY + 1, "rate A1=" .. signed(mixed.rate1, 2) .. " A2=" .. signed(mixed.rate2, 2), width)
-    writeCentered(target, centerY + 2, timingText(frame, settings), width)
+  for index, text in ipairs(centerLines) do
+    local row = centerY + index - 1
+    if row < bottomY then
+      writeCentered(target, row, text, width, index == 1 and ccColor("cyan") or ccColor("white"))
+    end
   end
 
-  writeCentered(target, height, statusText(frame, mixed, settings), width)
+  writeLine(target, height, " " .. statusText(frame, mixed, settings), width, ccColor("white"), ccColor("gray"))
 end
 
 local function settingsFrom(config, options)
@@ -478,6 +625,7 @@ function hud.update(context, frame, settings, active, force)
 
   local width, height = getSize(context.target)
 
+  setStyle(context.target, ccColor("white"), ccColor("black"))
   call(context.target, "clear")
   if width >= 40 and height >= 12 then
     drawCornerLayout(context.target, frame, settings, status, width, height)
